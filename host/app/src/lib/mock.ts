@@ -172,6 +172,13 @@ const httpPlugin: PluginManifest = {
         { id: "insecure", label: "Skip the check", type: "checkbox" },
       ],
     },
+    {
+      id: "send-value",
+      name: "Send the slider's value",
+      description: "",
+      slider: true,
+      fields: [{ id: "url", label: "Web address", type: "text", placeholder: "https://example.com/dim?level={value}" }],
+    },
   ],
   values: [{ id: "last-status", name: "Status of the last request" }],
 };

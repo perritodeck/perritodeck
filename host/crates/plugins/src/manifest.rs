@@ -40,6 +40,10 @@ pub struct ActionDef {
     pub description: String,
     #[serde(default)]
     pub fields: Vec<Field>,
+    /// The action takes a value from a slider (`settings.value`, 0–100) and can be put
+    /// on a slider instead of a key.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub slider: bool,
 }
 
 /// One setting the desktop editor asks for.

@@ -12,6 +12,8 @@ export function describeSlider(s: SliderSpec): string {
       return `OBS volume of ${s.input}`;
     case "command":
       return `runs ${s.program}`;
+    case "plugin":
+      return `${s.plugin}: ${s.action}`;
   }
 }
 

@@ -87,5 +87,12 @@ def on_publish(settings):
         raise RuntimeError(f"couldn't reach {broker}: {e.strerror or e}") from None
 
 
+@plugin.action("publish-value")
+def on_publish_value(settings):
+    value = str(settings.get("value", ""))
+    payload = settings.get("payload") or "{value}"
+    return on_publish({**settings, "payload": payload.replace("{value}", value)})
+
+
 if __name__ == "__main__":
     plugin.run()

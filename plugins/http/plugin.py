@@ -46,5 +46,16 @@ def request(settings):
         raise RuntimeError(f"couldn't reach it: {e.reason}") from None
 
 
+def with_value(settings):
+    """Put a slider's position (0-100) wherever the settings say {value}."""
+    value = str(settings.get("value", ""))
+    return {k: v.replace("{value}", value) if isinstance(v, str) else v for k, v in settings.items()}
+
+
+@plugin.action("send-value")
+def send_value(settings):
+    return request(with_value(settings))
+
+
 if __name__ == "__main__":
     plugin.run()

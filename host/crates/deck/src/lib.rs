@@ -666,7 +666,20 @@ impl Deck {
                     continue;
                 }
             }
-            let Some(value) = self.executor.read_slider(&spec).await else {
+            let value = match &spec {
+                SliderSpec::Plugin {
+                    plugin,
+                    follow: Some(id),
+                    ..
+                } => self
+                    .live_value(&format!("plugin:{plugin}:{id}"))
+                    .and_then(|v| {
+                        let n: f64 = v.trim().trim_end_matches('%').parse().ok()?;
+                        n.is_finite().then(|| n.round().clamp(0.0, 100.0) as u8)
+                    }),
+                _ => self.executor.read_slider(&spec).await,
+            };
+            let Some(value) = value else {
                 continue;
             };
             let mut st = self.lock();

@@ -38,9 +38,13 @@ A plugin is a folder containing `perritodeck-plugin.json`:
   `exec` (runs `<main>` itself; for compiled plugins).
 - `actions`: what keys can do with this plugin. `fields` describe the settings the
   desktop editor asks for; `type` is `text`, `number`, `checkbox` or `select` (with
-  `options: [{ "value", "label" }]`).
+  `options: [{ "value", "label" }]`). With `"slider": true` the action belongs on a
+  slider instead of a key: each `run` carries the slider's position as
+  `settings.value` (0–100), and while someone drags, the host sends only the latest
+  position once the previous `run` has answered.
 - `values`: live values the plugin publishes; a key title shows one with
-  `{plugin:<plugin id>:<value id>}`, and a toggle can `follow` it.
+  `{plugin:<plugin id>:<value id>}`, a toggle can `follow` it, and a slider can
+  `follow` one that is a number from 0 to 100 so it sits where the plugin says.
 
 Installed plugins live in the host's settings folder under `plugins/<id>/`.
 
@@ -51,7 +55,7 @@ Host → plugin:
 | `event` | Fields | Meaning |
 |---|---|---|
 | `hello` | `protocol` (1), `host` (version) | First line after start. |
-| `run` | `id` (number), `action`, `settings` (object), `device` | A key was pressed. Answer with `result` and the same `id` within 10 seconds. |
+| `run` | `id` (number), `action`, `settings` (object), `device` | A key was pressed (or a slider moved). Answer with `result` and the same `id` within 10 seconds. |
 | `shutdown` | | Exit now (the host also closes stdin). |
 
 Plugin → host:

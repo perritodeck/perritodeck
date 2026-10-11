@@ -94,7 +94,8 @@ export type SliderSpec =
   | { type: "volume" }
   | { type: "homeAssistant"; entity: string }
   | { type: "obs"; input: string }
-  | { type: "command"; program: string; args?: string[] };
+  | { type: "command"; program: string; args?: string[] }
+  | { type: "plugin"; plugin: string; action: string; settings?: Record<string, unknown>; follow?: string };
 
 export type NavSpec = "back" | "next" | "previous" | { page: string };
 
@@ -201,7 +202,8 @@ export interface PluginManifest {
   author: string;
   runtime: "node" | "python" | "exec";
   main: string;
-  actions: { id: string; name: string; description: string; fields: PluginField[] }[];
+  /** `slider`: the action takes a value (0–100) and goes on a slider, not a key. */
+  actions: { id: string; name: string; description: string; fields: PluginField[]; slider?: boolean }[];
   values: { id: string; name: string }[];
 }
 

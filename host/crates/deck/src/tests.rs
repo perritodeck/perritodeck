@@ -598,3 +598,69 @@ title = "Still"
         "it loops, from cached frames"
     );
 }
+
+#[derive(Default)]
+struct Plugins(Mutex<Vec<(String, String, serde_json::Value)>>);
+
+impl perritodeck_actions::PluginRunner for Plugins {
+    fn run_plugin<'a>(
+        &'a self,
+        plugin: &'a str,
+        action: &'a str,
+        settings: &'a serde_json::Value,
+    ) -> perritodeck_actions::BoxFuture<'a, Result<Outcome, ActionError>> {
+        self.0
+            .lock()
+            .unwrap()
+            .push((plugin.into(), action.into(), settings.clone()));
+        Box::pin(async { Ok(Outcome::Ok) })
+    }
+}
+
+#[tokio::test]
+async fn plugin_sliders_send_values_and_follow_the_plugin() {
+    let profile = r##"
+schema_version = 1
+name = "p"
+[grid]
+cols = 1
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Lamp"
+slider = { type = "plugin", plugin = "dev.x", action = "dim", settings = { lamp = "desk" }, follow = "level" }
+"##;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let plugins = Arc::new(Plugins::default());
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys).with_plugins(plugins.clone()),
+    );
+    let grid = Grid { cols: 1, rows: 1 };
+    deck.connected("a", grid, hello().screen, &["keys".into(), "sliders".into()]);
+    sent.take();
+
+    deck.slider_change("a", 0, 42);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let runs = plugins.0.lock().unwrap().clone();
+    assert_eq!(
+        runs,
+        vec![(
+            "dev.x".to_string(),
+            "dim".to_string(),
+            serde_json::json!({ "lamp": "desk", "value": 42 })
+        )]
+    );
+
+    deck.set_live([("plugin:dev.x:level".to_string(), "87.4".to_string())]);
+    deck.poll_sliders().await;
+    assert!(sent
+        .take()
+        .iter()
+        .any(|m| matches!(m, Message::SetValue(v) if v.value == 87)));
+}

@@ -1,8 +1,8 @@
 {
   "id": "dev.perritodeck.http",
   "name": "HTTP requests",
-  "version": "1.0.0",
-  "description": "Call a web address when a key is pressed: webhooks, REST APIs, smart plugs.",
+  "version": "1.1.0",
+  "description": "Call a web address when a key is pressed or a slider moves: webhooks, REST APIs, smart plugs.",
   "author": "PerritoDeck contributors",
   "runtime": "python",
   "main": "plugin.py",
@@ -11,24 +11,113 @@
       "id": "request",
       "name": "Send a request",
       "fields": [
-        { "id": "url", "label": "Web address", "type": "text", "placeholder": "https://example.com/hook" },
+        {
+          "id": "url",
+          "label": "Web address",
+          "type": "text",
+          "placeholder": "https://example.com/hook"
+        },
         {
           "id": "method",
           "label": "Method",
           "type": "select",
           "default": "POST",
           "options": [
-            { "value": "GET", "label": "GET" },
-            { "value": "POST", "label": "POST" },
-            { "value": "PUT", "label": "PUT" },
-            { "value": "PATCH", "label": "PATCH" },
-            { "value": "DELETE", "label": "DELETE" }
+            {
+              "value": "GET",
+              "label": "GET"
+            },
+            {
+              "value": "POST",
+              "label": "POST"
+            },
+            {
+              "value": "PUT",
+              "label": "PUT"
+            },
+            {
+              "value": "PATCH",
+              "label": "PATCH"
+            },
+            {
+              "value": "DELETE",
+              "label": "DELETE"
+            }
           ]
         },
-        { "id": "body", "label": "Body (optional)", "type": "text", "placeholder": "{\"on\": true}" },
-        { "id": "headers", "label": "Headers, one per line (optional)", "type": "text", "placeholder": "Authorization: Bearer …" }
+        {
+          "id": "body",
+          "label": "Body (optional)",
+          "type": "text",
+          "placeholder": "{\"on\": true}"
+        },
+        {
+          "id": "headers",
+          "label": "Headers, one per line (optional)",
+          "type": "text",
+          "placeholder": "Authorization: Bearer …"
+        }
+      ]
+    },
+    {
+      "id": "send-value",
+      "name": "Send the slider's value",
+      "description": "{value} in the address or body becomes the slider's position, 0 to 100.",
+      "slider": true,
+      "fields": [
+        {
+          "id": "url",
+          "label": "Web address",
+          "type": "text",
+          "placeholder": "https://example.com/dim?level={value}"
+        },
+        {
+          "id": "method",
+          "label": "Method",
+          "type": "select",
+          "default": "POST",
+          "options": [
+            {
+              "value": "GET",
+              "label": "GET"
+            },
+            {
+              "value": "POST",
+              "label": "POST"
+            },
+            {
+              "value": "PUT",
+              "label": "PUT"
+            },
+            {
+              "value": "PATCH",
+              "label": "PATCH"
+            },
+            {
+              "value": "DELETE",
+              "label": "DELETE"
+            }
+          ]
+        },
+        {
+          "id": "body",
+          "label": "Body (optional)",
+          "type": "text",
+          "placeholder": "{\"brightness\": {value}}"
+        },
+        {
+          "id": "headers",
+          "label": "Headers, one per line (optional)",
+          "type": "text",
+          "placeholder": "Authorization: Bearer …"
+        }
       ]
     }
   ],
-  "values": [{ "id": "last-status", "name": "Status of the last request" }]
+  "values": [
+    {
+      "id": "last-status",
+      "name": "Status of the last request"
+    }
+  ]
 }

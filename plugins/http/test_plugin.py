@@ -43,6 +43,10 @@ class HttpPluginTest(unittest.TestCase):
         self.assertEqual((method, path, header, ctype), ("POST", "/hook", "yes", "application/json"))
         self.assertEqual(json.loads(body), {"on": True})
 
+    def test_slider_value(self):
+        self.assertIsNone(http_plugin.send_value({"url": self.base + "/dim?level={value}", "method": "GET", "value": 42}))
+        self.assertEqual(Handler.seen[-1][:2], ("GET", "/dim?level=42"))
+
     def test_errors(self):
         self.assertIn("404", http_plugin.request({"url": self.base + "/missing", "method": "GET"}))
         with self.assertRaises(ValueError):

@@ -473,6 +473,26 @@ test.describe("plugins", () => {
     await expect(installed.getByText("HTTP requests")).toHaveCount(0);
   });
 
+  test("a slider sends its value to a plugin", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("Title").fill("Dim");
+    // Slider actions aren't offered for keys.
+    await expect(page.getByLabel("When pressed").locator('option[value="plugin:dev.perritodeck.http/send-value"]')).toHaveCount(0);
+    await page.getByLabel("When pressed").selectOption("slider");
+    await page.getByLabel("Slider sets").selectOption("plugin:dev.perritodeck.http/send-value");
+    await page.getByLabel("Web address").fill("https://lamp.local/dim?to={value}");
+    await page.getByLabel("The slider follows").selectOption("last-status");
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.slider)
+      .toEqual({
+        type: "plugin",
+        plugin: "dev.perritodeck.http",
+        action: "send-value",
+        settings: { url: "https://lamp.local/dim?to={value}" },
+        follow: "last-status",
+      });
+  });
+
   test("a key runs a plugin action with its settings", async ({ page }) => {
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("Title").fill("Hook");

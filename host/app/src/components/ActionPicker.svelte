@@ -7,7 +7,7 @@
   import { mediaKeys, obsOps } from "../lib/describe";
   import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
-  import type { ActionSpec, MediaKey, NavSpec, PluginManifest, SliderSpec } from "../lib/types";
+  import type { ActionSpec, MediaKey, NavSpec, PluginField, PluginManifest, SliderSpec } from "../lib/types";
 
   export type Picked = { action: ActionSpec | null; nav: NavSpec | null; slider: SliderSpec | null };
 
@@ -71,14 +71,22 @@
           ? a.type
           : "none";
   let choice = $state<Choice>(initialChoice);
-  let pluginSettings = $state<Record<string, unknown>>(a?.type === "plugin" ? { ...(a.settings ?? {}) } : {});
-  const pluginPick = $derived.by(() => {
-    if (!choice.startsWith("plugin:")) return null;
-    const [pid, aid] = choice.slice(7).split("/");
+  let pluginSettings = $state<Record<string, unknown>>(
+    a?.type === "plugin" ? { ...(a.settings ?? {}) } : sl?.type === "plugin" ? { ...(sl.settings ?? {}) } : {},
+  );
+  function findPlugin(pick: string) {
+    const [pid, aid] = pick.slice(7).split("/");
     const manifest = initial.plugins.find((p) => p.id === pid);
     return { pid, aid, manifest, action: manifest?.actions.find((x) => x.id === aid) };
-  });
-  let sliderKind = $state<SliderSpec["type"]>(sl?.type ?? "volume");
+  }
+  const pluginPick = $derived(choice.startsWith("plugin:") ? findPlugin(choice) : null);
+  // A slider kind: one of the built-in ones, or `plugin:<id>/<action>`.
+  let sliderKind = $state<string>(sl?.type === "plugin" ? `plugin:${sl.plugin}/${sl.action}` : (sl?.type ?? "volume"));
+  const sliderPlugin = $derived(choice === "slider" && sliderKind.startsWith("plugin:") ? findPlugin(sliderKind) : null);
+  let sliderFollow = $state(sl?.type === "plugin" ? (sl.follow ?? "") : "");
+  const sliderPlugins = initial.plugins
+    .map((p) => ({ ...p, actions: p.actions.filter((x) => x.slider) }))
+    .filter((p) => p.actions.length);
   let sliderTarget = $state(sl?.type === "homeAssistant" ? sl.entity : sl?.type === "obs" ? sl.input : "");
   let sliderProgram = $state(sl?.type === "command" ? sl.program : "");
   let sliderArgs = $state(sl?.type === "command" ? (sl.args ?? []).join("\n") : "{value}");
@@ -212,6 +220,15 @@
         } else if (sliderKind === "obs") {
           if (!sliderTarget.trim()) return "Enter the audio source's name as OBS shows it.";
           slider = { type: "obs", input: sliderTarget.trim() };
+        } else if (sliderPlugin) {
+          const settings = pluginSettingsFor(sliderPlugin.action?.fields ?? []);
+          slider = {
+            type: "plugin",
+            plugin: sliderPlugin.pid,
+            action: sliderPlugin.aid,
+            ...(Object.keys(settings).length ? { settings } : {}),
+            ...(sliderFollow ? { follow: sliderFollow } : {}),
+          };
         } else {
           if (!sliderProgram.trim()) return "Enter the program to run.";
           slider = { type: "command", program: sliderProgram.trim(), args: lines(sliderArgs) };
@@ -219,11 +236,7 @@
         break;
       default:
         if (choice.startsWith("plugin:") && pluginPick) {
-          const settings: Record<string, unknown> = {};
-          for (const field of pluginPick.action?.fields ?? []) {
-            const v = pluginSettings[field.id] ?? field.default;
-            if (v !== undefined && v !== "") settings[field.id] = v;
-          }
+          const settings = pluginSettingsFor(pluginPick.action?.fields ?? []);
           action = {
             type: "plugin",
             plugin: pluginPick.pid,
@@ -234,6 +247,15 @@
         break;
     }
     return { action, nav: navOut, slider };
+  }
+
+  function pluginSettingsFor(fields: PluginField[]): Record<string, unknown> {
+    const settings: Record<string, unknown> = {};
+    for (const field of fields) {
+      const v = pluginSettings[field.id] ?? field.default;
+      if (v !== undefined && v !== "") settings[field.id] = v;
+    }
+    return settings;
   }
 
   function changed(delay = 350) {
@@ -285,58 +307,8 @@
   }
 </script>
 
-<div class="picker form">
-  <div class="field">
-    <label for="{uid}-f2">When pressed</label>
-    <select id="{uid}-f2" bind:value={choice} onchange={() => changed(0)} disabled={disabled}>
-      <option value="none">Nothing (a label)</option>
-      {#if allowNav}<optgroup label="Pages">
-        <option value="page" disabled={pageNames.length < 2}>Open a page</option>
-        <option value="back">Go back</option>
-        <option value="next">Next page</option>
-        <option value="previous">Previous page</option>
-      </optgroup>{/if}
-      <optgroup label="Keyboard">
-        <option value="hotkey">Press a hotkey</option>
-        <option value="text">Type text</option>
-        <option value="media">Media key</option>
-      </optgroup>
-      <optgroup label="Open">
-        <option value="openUrl">Open a website</option>
-        <option value="openPath">Open a file or folder</option>
-        <option value="launch">Start a program</option>
-        <option value="command">Run a command</option>
-      </optgroup>
-      {#if allowSlider}
-        <optgroup label="Slider (drag on the tablet)">
-          <option value="slider">Slider</option>
-        </optgroup>
-      {/if}
-      <optgroup label="Integrations">
-        <option value="obs">OBS Studio</option>
-        <option value="homeAssistant">Home Assistant</option>
-      </optgroup>
-      {#each initial.plugins.filter((p) => p.actions.length) as p (p.id)}
-        <optgroup label={p.name}>
-          {#each p.actions as act (act.id)}
-            <option value={`plugin:${p.id}/${act.id}`}>{act.name}</option>
-          {/each}
-        </optgroup>
-      {/each}
-      {#if initialChoice.startsWith("plugin:") && !initial.plugins.some((p) => initialChoice === `plugin:${p.id}/${initialChoice.split("/")[1]}`)}
-        <option value={initialChoice}>{initialChoice.slice(7)} (plugin not installed)</option>
-      {/if}
-      <optgroup label="Advanced">
-        <option value="multi">Several steps</option>
-      </optgroup>
-    </select>
-  </div>
-
-  {#if pluginPick}
-    {#if !pluginPick.manifest}
-      <p class="note">This key uses a plugin that isn’t installed. Add it on the Plugins page.</p>
-    {/if}
-    {#each pluginPick.action?.fields ?? [] as field (field.id)}
+{#snippet pluginFields(fields: PluginField[])}
+  {#each fields as field (field.id)}
       <div class="field">
         {#if field.type === "checkbox"}
           <label class="check">
@@ -380,6 +352,60 @@
         {/if}
       </div>
     {/each}
+{/snippet}
+
+<div class="picker form">
+  <div class="field">
+    <label for="{uid}-f2">When pressed</label>
+    <select id="{uid}-f2" bind:value={choice} onchange={() => changed(0)} disabled={disabled}>
+      <option value="none">Nothing (a label)</option>
+      {#if allowNav}<optgroup label="Pages">
+        <option value="page" disabled={pageNames.length < 2}>Open a page</option>
+        <option value="back">Go back</option>
+        <option value="next">Next page</option>
+        <option value="previous">Previous page</option>
+      </optgroup>{/if}
+      <optgroup label="Keyboard">
+        <option value="hotkey">Press a hotkey</option>
+        <option value="text">Type text</option>
+        <option value="media">Media key</option>
+      </optgroup>
+      <optgroup label="Open">
+        <option value="openUrl">Open a website</option>
+        <option value="openPath">Open a file or folder</option>
+        <option value="launch">Start a program</option>
+        <option value="command">Run a command</option>
+      </optgroup>
+      {#if allowSlider}
+        <optgroup label="Slider (drag on the tablet)">
+          <option value="slider">Slider</option>
+        </optgroup>
+      {/if}
+      <optgroup label="Integrations">
+        <option value="obs">OBS Studio</option>
+        <option value="homeAssistant">Home Assistant</option>
+      </optgroup>
+      {#each initial.plugins.filter((p) => p.actions.some((x) => !x.slider)) as p (p.id)}
+        <optgroup label={p.name}>
+          {#each p.actions.filter((x) => !x.slider) as act (act.id)}
+            <option value={`plugin:${p.id}/${act.id}`}>{act.name}</option>
+          {/each}
+        </optgroup>
+      {/each}
+      {#if initialChoice.startsWith("plugin:") && !initial.plugins.some((p) => initialChoice === `plugin:${p.id}/${initialChoice.split("/")[1]}`)}
+        <option value={initialChoice}>{initialChoice.slice(7)} (plugin not installed)</option>
+      {/if}
+      <optgroup label="Advanced">
+        <option value="multi">Several steps</option>
+      </optgroup>
+    </select>
+  </div>
+
+  {#if pluginPick}
+    {#if !pluginPick.manifest}
+      <p class="note">This key uses a plugin that isn’t installed. Add it on the Plugins page.</p>
+    {/if}
+    {@render pluginFields(pluginPick.action?.fields ?? [])}
   {:else if choice === "slider"}
     <div class="field">
       <label for="{uid}-slider-kind">Slider sets</label>
@@ -388,6 +414,16 @@
         <option value="homeAssistant">A Home Assistant light's brightness</option>
         <option value="obs">An OBS audio source's volume</option>
         <option value="command">A program, with the value</option>
+        {#each sliderPlugins as p (p.id)}
+          <optgroup label={p.name}>
+            {#each p.actions as act (act.id)}
+              <option value={`plugin:${p.id}/${act.id}`}>{act.name}</option>
+            {/each}
+          </optgroup>
+        {/each}
+        {#if sl?.type === "plugin" && !sliderPlugins.some((p) => p.id === sl.plugin)}
+          <option value={`plugin:${sl.plugin}/${sl.action}`}>{sl.plugin}: {sl.action} (plugin not installed)</option>
+        {/if}
       </select>
     </div>
     {#if sliderKind === "homeAssistant" || sliderKind === "obs"}
@@ -401,6 +437,24 @@
           placeholder={sliderKind === "obs" ? "Mic/Aux" : "light.desk"}
         />
       </div>
+    {:else if sliderPlugin}
+      {@render pluginFields(sliderPlugin.action?.fields ?? [])}
+      {#if sliderPlugin.manifest?.values.length}
+        <div class="field">
+          <label for="{uid}-slider-follow">The slider follows</label>
+          <select
+            id="{uid}-slider-follow"
+            value={sliderFollow}
+            onchange={(e) => {
+              sliderFollow = e.currentTarget.value;
+              changed(0);
+            }}
+          >
+            <option value="">Nothing; it stays where it was dragged</option>
+            {#each sliderPlugin.manifest.values as v (v.id)}<option value={v.id}>{v.name}</option>{/each}
+          </select>
+        </div>
+      {/if}
     {:else if sliderKind === "command"}
       <div class="field">
         <label for="{uid}-slider-program">Program</label>

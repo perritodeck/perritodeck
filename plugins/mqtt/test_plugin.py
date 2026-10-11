@@ -54,6 +54,15 @@ class MqttTest(unittest.TestCase):
             threading.Event().wait(0.05)
         self.assertEqual(received[1], mqtt.publish_packet("cmnd/lamp/POWER", "TOGGLE") + mqtt.DISCONNECT)
 
+    def test_slider_value(self):
+        port, received = fake_broker()
+        mqtt.on_publish_value({"broker": f"127.0.0.1:{port}", "topic": "cmnd/lamp/Dimmer", "value": 30})
+        for _ in range(50):
+            if len(received) == 2:
+                break
+            threading.Event().wait(0.05)
+        self.assertEqual(received[1], mqtt.publish_packet("cmnd/lamp/Dimmer", "30") + mqtt.DISCONNECT)
+
     def test_refused(self):
         port, _ = fake_broker(code=4)
         with self.assertRaisesRegex(RuntimeError, "user name or password"):

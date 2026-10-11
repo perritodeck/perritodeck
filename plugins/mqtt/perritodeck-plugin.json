@@ -1,8 +1,8 @@
 {
   "id": "dev.perritodeck.mqtt",
   "name": "MQTT",
-  "version": "1.0.0",
-  "description": "Publish an MQTT message when a key is pressed (Mosquitto, Zigbee2MQTT, Tasmota, Home Assistant).",
+  "version": "1.1.0",
+  "description": "Publish an MQTT message when a key is pressed or a slider moves (Mosquitto, Zigbee2MQTT, Tasmota, Home Assistant).",
   "author": "PerritoDeck contributors",
   "runtime": "python",
   "main": "plugin.py",
@@ -11,12 +11,80 @@
       "id": "publish",
       "name": "Publish a message",
       "fields": [
-        { "id": "broker", "label": "Broker", "type": "text", "placeholder": "192.168.1.10:1883" },
-        { "id": "topic", "label": "Topic", "type": "text", "placeholder": "cmnd/desk-lamp/POWER" },
-        { "id": "payload", "label": "Message", "type": "text", "placeholder": "TOGGLE" },
-        { "id": "retain", "label": "Keep it on the broker (retain)", "type": "checkbox" },
-        { "id": "username", "label": "User name (optional)", "type": "text" },
-        { "id": "password", "label": "Password (optional)", "type": "text" }
+        {
+          "id": "broker",
+          "label": "Broker",
+          "type": "text",
+          "placeholder": "192.168.1.10:1883"
+        },
+        {
+          "id": "topic",
+          "label": "Topic",
+          "type": "text",
+          "placeholder": "cmnd/desk-lamp/POWER"
+        },
+        {
+          "id": "payload",
+          "label": "Message",
+          "type": "text",
+          "placeholder": "TOGGLE"
+        },
+        {
+          "id": "retain",
+          "label": "Keep it on the broker (retain)",
+          "type": "checkbox"
+        },
+        {
+          "id": "username",
+          "label": "User name (optional)",
+          "type": "text"
+        },
+        {
+          "id": "password",
+          "label": "Password (optional)",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "publish-value",
+      "name": "Publish the slider's value",
+      "description": "{value} in the message becomes the slider's position, 0 to 100. With no message, the value alone is sent.",
+      "slider": true,
+      "fields": [
+        {
+          "id": "broker",
+          "label": "Broker",
+          "type": "text",
+          "placeholder": "192.168.1.10:1883"
+        },
+        {
+          "id": "topic",
+          "label": "Topic",
+          "type": "text",
+          "placeholder": "cmnd/desk-lamp/Dimmer"
+        },
+        {
+          "id": "payload",
+          "label": "Message (optional)",
+          "type": "text",
+          "placeholder": "{value}"
+        },
+        {
+          "id": "retain",
+          "label": "Keep it on the broker (retain)",
+          "type": "checkbox"
+        },
+        {
+          "id": "username",
+          "label": "User name (optional)",
+          "type": "text"
+        },
+        {
+          "id": "password",
+          "label": "Password (optional)",
+          "type": "text"
+        }
       ]
     }
   ]

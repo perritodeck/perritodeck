@@ -1655,6 +1655,7 @@ dependencies = [
  "perritodeck-profile",
  "perritodeck-protocol",
  "perritodeck-render",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

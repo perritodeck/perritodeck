@@ -1,5 +1,6 @@
 //! Sliders: a drag on the tablet sets a level on the computer (volume, a light's
-//! brightness, an OBS source's volume) or runs a program with the value.
+//! brightness, an OBS source's volume), runs a program with the value, or hands it to a
+//! plugin.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -7,7 +8,7 @@ use serde_json::json;
 use crate::{ActionError, Executor, Outcome};
 
 /// What a slider controls. `slider = { type = "volume" }` in a profile.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -27,6 +28,17 @@ pub enum SliderSpec {
         #[serde(default)]
         args: Vec<String>,
     },
+    /// A plugin action that takes a value: it gets the key's settings plus `value`
+    /// (0–100). With `follow`, the slider sits where that plugin value says.
+    Plugin {
+        plugin: String,
+        action: String,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        settings: serde_json::Value,
+        /// One of the plugin's values (its id), a number from 0 to 100.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        follow: Option<String>,
+    },
 }
 
 impl SliderSpec {
@@ -37,6 +49,7 @@ impl SliderSpec {
             SliderSpec::HomeAssistant { entity } => format!("brightness of {entity}"),
             SliderSpec::Obs { input } => format!("OBS volume of {input}"),
             SliderSpec::Command { program, .. } => format!("runs {program}"),
+            SliderSpec::Plugin { plugin, action, .. } => format!("{plugin}: {action}"),
         }
     }
 }
@@ -83,6 +96,24 @@ impl Executor {
                     .collect();
                 crate::run_command(program, &args, None, None).await
             }
+            SliderSpec::Plugin {
+                plugin,
+                action,
+                settings,
+                ..
+            } => {
+                let mut settings = match settings {
+                    serde_json::Value::Object(m) => m.clone(),
+                    _ => serde_json::Map::new(),
+                };
+                settings.insert("value".into(), json!(value));
+                let spec = crate::ActionSpec::Plugin {
+                    plugin: plugin.clone(),
+                    action: action.clone(),
+                    settings: serde_json::Value::Object(settings),
+                };
+                self.run(&spec).await
+            }
         }
     }
 
@@ -113,7 +144,8 @@ impl Executor {
                     .ok()?;
                 Some(from_obs_mul(resp["inputVolumeMul"].as_f64()?))
             }
-            SliderSpec::Command { .. } => None,
+            // Plugin values are live values; the deck reads those itself.
+            SliderSpec::Command { .. } | SliderSpec::Plugin { .. } => None,
         }
     }
 }
@@ -130,6 +162,19 @@ mod tests {
         assert_eq!(s.describe(), "OBS volume of Mic/Aux");
         assert!(serde_json::from_str::<SliderSpec>(r#"{"type":"brightness"}"#).is_err());
         assert!(serde_json::from_str::<SliderSpec>(r#"{"type":"obs","input":"a","x":1}"#).is_err());
+    }
+
+    #[test]
+    fn plugin_sliders_parse() {
+        let s: SliderSpec = serde_json::from_str(
+            r#"{"type":"plugin","plugin":"dev.x","action":"dim","settings":{"lamp":"desk"},"follow":"level"}"#,
+        )
+        .unwrap();
+        assert_eq!(s.describe(), "dev.x: dim");
+        let SliderSpec::Plugin { follow, .. } = s else {
+            panic!("not a plugin slider")
+        };
+        assert_eq!(follow.as_deref(), Some("level"));
     }
 
     #[test]
