@@ -1,8 +1,16 @@
 # Handoff: cloud session → local session (2026-10-11)
 
-Everything up to this point is on `main` and CI is green: host, protocol, Android, E2E on
-API 22 and 34, and the desktop app on all three OSes. This file covers the setup on the
-local machine and what to do next. Delete it once it's out of date.
+Everything is on `main`. On 2026-10-11 the cloud session also built most of Phases 3–5
+(editor, profiles, switching, sliders, live values, USB, plugins); see
+`docs/plan/phase-3.md`, `phase-4.md` and `phase-5.md` for what's done and what isn't.
+
+**CI is paused:** GitHub stopped starting jobs (spending limit / payment) at about 09:30.
+The last green CI was before the sliders work. Host and desktop-app changes since then
+were tested in the cloud session on Linux (Rust tests, Playwright, the real app under
+Xvfb); **the Android changes since then (sliders, USB fallback, alert haptics) have never
+been compiled.** Run the Android build and unit tests locally first (section 1), and fix
+anything before the Kindle check. Windows and macOS code (focus detection, volume) has
+only been compiled for Linux since then too: `cargo test` in `host\` on Windows checks it.
 
 ## 1. Set up the Windows clone (`C:\perritodeck\perritodeck`)
 
@@ -60,18 +68,23 @@ needed for the v0.1.0 release, which is on hold.
    - `adb shell getprop ro.build.version.sdk` gives the API level. 22 is Fire OS 5 and 25
      is Fire OS 6. 28 is Fire OS 7 and 30 is Fire OS 8.
    - `cd android; .\gradlew.bat installDebug`, then pair with the host running on the
-     laptop. Use the code, since most Fire tablets have no rear camera, then press keys.
+     laptop (`cd host\app; npx tauri dev`, or `cargo run -p perritodeck-host -- --pair`).
+     QR or code both work; this Fire has a rear camera.
+   - Over USB: with adb installed, the host forwards its port to the tablet by itself and
+     Perrito falls back to 127.0.0.1, so it should keep working with Wi-Fi off. Try it.
+   - The starter profile's "More" page has a Volume slider: drag it (system volume on
+     Windows) and check the feel and the haptic ticks.
    - Record the result in `docs/DECISIONS.md`. If it's API 23 or higher, raise minSdk and
      unpin AndroidX/Compose (see the 2026-10-11 decision about minSdk 22).
    - Check for: layout fitting the screen, key-image sharpness, latency (`fakedeck bench`
      gives a baseline), mDNS discovery on Fire OS, and reconnection after the screen sleeps.
-2. **Phase 3 editor** (`docs/plan/phase-3.md`): key inspector, drag and drop, and saving
-   TOML from the app (the profile's TOML is the source of truth), then start at login,
-   pause all keys, and the macOS Accessibility check.
-3. **v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
+2. **Windows check of the desktop app:** editor, profiles, Switching (focus detection on
+   Windows), Settings → start at login, Plugins → add HTTP requests (needs Python on the
+   laptop), a Volume slider, tray Pause keys.
+3. **Leftovers in the phase docs** ("Not done" lists): e.g. Now playing on Windows,
+   animated keys, an online plugin catalogue.
+4. **v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
    the untested `release.yml`. See `docs/releasing.md`.
-4. **Later phases:** Phase 4 (dials and state feedback, HA over WebSocket) and Phase 5
-   (plugin SDK; OBS and HA are built in for now).
 
 ## 3. Open questions for the maintainer
 
@@ -81,6 +94,11 @@ needed for the v0.1.0 release, which is on hold.
 - When to make the repo public.
 
 ## 4. Gotchas learned so far
+
+- The host now runs plugins (`<settings folder>\plugins\<id>\`), forwards its port to
+  USB tablets when it finds adb, and watches which app is in front (for Switching).
+  `--no-usb` turns the USB part off for the command-line host.
+- CI on pushes is deliberately small (see `CLAUDE.md`); run the bigger workflows by hand.
 
 - `host/vendor/enigo` is a patched copy of enigo 0.6.1 (see its `PERRITODECK.md`).
   `host/app/src-tauri` is a separate Cargo workspace and repeats the

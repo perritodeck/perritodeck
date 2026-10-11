@@ -5,8 +5,8 @@ The host runs on Windows, macOS and Linux (`host/`). The domain is perritodeck.d
 GitHub repo is `perritodeck/perritodeck`, which is private for now.
 
 Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and status),
-`docs/DECISIONS.md` (append to it whenever a decision is made), and `docs/HANDOFF.md`
-(where the work stands).
+`docs/DECISIONS.md` (append to it whenever a decision is made), `docs/HANDOFF.md`
+(where the work stands), and `plugins/PROTOCOL.md` for plugins.
 
 ## Rules
 
@@ -33,6 +33,8 @@ Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and st
 | Test client with no tablet | `host/crates/fakedeck` | `cargo run -p perritodeck-fakedeck -- pair <code>` then `watch` |
 | Desktop tray app (Tauri 2 + Svelte 5, its own Cargo workspace) | `host/app` | `npm ci`, `npm run check`, `npx playwright test`, `npx tauri dev` |
 | Android app (Kotlin + Compose, JDK 17) | `android/` | `.\gradlew.bat testDebugUnitTest assembleDebug` |
+| Plugin runtime (host side) | `host/crates/plugins` | `cargo test -p perritodeck-plugins` |
+| Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py` |
 | Website | `website/` | static; open `index.html` |
 
 The host keeps its data in the per-user config folder: `%APPDATA%\perritodeck\PerritoDeck\config`
