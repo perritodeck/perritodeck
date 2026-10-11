@@ -1,8 +1,10 @@
 # Handoff: cloud session → local session (2026-10-11)
 
 Everything is on `main`. On 2026-10-11 the cloud session also built most of Phases 3–5
-(editor, profiles, switching, sliders, live values, USB, plugins); see
-`docs/plan/phase-3.md`, `phase-4.md` and `phase-5.md` for what's done and what isn't.
+(editor, profiles, switching, sliders, live values, USB, plugins, animated keys, online
+plugin catalogue) and, pulled forward from Phase 7, **Bitfocus Companion mode** and
+**Stream Deck plugin support**; see `docs/plan/phase-3.md` … `phase-7.md` for what's done
+and what isn't. Phase 6 (packaging) is next after the hardware checks.
 
 **CI is paused:** GitHub stopped starting jobs (spending limit / payment) at about 09:30.
 The last green CI was before the sliders work. Host and desktop-app changes since then
@@ -79,11 +81,21 @@ needed for the v0.1.0 release, which is on hold.
    - Check for: layout fitting the screen, key-image sharpness, latency (`fakedeck bench`
      gives a baseline), mDNS discovery on Fire OS, and reconnection after the screen sleeps.
 2. **Windows check of the desktop app:** editor, profiles, Switching (focus detection on
-   Windows), Settings → start at login, Plugins → add HTTP requests (needs Python on the
-   laptop), a Volume slider, tray Pause keys.
-3. **Leftovers in the phase docs** ("Not done" lists): e.g. Now playing on Windows,
-   animated keys, an online plugin catalogue.
-4. **v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
+   Windows), Settings → start at login, network port and "Restart now", Plugins → add HTTP
+   requests (needs Python on the laptop), a Volume slider, tray Pause keys, an animated
+   GIF key, and the Now playing plugin (its Windows part has never run on Windows).
+3. **Companion and Stream Deck plugins with the real things** (both only tested against
+   fakes so far):
+   - Companion: install Bitfocus Companion, add `[companion]` to `integrations.toml`
+     (Settings → Open folder), restart, make a profile with "Show Bitfocus Companion's
+     buttons" and show it on the tablet. The tablet should appear under Companion's
+     Surfaces.
+   - Stream Deck: needs Node.js (`winget install OpenJS.NodeJS.LTS`). Download a free
+     Node-based plugin from the Elgato Marketplace (a `.streamDeckPlugin` file) and add it
+     on the Plugins page; put one of its actions on a key.
+4. **Leftovers in the phase docs** ("Not done" lists): e.g. Stream Deck property
+   inspectors, Wayland auto-switch, publishing the plugin catalogue on the website.
+5. **Phase 6 / v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
    the untested `release.yml`. See `docs/releasing.md`.
 
 ## 3. Open questions for the maintainer
@@ -95,9 +107,14 @@ needed for the v0.1.0 release, which is on hold.
 
 ## 4. Gotchas learned so far
 
-- The host now runs plugins (`<settings folder>\plugins\<id>\`), forwards its port to
-  USB tablets when it finds adb, and watches which app is in front (for Switching).
-  `--no-usb` turns the USB part off for the command-line host.
+- The host now runs plugins (`<settings folder>\plugins\<id>\`) and Stream Deck plugins
+  (`<settings folder>\sdplugins\`), forwards its port to USB tablets when it finds adb,
+  and watches which app is in front (for Switching). `--no-usb` turns the USB part off
+  for the command-line host.
+- `perritodeck-sdcompat`'s test runs a Node.js fixture plugin; it's skipped when Node
+  is missing or older than 22 (no built-in WebSocket).
+- The app's network settings (port, Wi-Fi) apply only to the app; the command-line host
+  keeps its `--port`/`--listen` flags.
 - CI on pushes is deliberately small (see `CLAUDE.md`); run the bigger workflows by hand.
 
 - `host/vendor/enigo` is a patched copy of enigo 0.6.1 (see its `PERRITODECK.md`).

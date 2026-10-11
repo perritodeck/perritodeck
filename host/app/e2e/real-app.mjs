@@ -126,6 +126,8 @@ try {
   await js("[...document.querySelectorAll('li')].find(l => l.textContent.includes('HTTP requests'))?.querySelector('button')?.click()");
   await waitFor("plugin running", async () => (await text("main")).includes("Running"), 30000);
   log("bundled HTTP plugin installed and running");
+  await waitFor("Stream Deck plugin host", async () => (await text("main")).includes("Stream Deck plugins"));
+  log("Stream Deck plugin host is up");
   log("PASS");
 } catch (e) {
   failed = true;

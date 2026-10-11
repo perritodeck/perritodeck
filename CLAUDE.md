@@ -27,7 +27,7 @@ Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and st
 
 | Area | Path | Check it with |
 |---|---|---|
-| Wire protocol (JSON schema + golden fixtures) | `protocol/` | `python protocol/tools/validate.py` |
+| Wire protocol (JSON schema + golden fixtures) | `protocol/` | `python protocol/tools/validate.py protocol` |
 | Host workspace (Rust 1.97, pinned in `host/rust-toolchain.toml`) | `host/` | `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` |
 | Command-line host | `host/crates/host` (`src/main.rs`; runtime in `src/lib.rs`) | `cargo run -p perritodeck-host -- --pair` |
 | Test client with no tablet | `host/crates/fakedeck` | `cargo run -p perritodeck-fakedeck -- pair <code>` then `watch` |
