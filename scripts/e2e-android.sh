@@ -9,7 +9,8 @@ mkdir -p "$out"
 
 adb logcat -c || true
 
-args=(-Pandroid.testInstrumentationRunnerArguments.pairCode=424242)
+# Keep the app installed after the run so the screenshots can be copied out with run-as.
+args=(-Pandroid.testInstrumentationRunnerArguments.pairCode=424242 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true)
 if [ -n "${HOST_FINGERPRINT:-}" ]; then
   args+=("-Pandroid.testInstrumentationRunnerArguments.hostFingerprint=${HOST_FINGERPRINT}")
 fi
@@ -18,14 +19,10 @@ status=${PIPESTATUS[0]}
 
 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 pkg=dev.perritodeck.client.debug
-adb pull "/sdcard/Android/data/$pkg/files/e2e-screenshots" "$out/" > /dev/null 2>&1 || true
-# Emulators without shared storage: screenshots are in the app's internal files dir.
-if [ ! -d "$out/e2e-screenshots" ]; then
-  mkdir -p "$out/e2e-screenshots"
-  for f in $(adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r'); do
-    adb exec-out run-as "$pkg" cat "files/e2e-screenshots/$f" > "$out/e2e-screenshots/$f" 2>/dev/null || true
-  done
-fi
+mkdir -p "$out/e2e-screenshots"
+for f in $(adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r' | grep -E '^[A-Za-z0-9._-]+\.png$'); do
+  adb exec-out run-as "$pkg" cat "files/e2e-screenshots/$f" > "$out/e2e-screenshots/$f" 2>/dev/null || true
+done
 adb exec-out screencap -p > "$out/final-screen.png" 2>/dev/null || true
 cp -r "$root/android/app/build/reports/androidTests" "$out/report" 2>/dev/null || true
 

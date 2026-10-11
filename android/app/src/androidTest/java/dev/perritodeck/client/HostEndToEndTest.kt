@@ -65,17 +65,15 @@ class HostEndToEndTest {
     }
 
     /**
-     * Best effort: saves to the app's external files dir (or internal files on emulators
-     * without shared storage); CI pulls them with adb. Never fails the test.
+     * Best effort: saves to the app's internal files dir; CI copies them out with
+     * `adb run-as` (the debug app stays installed after the run). Never fails the test.
      */
     private fun screenshot(name: String) {
         runCatching {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             instrumentation.waitForIdleSync()
             val bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
-            val ctx = instrumentation.targetContext
-            val base = ctx.getExternalFilesDir(null)?.takeIf { it.exists() || it.mkdirs() } ?: ctx.filesDir
-            val dir = File(base, "e2e-screenshots").apply { mkdirs() }
+            val dir = File(instrumentation.targetContext.filesDir, "e2e-screenshots").apply { mkdirs() }
             File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
