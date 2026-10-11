@@ -16,10 +16,13 @@
     onsave,
     onclear,
     plugins = [],
+    profileId = "",
   }: {
     key: KeyView | null;
     at: Pos;
     page: string;
+    /** The profile the key belongs to (for Stream Deck plugin settings pages). */
+    profileId?: string;
     pageNames: string[];
     onsave: (fields: KeyFields) => void;
     onclear: () => void;
@@ -239,6 +242,7 @@
       {page}
       pageNames={initial.pageNames}
       plugins={initial.plugins}
+      location={{ profile: profileId, page, at }}
       onchange={(r, delay) => {
         picked = r;
         changed(delay);

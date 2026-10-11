@@ -420,6 +420,44 @@ impl Deck {
         }
     }
 
+    /// The agent key at a position of a profile page, shown on a tablet or not (for its
+    /// settings page in the editor). `None` if that key isn't a Stream Deck plugin action.
+    pub fn agent_key_for(&self, profile: &str, page: &str, row: u32, col: u32) -> Option<AgentKey> {
+        let st = self.lock();
+        let slot = st.slots.get(profile)?;
+        let page_index = slot.profile.page_index(page)?;
+        let key = slot.profile.pages[page_index]
+            .keys
+            .iter()
+            .find(|k| k.at == [row, col])?;
+        let Some(ActionSpec::SdPlugin {
+            plugin,
+            action,
+            settings,
+        }) = key.action(0)
+        else {
+            return None;
+        };
+        let context = format!("{profile}/{page_index}/{row}/{col}");
+        let device = st
+            .agent_refs
+            .get(&context)
+            .map(|(k, _)| k.device.clone())
+            .or_else(|| st.devices.keys().next().cloned())
+            .unwrap_or_else(|| "perritodeck".to_owned());
+        Some(AgentKey {
+            context,
+            profile: profile.to_owned(),
+            page: page_index,
+            row,
+            col,
+            device,
+            plugin: plugin.clone(),
+            action: action.clone(),
+            settings: settings.clone(),
+        })
+    }
+
     fn agents(&self) -> Option<Arc<dyn KeyAgents>> {
         self.agents.lock().expect("agents poisoned").clone()
     }

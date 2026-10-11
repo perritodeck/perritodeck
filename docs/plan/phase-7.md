@@ -64,15 +64,20 @@ plugins, so their actions can go on a tablet key.
   shows it, like PerritoDeck's toggles. The plugin's image fills the key; its title (or
   the profile's) is drawn over it. The manifest's state images are the defaults. Settings
   a plugin saves are kept in `sdplugins/settings.json`.
+- **Settings pages (property inspectors):** the key editor's "Open its settings" shows
+  the action's own HTML page in a frame. The host serves it from the plugin folder on
+  127.0.0.1 (URLs carry a per-start secret), adds the call to
+  `connectElgatoStreamDeckSocket`, and the page talks to the plugin over the same socket
+  (`registerPropertyInspector`, `setSettings` → the plugin gets `didReceiveSettings`,
+  `sendToPlugin` / `sendToPropertyInspector`, global settings, `propertyInspectorDidAppear`
+  and `…Disappear`). The socket accepts the settings server's origin and no other.
+  Tested with a fixture page driven over WebSocket; not yet in a real webview.
 - **Supervision:** a plugin that exits is restarted with backoff and given up after five
   crashes; the Plugins page shows the state ("Needs Node.js", "Can't run here: …").
 - **Tests:** `host/crates/sdcompat/tests` runs a small Node.js fixture plugin against a
   real deck (needs Node 22+ for its built-in WebSocket; skipped otherwise).
 
 Not done (Stream Deck plugins):
-- Property inspectors (each action's settings page). Settings can be typed as JSON in
-  the key editor for now. Showing the plugin's own HTML page inside the app is the
-  obvious next step.
 - Dials, touch strips (`Encoder` actions are hidden), multi-actions, `switchToProfile`,
   `sendToPropertyInspector`, `titleParametersDidChange`, application monitoring.
 - The old HTML/JavaScript plugins (they need a browser engine) and native plugins on

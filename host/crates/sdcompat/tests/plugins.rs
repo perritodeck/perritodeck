@@ -190,3 +190,123 @@ async fn web_pages_cant_pose_as_plugins() {
         "plugins (no Origin) still can"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_pages_talk_to_their_plugin() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message as Ws};
+    if !node_available() {
+        eprintln!("skipped: needs Node.js 22 or newer");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let host = SdHost::start(dir.path().join("sdplugins")).await.unwrap();
+    host.install(&fixture()).unwrap();
+    assert!(host.list()[0].actions[0].has_settings_page);
+    let sent = Arc::new(Sent::default());
+    let deck = Deck::new(
+        Profile::parse(PROFILE).unwrap(),
+        dir.path(),
+        sent.clone(),
+        Executor::new(Arc::new(Nothing), Arc::new(Nothing)),
+    );
+    host.attach(&deck);
+    deck.connected(
+        "tab",
+        Grid { cols: 3, rows: 2 },
+        Screen {
+            width_px: 1024,
+            height_px: 600,
+            density_dpi: 160,
+        },
+        &["keys".into()],
+    );
+    until(
+        &sent,
+        "title 0",
+        |m| matches!(m, Message::SetTitle(t) if t.title == "0"),
+    )
+    .await;
+
+    let key = deck
+        .agent_key_for("default", "Main", 0, 0)
+        .expect("a Stream Deck key");
+    let url = host.settings_page(&key).unwrap();
+    let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+    let (port, path) = rest.split_once('/').unwrap();
+    let get = |path: String| {
+        let port = port.to_owned();
+        async move {
+            let mut s = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+                .await
+                .unwrap();
+            s.write_all(format!("GET /{path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).await.unwrap();
+            out
+        }
+    };
+    let page = get(path.to_owned()).await;
+    assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+    assert!(
+        page.contains("registerPropertyInspector")
+            && page.contains("connectElgatoStreamDeckSocket")
+    );
+    assert!(
+        get(path.replacen("pi/", "pi/0", 1))
+            .await
+            .starts_with("HTTP/1.1 404"),
+        "wrong secret"
+    );
+    assert!(get(path.replace("ui/up.html", "../../settings.json"))
+        .await
+        .starts_with("HTTP/1.1 404"));
+
+    // Act as the page: connect from the settings origin, change a setting, talk to the plugin.
+    let mut req = format!("ws://127.0.0.1:{}", host.port())
+        .into_client_request()
+        .unwrap();
+    req.headers_mut().insert(
+        "Origin",
+        format!("http://127.0.0.1:{port}").parse().unwrap(),
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
+    let send = |v: serde_json::Value| Ws::Text(v.to_string().into());
+    ws.send(send(
+        serde_json::json!({ "event": "registerPropertyInspector", "uuid": key.context }),
+    ))
+    .await
+    .unwrap();
+    ws.send(send(serde_json::json!({ "event": "setSettings", "context": key.context, "payload": { "step": 3, "count": 10 } }))).await.unwrap();
+    until(
+        &sent,
+        "title from new settings",
+        |m| matches!(m, Message::SetTitle(t) if t.title == "10"),
+    )
+    .await;
+    ws.send(send(serde_json::json!({ "event": "sendToPlugin", "action": key.action, "context": key.context, "payload": { "ping": 1 } }))).await.unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(Ok(Ws::Text(t))) = ws.next().await {
+            let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+            if v["event"] == "sendToPropertyInspector" {
+                return v;
+            }
+        }
+        panic!("closed")
+    })
+    .await
+    .unwrap();
+    assert_eq!(reply["payload"]["pong"]["ping"], 1);
+
+    // Pages from other origins still can't connect.
+    let mut bad = format!("ws://127.0.0.1:{}", host.port())
+        .into_client_request()
+        .unwrap();
+    bad.headers_mut()
+        .insert("Origin", "http://127.0.0.1:1".parse().unwrap());
+    assert!(tokio_tungstenite::connect_async(bad).await.is_err());
+    host.shutdown();
+}

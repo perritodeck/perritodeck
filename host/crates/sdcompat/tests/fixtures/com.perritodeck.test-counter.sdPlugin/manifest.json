@@ -6,7 +6,9 @@
   "UUID": "com.perritodeck.test-counter",
   "CodePath": "bin/plugin.js",
   "SDKVersion": 2,
-  "Nodejs": { "Version": "20" },
+  "Nodejs": {
+    "Version": "20"
+  },
   "Icon": "imgs/key",
   "Actions": [
     {
@@ -14,13 +16,25 @@
       "Name": "Count up",
       "Tooltip": "Adds the step to the count",
       "Icon": "imgs/key",
-      "States": [{ "Image": "imgs/key" }, { "Image": "imgs/key" }],
-      "Controllers": ["Keypad"]
+      "States": [
+        {
+          "Image": "imgs/key"
+        },
+        {
+          "Image": "imgs/key"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/up.html"
     },
     {
       "UUID": "com.perritodeck.test-counter.dial",
       "Name": "Dial only",
-      "Controllers": ["Encoder"]
+      "Controllers": [
+        "Encoder"
+      ]
     }
   ]
 }

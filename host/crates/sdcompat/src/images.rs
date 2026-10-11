@@ -107,7 +107,7 @@ fn svg_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// `%3Csvg%20…` → `<svg …`, as in `data:image/svg+xml;charset=utf8,…`.
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;

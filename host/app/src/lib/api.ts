@@ -51,6 +51,8 @@ export const api = {
   setPluginSettings: (id: string, settings: Record<string, unknown>) => call<void>("set_plugin_settings", { id, settings }),
   sdPlugins: () => call<SdPluginsView>("list_sd_plugins"),
   installSdPlugin: (folder = false) => call<string | null>("install_sd_plugin", { folder }),
+  sdSettingsPage: (profile: string, page: string, row: number, col: number) =>
+    call<string>("sd_settings_page", { profile, page, row, col }),
   removeSdPlugin: (uuid: string) => call<void>("remove_sd_plugin", { uuid }),
   restartSdPlugin: (uuid: string) => call<void>("restart_sd_plugin", { uuid }),
   onlinePlugins: () => call<OnlineEntry[]>("list_online_plugins"),

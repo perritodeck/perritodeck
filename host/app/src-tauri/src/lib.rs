@@ -340,6 +340,17 @@ async fn install_sd_plugin(
 }
 
 #[tauri::command]
+fn sd_settings_page(
+    app: State<'_, App>,
+    profile: String,
+    page: String,
+    row: u32,
+    col: u32,
+) -> Res<String> {
+    app.host()?.sd_settings_page(&profile, &page, row, col)
+}
+
+#[tauri::command]
 fn remove_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
     app.host()?.remove_sd_plugin(&uuid)
 }
@@ -678,6 +689,7 @@ pub fn run() {
             set_plugin_settings,
             install_sd_plugin,
             remove_sd_plugin,
+            sd_settings_page,
             restart_sd_plugin,
         ])
         .run(tauri::generate_context!());

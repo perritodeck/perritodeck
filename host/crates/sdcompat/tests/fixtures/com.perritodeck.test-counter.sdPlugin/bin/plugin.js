@@ -30,6 +30,13 @@ ws.onmessage = (e) => {
       send({ event: "setGlobalSettings", context: arg("-pluginUUID"), payload: { presses: n } });
       break;
     }
+    case "didReceiveSettings":
+      counts[m.context] = s.count ?? counts[m.context] ?? 0;
+      send({ event: "setTitle", context: m.context, payload: { title: String(counts[m.context]) } });
+      break;
+    case "sendToPlugin":
+      send({ event: "sendToPropertyInspector", context: m.context, payload: { pong: m.payload } });
+      break;
     case "didReceiveGlobalSettings":
       send({ event: "logMessage", payload: { message: `global ${JSON.stringify(m.payload.settings)}` } });
       break;

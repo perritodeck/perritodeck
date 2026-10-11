@@ -1917,6 +1917,7 @@ dependencies = [
  "perritodeck-profile",
  "perritodeck-protocol",
  "perritodeck-render",
+ "rand",
  "resvg",
  "serde",
  "serde_json",

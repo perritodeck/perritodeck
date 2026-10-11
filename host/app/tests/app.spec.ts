@@ -520,7 +520,9 @@ test.describe("plugins", () => {
     await page.getByRole("button", { name: "Buttons" }).click();
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("When pressed").selectOption("sd:com.example.counter/com.example.counter.up");
-    await expect(page.getByText("its own settings page")).toBeVisible();
+    await page.getByRole("button", { name: "Open its settings" }).click();
+    await expect(page.locator("iframe.sd-page")).toHaveAttribute("src", "about:blank#sd-settings");
+    await page.getByRole("button", { name: "Close settings" }).click();
     await expect(page.getByRole("button", { name: "Try it" })).toHaveCount(0);
     await page.getByLabel("Settings, as JSON (optional)").fill("[1]");
     await expect(page.getByText("Settings are a JSON object")).toBeVisible();

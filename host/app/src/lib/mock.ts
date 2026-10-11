@@ -532,6 +532,8 @@ export const mock = {
         sdPlugins = [...sdPlugins, sdCounter];
         return out(sdCounter.uuid);
       }
+      case "sd_settings_page":
+        return out("about:blank#sd-settings");
       case "remove_sd_plugin":
         sdPlugins = sdPlugins.filter((p) => p.uuid !== args?.uuid);
         return out(undefined);

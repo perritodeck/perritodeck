@@ -15,6 +15,7 @@
 //! touch strips, multi-actions, and the old HTML plugins.
 
 pub mod images;
+mod inspector;
 pub mod manifest;
 
 use std::{
@@ -135,6 +136,10 @@ struct State {
     devices: BTreeMap<String, Grid>,
     instances: HashMap<String, Instance>,
     store: Store,
+    /// Keys whose settings page the app asked for (context → key).
+    pi_pending: HashMap<String, AgentKey>,
+    /// The settings page that's open.
+    pi: Option<inspector::PiConn>,
 }
 
 /// Changes for the deck, applied in order from one task (never while the deck is
@@ -159,6 +164,9 @@ struct Inner {
     draws: mpsc::UnboundedSender<Draw>,
     node: String,
     connections: AtomicU64,
+    /// Where settings pages are served, and the secret in their URLs.
+    http_port: u16,
+    pi_secret: String,
 }
 
 /// The Stream Deck plugin host. Cheap to clone.
@@ -176,6 +184,12 @@ impl SdHost {
         std::fs::create_dir_all(&dir)?;
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
+        let http = TcpListener::bind("127.0.0.1:0").await?;
+        let http_port = http.local_addr()?.port();
+        let pi_secret: String = rand::random::<[u8; 16]>()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let store = std::fs::read(dir.join(STORE_FILE))
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -192,7 +206,10 @@ impl SdHost {
             draws,
             node,
             connections: AtomicU64::new(0),
+            http_port,
+            pi_secret,
         });
+        tokio::spawn(inspector::serve(Arc::downgrade(&inner), http));
         let weak = Arc::downgrade(&inner);
         tokio::spawn(async move {
             while let Some(d) = draw_rx.recv().await {
@@ -421,6 +438,12 @@ impl SdHost {
         for p in st.plugins.values() {
             stop(p);
         }
+    }
+
+    /// The address of a key's Stream Deck settings page (property inspector), for the
+    /// app to show in a frame. `key` comes from `Deck::agent_key_for`.
+    pub fn settings_page(&self, key: &AgentKey) -> Result<String, String> {
+        inspector::url_for(&self.0, key)
     }
 
     /// The WebSocket port plugins connect to.
@@ -821,12 +844,20 @@ impl Drop for Exited {
 /// One plugin's WebSocket.
 async fn connection(inner: Arc<Inner>, stream: tokio::net::TcpStream) {
     // Plugins are local programs and send no Origin. Web pages always do: refuse them, so a
-    // site open in a browser can't pose as a plugin on this port.
+    // site open in a browser can't pose as a plugin on this port. The one exception is
+    // our own settings-page server, whose pages connect from its origin.
+    let settings_origin = inspector::origin(inner.http_port);
+    let from_page = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = from_page.clone();
     #[allow(clippy::result_large_err)]
     let no_browsers =
-        |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
-         resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
-            if req.headers().contains_key("origin") {
+        move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+              resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            if let Some(origin) = req.headers().get("origin") {
+                if origin.as_bytes() == settings_origin.as_bytes() {
+                    flag.store(true, Ordering::Relaxed);
+                    return Ok(resp);
+                }
                 let mut refuse =
                     tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(Some(
                         "browsers can't connect here".into(),
@@ -846,6 +877,12 @@ async fn connection(inner: Arc<Inner>, stream: tokio::net::TcpStream) {
     };
     let reg: Value = serde_json::from_str(&first).unwrap_or_default();
     let uuid = reg["uuid"].as_str().unwrap_or_default().to_owned();
+    if from_page.load(Ordering::Relaxed) {
+        if reg["event"] == "registerPropertyInspector" {
+            inspector::connection(inner, uuid, sink, source).await;
+        }
+        return;
+    }
     if reg["event"] != "registerPlugin" {
         debug!("Stream Deck: ignoring a {} connection", reg["event"]);
         return;
@@ -1005,6 +1042,7 @@ fn handle(inner: &Inner, uuid: &str, v: &Value) {
                 }
             }
         }
+        "sendToPropertyInspector" => inspector::to_page(&st, uuid, &context, payload),
         "logMessage" => {
             info!(plugin = %uuid, "{}", payload["message"].as_str().unwrap_or_default())
         }

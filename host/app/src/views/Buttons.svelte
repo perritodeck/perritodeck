@@ -604,6 +604,7 @@ port = 16622         # Companion's Satellite port</pre>
             key={selectedKey}
             at={selected}
             page={page.name}
+            profileId={profile.id}
             pageNames={profile.pages.map((p) => p.name)}
             onsave={save}
             onclear={clear}

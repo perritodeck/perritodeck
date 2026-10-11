@@ -19,6 +19,7 @@
     allowNav = true,
     allowSlider = true,
     allowSd = true,
+    location = null,
     disabled = false,
     onchange,
   }: {
@@ -31,6 +32,8 @@
     allowSlider?: boolean;
     /** Offer Stream Deck plugin actions (not on toggle states). */
     allowSd?: boolean;
+    /** Where the key is, so a Stream Deck plugin's settings page can be opened for it. */
+    location?: { profile: string; page: string; at: [number, number] } | null;
     disabled?: boolean;
     /** The new choice, or a sentence saying what's missing; `delay` is how soon to save. */
     onchange: (result: Picked | string, delay: number) => void;
@@ -104,6 +107,18 @@
     const plugin = sdPlugins.find((p) => p.uuid === pid);
     return { pid, aid, plugin, action: plugin?.actions.find((x) => x.uuid === aid) };
   });
+  // The plugin's own settings page (property inspector), shown in a frame.
+  let sdPage = $state<string | null>(null);
+  let sdPageProblem = $state<string | null>(null);
+  async function openSdPage() {
+    if (!location) return;
+    sdPageProblem = null;
+    try {
+      sdPage = await api.sdSettingsPage(location.profile, location.page, location.at[0], location.at[1]);
+    } catch (e) {
+      sdPageProblem = String(e);
+    }
+  }
   let sdSettings = $state(a?.type === "sdPlugin" && a.settings ? JSON.stringify(a.settings, null, 2) : "");
   let sliderFollow = $state(sl?.type === "plugin" ? (sl.follow ?? "") : "");
   const sliderPlugins = initial.plugins
@@ -457,6 +472,23 @@
     {:else if sdPick.action?.tooltip}
       <p class="note">{sdPick.action.tooltip}</p>
     {/if}
+    {#if sdPick.action?.hasSettingsPage && location}
+      <div class="field">
+        {#if sdPage}
+          <iframe
+            class="sd-page"
+            title="{sdPick.action.name} settings"
+            src={sdPage}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          ></iframe>
+          <span><button type="button" class="btn small quiet" onclick={() => (sdPage = null)}>Close settings</button></span>
+          <small>Changes here go straight to the plugin.</small>
+        {:else}
+          <span><button type="button" class="btn small" onclick={openSdPage}>Open its settings</button></span>
+          {#if sdPageProblem}<small class="bad">{sdPageProblem}</small>{/if}
+        {/if}
+      </div>
+    {/if}
     <div class="field">
       <label for="{uid}-sd-settings">Settings, as JSON (optional)</label>
       <textarea
@@ -470,8 +502,8 @@
       ></textarea>
       <small>
         {#if sdPick.action?.hasSettingsPage}
-          This action has its own settings page in the Stream Deck app, which PerritoDeck can’t show yet. Settings it
-          needs can go here; the plugin also remembers what it saves.
+          Most plugins keep their settings themselves (use “Open its settings”). Settings typed here are what the
+          plugin starts with.
         {:else}
           The plugin draws this key and remembers its own settings.
         {/if}
@@ -676,3 +708,16 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Stream Deck settings pages are designed for a dark background. */
+  .sd-page {
+    width: 100%;
+    height: 340px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #2d2d2d;
+    resize: vertical;
+  }
+  .bad { color: var(--danger); }
+</style>

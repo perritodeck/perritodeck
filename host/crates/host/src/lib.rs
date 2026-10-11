@@ -989,6 +989,22 @@ impl Host {
         self.sd()?.install(src)
     }
 
+    /// The address of the Stream Deck plugin settings page for the key at `row`/`col` of
+    /// a page, for the app to show in a frame. Save the key's action first.
+    pub fn sd_settings_page(
+        &self,
+        profile: &str,
+        page: &str,
+        row: u32,
+        col: u32,
+    ) -> Result<String, String> {
+        let key = self
+            .deck
+            .agent_key_for(profile, page, row, col)
+            .ok_or_else(|| "That key doesn't run a Stream Deck plugin action yet.".to_owned())?;
+        self.sd()?.settings_page(&key)
+    }
+
     pub fn remove_sd_plugin(&self, uuid: &str) -> Result<(), String> {
         self.sd()?.remove(uuid)
     }
