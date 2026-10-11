@@ -27,6 +27,7 @@ serde_json.workspace = true
 notify.workspace = true
 toml_edit.workspace = true
 sha2.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 perritodeck-protocol.workspace = true
 anyhow.workspace = true

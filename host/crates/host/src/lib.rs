@@ -776,6 +776,106 @@ impl Host {
         Ok(format!("icons/{name}.png"))
     }
 
+    /// Save a profile and the images it uses as one `.perritoprofile` file (a zip) to
+    /// share or keep.
+    pub fn export_profile(&self, id: &str, dest: &Path) -> Result<(), String> {
+        use std::io::Write;
+        let profile = self
+            .deck
+            .profile_by_id(id)
+            .ok_or_else(|| format!("There's no profile called {id}."))?;
+        let text = read_text(&self.path_of(id))?;
+        let file = std::fs::File::create(dest)
+            .map_err(|e| format!("Couldn't create {}: {e}", dest.display()))?;
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        let fail = |e: &dyn std::fmt::Display| format!("Couldn't write {}: {e}", dest.display());
+        zip.start_file("profile.toml", opts).map_err(|e| fail(&e))?;
+        zip.write_all(text.as_bytes()).map_err(|e| fail(&e))?;
+        let mut icons: Vec<PathBuf> = profile
+            .pages
+            .iter()
+            .flat_map(|p| p.keys.iter())
+            .flat_map(|k| {
+                k.icon
+                    .iter()
+                    .chain(k.states.iter().filter_map(|s| s.icon.as_ref()))
+            })
+            .cloned()
+            .collect();
+        icons.sort();
+        icons.dedup();
+        for icon in icons {
+            // Only images inside the profiles folder travel with it.
+            let rel = icon.to_string_lossy().replace('\\', "/");
+            if icon.is_absolute() || rel.split('/').any(|part| part == "..") {
+                continue;
+            }
+            if let Ok(bytes) = std::fs::read(self.profiles_dir.join(&icon)) {
+                zip.start_file(format!("images/{rel}"), opts)
+                    .map_err(|e| fail(&e))?;
+                zip.write_all(&bytes).map_err(|e| fail(&e))?;
+            }
+        }
+        zip.finish().map_err(|e| fail(&e))?;
+        Ok(())
+    }
+
+    /// Add a profile from a `.perritoprofile` file. Returns its id.
+    pub fn import_profile(&self, src: &Path) -> Result<String, String> {
+        use std::io::Read;
+        const MAX: u64 = 20 * 1024 * 1024;
+        let bad = || format!("{} isn't a PerritoDeck profile file.", src.display());
+        let file = std::fs::File::open(src)
+            .map_err(|e| format!("Couldn't open {}: {e}", src.display()))?;
+        let mut zip = zip::ZipArchive::new(file).map_err(|_| bad())?;
+        let mut text = String::new();
+        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
+        for i in 0..zip.len() {
+            let mut entry = zip.by_index(i).map_err(|_| bad())?;
+            if entry.size() > MAX {
+                return Err(bad());
+            }
+            let name = entry.name().to_owned();
+            if name == "profile.toml" {
+                entry.read_to_string(&mut text).map_err(|_| bad())?;
+            } else if let Some(rel) = name.strip_prefix("images/") {
+                // Never write outside the profiles folder.
+                let safe = !rel.is_empty()
+                    && !rel.starts_with('/')
+                    && !rel.contains('\\')
+                    && rel.split('/').all(|p| !p.is_empty() && p != "..");
+                if safe && !entry.is_dir() {
+                    let mut bytes = Vec::new();
+                    entry.read_to_end(&mut bytes).map_err(|_| bad())?;
+                    images.push((rel.to_owned(), bytes));
+                }
+            }
+        }
+        let profile = Profile::parse(&text).map_err(|e| format!("{}: {e}", bad()))?;
+        let problems = profile.problems();
+        if !problems.is_empty() {
+            return Err(format!(
+                "{} has problems: {}",
+                src.display(),
+                problems.join("; ")
+            ));
+        }
+        for (rel, bytes) in images {
+            let path = self.profiles_dir.join(&rel);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            // Images are named by content, so an existing file is the same image.
+            if !path.exists() {
+                std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+            }
+        }
+        let id = unique_id(&slug(&profile.name), |id| self.path_of(id).exists());
+        self.write_profile(&self.path_of(&id), &text)?;
+        Ok(id)
+    }
+
     /// Delete a profile (the default can't be). Its file is kept in the settings
     /// folder's `deleted-profiles`, in case.
     pub fn delete_profile(&self, id: &str) -> Result<(), String> {

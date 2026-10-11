@@ -13,6 +13,13 @@
   let profileMenu = $state(false);
   let profileNaming = $state<null | { mode: "new" } | { mode: "copy" } | { mode: "rename" }>(null);
   let profileNameDraft = $state("");
+  let notice = $state<string | null>(null);
+  $effect(() => {
+    if (notice) {
+      const t = setTimeout(() => (notice = null), 3000);
+      return () => clearTimeout(t);
+    }
+  });
   let pageIndex = $state(0);
   let selected = $state<Pos | null>(null);
   let now = $state(new Date());
@@ -102,6 +109,32 @@
       }
       profiles = await api.profiles();
       profileNaming = null;
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function exportProfile() {
+    if (!profile) return;
+    profileMenu = false;
+    try {
+      if (await api.exportProfile(profile.id)) notice = `Exported “${profile.name}”.`;
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function importProfile() {
+    profileMenu = false;
+    try {
+      const id = await api.importProfile();
+      if (id) {
+        profiles = await api.profiles();
+        await openProfile(id);
+        notice = "Profile imported.";
+      }
       error = null;
     } catch (e) {
       error = String(e);
@@ -355,6 +388,8 @@
                 <button role="menuitem" onclick={() => startProfileNaming("rename")}>Rename “{profile.name}”</button>
                 <button role="menuitem" onclick={() => startProfileNaming("copy")}>Make a copy</button>
                 <button role="menuitem" onclick={openFile}>Open the file</button>
+                <button role="menuitem" onclick={exportProfile}>Export…</button>
+                <button role="menuitem" onclick={importProfile}>Import a profile…</button>
                 <button
                   role="menuitem"
                   class="danger"
@@ -380,6 +415,10 @@
     save again:
     <pre class="selectable">{profile.reloadError}</pre>
   </div>
+{/if}
+
+{#if notice}
+  <p class="notice" role="status">{notice}</p>
 {/if}
 
 {#if error}
@@ -568,6 +607,7 @@
     white-space: pre-wrap;
     font-size: 0.85rem;
   }
+  .notice { color: var(--ink-soft); margin: -8px 0 12px; }
   .link {
     border: 0;
     background: none;

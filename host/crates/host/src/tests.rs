@@ -315,3 +315,64 @@ async fn icons_are_imported_and_shown_in_the_preview() {
         .unwrap()
         .contains(&format!("icon = \"{rel}\"")));
 }
+
+#[tokio::test]
+async fn profiles_export_and_import_with_their_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let src = dir.path().join("icon.png");
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 255, 255]))
+        .save(&src)
+        .unwrap();
+    let rel = host.import_icon(&src).unwrap();
+    let edit = Edit::SetKey {
+        page: "Main".into(),
+        at: [2, 2],
+        key: KeyFields {
+            title: Some("Blue".into()),
+            icon: Some(rel.clone().into()),
+            ..Default::default()
+        },
+    };
+    host.edit_profile("default", &[edit]).unwrap();
+
+    let file = dir.path().join("starter.perritoprofile");
+    host.export_profile("default", &file).unwrap();
+
+    // Into another host, which has never seen the image.
+    let dir2 = tempfile::tempdir().unwrap();
+    let other = quiet_host(dir2.path()).await;
+    let id = other.import_profile(&file).unwrap();
+    assert_eq!(id, "starter");
+    let view = other.profile_view(Some(&id)).unwrap();
+    let key = view.pages[0]
+        .keys
+        .iter()
+        .find(|k| k.title == "Blue")
+        .unwrap();
+    assert!(key.icon_data.is_some(), "image came along");
+    assert!(other.profiles_dir.join(&rel).exists());
+    // Importing twice makes a second profile rather than overwriting.
+    assert_eq!(other.import_profile(&file).unwrap(), "starter-2");
+    // Not a profile file.
+    assert!(other.import_profile(&src).is_err());
+}
+
+#[tokio::test]
+async fn imports_cannot_write_outside_the_profiles_folder() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = dir.path().join("evil.perritoprofile");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    zip.start_file("profile.toml", opts).unwrap();
+    zip.write_all(perritodeck_profile::STARTER_PROFILE.as_bytes())
+        .unwrap();
+    zip.start_file("images/../../escaped.png", opts).unwrap();
+    zip.write_all(b"x").unwrap();
+    zip.finish().unwrap();
+    host.import_profile(&file).unwrap();
+    assert!(!dir.path().join("escaped.png").exists());
+    assert!(!host.profiles_dir.join("../escaped.png").exists());
+}

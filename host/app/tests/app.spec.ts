@@ -287,6 +287,16 @@ test.describe("profiles, tablets and switching", () => {
     await expect(page.getByRole("menuitem", { name: "Delete profile" })).toBeDisabled();
   });
 
+  test("export and import profiles", async ({ page }) => {
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: "Export…" }).click();
+    await expect(page.getByText("Exported “Starter”.")).toBeVisible();
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: "Import a profile…" }).click();
+    await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("imported");
+    await expect(page.getByText("Profile imported.")).toBeVisible();
+  });
+
   test("tablets can be renamed and given a profile", async ({ page }) => {
     await page.getByRole("button", { name: /^Tablets/ }).click();
     const row = page.getByRole("listitem").filter({ hasText: "Fire HD 10" });

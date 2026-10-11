@@ -172,6 +172,48 @@ async fn choose_icon(handle: AppHandle, app: State<'_, App>) -> Res<Option<Strin
     host.import_icon(&path).map(Some)
 }
 
+/// Save a profile as a `.perritoprofile` file. False if the person cancelled.
+#[tauri::command]
+async fn export_profile(handle: AppHandle, app: State<'_, App>, id: String) -> Res<bool> {
+    use tauri_plugin_dialog::DialogExt;
+    let host = app.host()?.clone();
+    let name = host.profile_view(Some(&id))?.name;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .file()
+            .set_title("Export profile")
+            .set_file_name(format!("{name}.perritoprofile"))
+            .add_filter("PerritoDeck profile", &["perritoprofile"])
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(file) = picked else { return Ok(false) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    host.export_profile(&id, &path).map(|()| true)
+}
+
+/// Add a profile from a `.perritoprofile` file. `None` if the person cancelled.
+#[tauri::command]
+async fn import_profile(handle: AppHandle, app: State<'_, App>) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let host = app.host()?.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .file()
+            .set_title("Import a profile")
+            .add_filter("PerritoDeck profile", &["perritoprofile"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(file) = picked else { return Ok(None) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    host.import_profile(&path).map(Some)
+}
+
 /// macOS only: whether PerritoDeck may send key presses (System Settings → Privacy &
 /// Security → Accessibility). `None` elsewhere.
 #[tauri::command]
@@ -396,6 +438,8 @@ pub fn run() {
             open_profile_file,
             open_data_folder,
             choose_icon,
+            export_profile,
+            import_profile,
             accessibility_allowed,
             open_accessibility_settings,
         ])

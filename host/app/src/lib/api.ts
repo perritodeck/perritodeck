@@ -44,6 +44,10 @@ export const api = {
   openDataFolder: () => call<void>("open_data_folder"),
   /** Pick an image file; resolves to its path for the key, or null if cancelled. */
   chooseIcon: () => call<string | null>("choose_icon"),
+  /** Save a profile to a file the person picks; false if they cancelled. */
+  exportProfile: (id: string) => call<boolean>("export_profile", { id }),
+  /** Add a profile from a file; resolves to its id, or null if cancelled. */
+  importProfile: () => call<string | null>("import_profile"),
   /** macOS: may PerritoDeck send key presses? null on other systems. */
   accessibilityAllowed: () => call<boolean | null>("accessibility_allowed"),
   openAccessibilitySettings: () => call<void>("open_accessibility_settings"),

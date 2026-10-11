@@ -349,6 +349,15 @@ export const mock = {
         return out(undefined);
       case "recent_apps":
         return out(["obs64", "Code", "firefox"]);
+      case "export_profile":
+        this.exported.push(args?.id as string);
+        return out(true);
+      case "import_profile": {
+        let id = "imported";
+        for (let n = 2; profiles[id]; n++) id = `imported-${n}`;
+        profiles[id] = { ...structuredClone(streaming), id, name: "Imported" };
+        return out(id);
+      }
       case "choose_icon":
         return out("icons/mock.png");
       case "accessibility_allowed":
@@ -395,6 +404,7 @@ export const mock = {
     this.emit("host-event", e);
   },
   autostart: false,
+  exported: [] as string[],
   accessibility: null as boolean | null,
   setReloadError(msg: string | null) {
     profiles.default.reloadError = msg;
