@@ -1,8 +1,8 @@
 {
   "id": "dev.perritodeck.media",
-  "name": "Now playing (Linux)",
-  "version": "1.0.0",
-  "description": "Show what's playing in Spotify, a browser or any MPRIS player, and control it. Needs playerctl.",
+  "name": "Now playing",
+  "version": "1.1.0",
+  "description": "Show what's playing (Spotify, Music, a browser or another media player) and play, pause or skip it. Works on Windows, macOS and Linux. On Linux it needs playerctl.",
   "author": "PerritoDeck contributors",
   "runtime": "python",
   "main": "plugin.py",

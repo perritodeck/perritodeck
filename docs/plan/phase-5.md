@@ -23,7 +23,7 @@ Done:
   up after repeated crashes, 10 s answer timeout, missing-runtime detection.
 - SDKs for Python and Node.js, with tests.
 - First-party plugins, bundled with the desktop app: **HTTP requests**, **MQTT**
-  (publish; MQTT 3.1.1 implemented directly), **Now playing** (Linux, via playerctl).
+  (publish; MQTT 3.1.1 implemented directly), **Now playing** (Windows media session through PowerShell, Spotify or Music on macOS through osascript, playerctl on Linux; the Windows and macOS parts are untested on real machines).
   OBS and Home Assistant stay built in.
 - Desktop app: Plugins page (status, restart, remove, add bundled ones, install from a
   folder), and plugin actions with generated settings forms in the editor.
@@ -33,6 +33,6 @@ Done:
 Not done:
 - A plugin catalogue online (download and update plugins from the app).
 - Plugins driving sliders, and plugins drawing their own key images.
-- Now playing on Windows/macOS; a Spotify plugin using its Web API.
+- A Spotify plugin using its Web API.
 - Signing or sandboxing plugins. For now the app warns that plugins run with the
   user's permissions.

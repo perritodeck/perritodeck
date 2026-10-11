@@ -26,7 +26,6 @@ Done:
 
 Not done:
 - Animated keys (GIF/APNG icons).
-- "Now playing" on Windows (SMTC) and macOS; Linux has it through the Now playing plugin.
 - Dials and a touch strip as distinct controls (sliders cover the main use).
 - Live values through subscriptions (OBS events, Home Assistant WebSocket) instead of
   polling every 2 s.

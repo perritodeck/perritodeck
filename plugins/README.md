@@ -9,7 +9,7 @@ starts and talks to over stdin/stdout (see [PROTOCOL.md](PROTOCOL.md)).
 | [`sdk-python/`](sdk-python/) | SDK for Python plugins (standard library only) |
 | [`http/`](http/) | First-party: send HTTP requests (webhooks, REST APIs) |
 | [`mqtt/`](mqtt/) | First-party: publish MQTT messages |
-| [`media/`](media/) | First-party: now playing and media controls (Linux, via `playerctl`) |
+| [`media/`](media/) | First-party: now playing and media controls (Windows media session, Spotify/Music on macOS, `playerctl` on Linux) |
 
 Everything in this folder is MIT-licensed (see [LICENSE](LICENSE)) so plugin authors
 can use the SDKs under any license.

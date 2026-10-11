@@ -29,3 +29,4 @@ Thumbs.db
 /host/app/src-tauri/gen/
 /host/app/test-results/
 /host/app/playwright-report/
+__pycache__/
