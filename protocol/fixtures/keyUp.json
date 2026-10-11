@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "keyUp",
+  "id": 43,
+  "payload": {
+    "keyIndex": 3,
+    "clientTimestampMs": 1760169600241
+  }
+}

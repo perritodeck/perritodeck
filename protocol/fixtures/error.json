@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "error",
+  "payload": {
+    "code": "unauthorized",
+    "message": "Missing or wrong session token. Copy it from the host's console."
+  }
+}

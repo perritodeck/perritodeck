@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "welcome",
+  "payload": {
+    "hostName": "dev-laptop",
+    "hostVersion": "0.1.0",
+    "protocolVersion": 1,
+    "heartbeatIntervalMs": 2000
+  }
+}

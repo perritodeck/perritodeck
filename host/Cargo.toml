@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/protocol", "crates/core", "crates/host", "crates/fakedeck"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/perritodeck/perritodeck"
+homepage = "https://perritodeck.dev"
+rust-version = "1.80"
+
+[workspace.dependencies]
+perritodeck-protocol = { path = "crates/protocol" }
+perritodeck-core = { path = "crates/core" }
+perritodeck-fakedeck = { path = "crates/fakedeck" }
+
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+gethostname = "1"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal"] }
+tokio-tungstenite = "0.27"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

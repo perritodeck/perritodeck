@@ -1,0 +1,27 @@
+[package]
+name = "perritodeck-fakedeck"
+description = "A command-line PerritoDeck client for testing the host without a tablet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "perritodeck-fakedeck"
+path = "src/main.rs"
+
+[dependencies]
+perritodeck-protocol.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+perritodeck-core.workspace = true
+
+[lints]
+workspace = true

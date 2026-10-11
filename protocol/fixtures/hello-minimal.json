@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "deviceId": "emulator-1",
+    "deviceName": "Android Emulator",
+    "appVersion": "0.1.0",
+    "platform": "android",
+    "osVersion": "14",
+    "screen": {
+      "widthPx": 2560,
+      "heightPx": 1600,
+      "densityDpi": 320
+    },
+    "capabilities": [
+      "keys"
+    ]
+  }
+}

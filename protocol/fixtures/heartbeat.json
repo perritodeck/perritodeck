@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "heartbeat",
+  "payload": {
+    "seq": 7,
+    "sentAtMs": 1760169602000
+  }
+}

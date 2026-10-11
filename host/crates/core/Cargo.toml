@@ -1,0 +1,20 @@
+[package]
+name = "perritodeck-core"
+description = "PerritoDeck host core: WebSocket server, device registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+perritodeck-protocol.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,34 @@
+{
+  "v": 1,
+  "type": "layout",
+  "payload": {
+    "cols": 2,
+    "rows": 2,
+    "keys": [
+      {
+        "index": 0,
+        "title": "Mute",
+        "bgColor": "#1E1E2E",
+        "textColor": "#FFFFFF"
+      },
+      {
+        "index": 1,
+        "title": "Scene 1",
+        "bgColor": "#F38BA8",
+        "textColor": "#11111B"
+      },
+      {
+        "index": 2,
+        "title": "",
+        "bgColor": "#000000",
+        "textColor": "#FFFFFF"
+      },
+      {
+        "index": 3,
+        "title": "Go\nLive",
+        "bgColor": "#A6E3A1",
+        "textColor": "#11111B"
+      }
+    ]
+  }
+}

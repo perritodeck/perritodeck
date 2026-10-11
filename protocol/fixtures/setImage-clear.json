@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "setImage",
+  "payload": {
+    "keyIndex": 1,
+    "image": null
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "keyAck",
+  "id": 42,
+  "payload": {
+    "keyIndex": 3,
+    "hostProcessingUs": 180
+  }
+}

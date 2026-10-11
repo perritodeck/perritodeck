@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "deviceId": "7f3c2a9e-4b1d-4e8a-9c55-1a2b3c4d5e6f",
+    "deviceName": "Kindle Fire HD 10",
+    "appVersion": "0.1.0",
+    "platform": "android",
+    "osVersion": "9",
+    "screen": {
+      "widthPx": 1920,
+      "heightPx": 1200,
+      "densityDpi": 224
+    },
+    "capabilities": [
+      "keys",
+      "haptics",
+      "multiTouch"
+    ],
+    "requestedGrid": {
+      "cols": 8,
+      "rows": 5
+    },
+    "token": "q8Zx2LmP"
+  }
+}
