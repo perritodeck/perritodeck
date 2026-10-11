@@ -79,11 +79,17 @@ class DeckConnection(
     private val pendingAcks = ConcurrentHashMap<Long, Long>()
 
     /** [client] carries the TLS pin for this host; defaults to the constructor's client. */
-    fun connect(url: String, hello: Hello, client: OkHttpClient = http) {
+    /**
+     * Connect and stay connected. [fallbacks] are other addresses for the same host
+     * (127.0.0.1 for a tablet on USB); retries alternate between them, and the one
+     * that worked is tried first next time.
+     */
+    fun connect(url: String, hello: Hello, client: OkHttpClient = http, fallbacks: List<String> = emptyList()) {
         disconnect()
         _layout.value = null
         _images.value = emptyMap()
-        job = scope.launch { runLoop(url, hello, client) }
+        val urls = (listOf(url) + fallbacks).distinct()
+        job = scope.launch { runLoop(urls, hello, client) }
     }
 
     fun disconnect() {
@@ -144,11 +150,14 @@ class DeckConnection(
         ws.send(Codec.encode(Envelope(msg, id)))
     }
 
-    private suspend fun runLoop(url: String, hello: Hello, client: OkHttpClient) {
+    private suspend fun runLoop(urls: List<String>, hello: Hello, client: OkHttpClient) {
         var attempt = 0
         var lastError: String? = null
+        var first = 0 // index of the address that last worked
         while (currentCoroutineContext().isActive) {
             attempt++
+            val i = (first + attempt - 1) % urls.size
+            val url = urls[i]
             _state.value = ConnState.Connecting(url, attempt, lastError)
             when (val end = runSession(url, hello, client)) {
                 is SessionEnd.Fatal -> {
@@ -157,10 +166,15 @@ class DeckConnection(
                 }
                 is SessionEnd.Retry -> {
                     lastError = end.reason
-                    if (end.wasConnected) attempt = 0
+                    if (end.wasConnected) {
+                        attempt = 0
+                        first = i
+                    }
                 }
             }
-            delay(backoffMs(attempt))
+            // Try the other addresses straight away before backing off.
+            if (urls.size > 1 && attempt % urls.size != 0) continue
+            delay(backoffMs(attempt / urls.size.coerceAtLeast(1)))
         }
     }
 

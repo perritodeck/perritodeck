@@ -9,6 +9,7 @@
 pub mod focus;
 mod live;
 pub mod settings;
+pub mod usb;
 pub mod views;
 
 use std::{
@@ -54,6 +55,8 @@ pub struct HostOptions {
     pub mdns: bool,
     /// Watch which app is in front, for auto-switching profiles.
     pub watch_focus: bool,
+    /// Forward the port to tablets on USB with `adb reverse`, when adb is installed.
+    pub usb: bool,
     /// Fixed pairing codes (tests only).
     pub pair_codes: Vec<String>,
 }
@@ -69,6 +72,7 @@ impl HostOptions {
             insecure: false,
             mdns: true,
             watch_focus: true,
+            usb: true,
             pair_codes: Vec::new(),
         }
     }
@@ -164,6 +168,10 @@ pub struct HostStatus {
     pub paused: bool,
     /// False where the desktop doesn't tell apps which app is in front (Wayland).
     pub auto_switch_supported: bool,
+    /// Tablets on a USB cable that can reach this computer (needs `adb`).
+    pub usb_devices: Vec<String>,
+    /// Whether `adb` was found, so USB tablets work.
+    pub usb_available: bool,
 }
 
 /// Outbox that forwards to the server handle once it exists.
@@ -254,6 +262,8 @@ pub struct Host {
     insecure: bool,
     integrations: Vec<String>,
     shared: Arc<Shared>,
+    usb: usb::UsbDevices,
+    usb_available: bool,
     history: Mutex<History>,
     executor: Executor,
     server: JoinHandle<std::io::Result<()>>,
@@ -405,9 +415,16 @@ impl Host {
         if opts.watch_focus && focus::supported() {
             spawn_focus_watch(shared.clone());
         }
+        let usb_devices = usb::UsbDevices::default();
+        let usb_available = opts.usb && !opts.insecure && usb::find_adb().is_some();
+        if usb_available {
+            usb::spawn(addr.port(), usb_devices.clone());
+        }
         let server = tokio::spawn(server.run());
 
         Ok(Self {
+            usb: usb_devices,
+            usb_available,
             host_name,
             addr,
             lan,
@@ -463,6 +480,14 @@ impl Host {
             integrations: self.integrations.clone(),
             paused: self.deck.paused(),
             auto_switch_supported: focus::supported(),
+            usb_devices: self
+                .usb
+                .lock()
+                .expect("usb poisoned")
+                .iter()
+                .cloned()
+                .collect(),
+            usb_available: self.usb_available,
         }
     }
 

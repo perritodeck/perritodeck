@@ -12,6 +12,10 @@ export interface HostStatus {
   integrations: string[];
   paused: boolean;
   autoSwitchSupported: boolean;
+  /** Serial numbers of tablets on a USB cable that can reach this computer. */
+  usbDevices: string[];
+  /** adb was found, so tablets on USB work. */
+  usbAvailable: boolean;
 }
 
 export interface DeviceInfo {

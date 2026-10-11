@@ -85,6 +85,27 @@
     <small>Most tablets find this computer by themselves. Type an address in Perrito only if yours doesn’t.</small>
   </dd>
 
+  <dt>USB</dt>
+  <dd>
+    {#if status.usbAvailable}
+      <span>
+        {status.usbDevices.length
+          ? `${status.usbDevices.length} tablet${status.usbDevices.length === 1 ? "" : "s"} on a cable`
+          : "No tablet on a cable right now"}
+      </span>
+      <small>
+        Tablets plugged in with USB debugging on connect over the cable, which is steadier than Wi-Fi. Pair them as
+        usual; they switch to the cable by themselves.
+      </small>
+    {:else}
+      <span>Not set up</span>
+      <small>
+        To use a tablet over a USB cable, install Android’s platform-tools (it includes <code>adb</code>) and restart
+        PerritoDeck.
+      </small>
+    {/if}
+  </dd>
+
   <dt>Profiles</dt>
   <dd>
     <span class="mono selectable">{status.profilesDir}</span>

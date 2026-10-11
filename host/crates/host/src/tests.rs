@@ -8,6 +8,7 @@ async fn starts_and_answers_ui_questions() {
     opts.port = 0;
     opts.mdns = false;
     opts.watch_focus = false;
+    opts.usb = false;
     let host = Host::start(opts).await.unwrap();
 
     let status = host.status();
@@ -57,6 +58,7 @@ async fn edits_save_reload_and_undo() {
     opts.port = 0;
     opts.mdns = false;
     opts.watch_focus = false;
+    opts.usb = false;
     let host = Host::start(opts).await.unwrap();
     let original = std::fs::read_to_string(&host.profile_path).unwrap();
     let title = |v: &ProfileView| {
@@ -168,6 +170,7 @@ async fn quiet_host(dir: &std::path::Path) -> Host {
     opts.port = 0;
     opts.mdns = false;
     opts.watch_focus = false;
+    opts.usb = false;
     Host::start(opts).await.unwrap()
 }
 

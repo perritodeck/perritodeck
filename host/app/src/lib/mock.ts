@@ -18,6 +18,8 @@ const status: HostStatus = {
   integrations: ["OBS"],
   paused: false,
   autoSwitchSupported: true,
+  usbDevices: [],
+  usbAvailable: true,
 };
 
 let devices: DeviceInfo[] = [

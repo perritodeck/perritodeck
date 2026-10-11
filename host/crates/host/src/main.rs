@@ -47,6 +47,9 @@ struct Cli {
     /// Don't advertise on the local network (mDNS).
     #[arg(long)]
     no_mdns: bool,
+    /// Don't connect tablets on USB through adb.
+    #[arg(long)]
+    no_usb: bool,
     /// Testing only: also accept this fixed pairing code for an hour (repeatable).
     #[arg(long, hide = true)]
     pair_code: Vec<String>,
@@ -180,6 +183,7 @@ async fn main() -> Result<()> {
     opts.profile = cli.profile.clone();
     opts.insecure = cli.insecure;
     opts.mdns = !cli.no_mdns;
+    opts.usb = !cli.no_usb;
     opts.pair_codes = cli.pair_code.clone();
     let host = Arc::new(Host::start(opts).await?);
 

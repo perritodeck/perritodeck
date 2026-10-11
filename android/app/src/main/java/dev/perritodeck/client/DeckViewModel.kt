@@ -89,7 +89,16 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
         _paired.value = settings.pairedHosts
         settings.lastHostId = host.hostId
         _notice.value = null
-        connection.connect(target.url, hello(target.deviceSecret), Tls.pinnedClient(Tls.defaultClient, target.hostId))
+        // Over a USB cable the computer forwards its port (adb reverse), so 127.0.0.1
+        // reaches it too; the certificate pin makes sure it's the same computer.
+        val usb = if (target.address == "127.0.0.1" || target.address == "localhost") emptyList()
+        else listOf("wss://127.0.0.1:${target.port}")
+        connection.connect(
+            target.url,
+            hello(target.deviceSecret),
+            Tls.pinnedClient(Tls.defaultClient, target.hostId),
+            fallbacks = usb,
+        )
         _route.value = Route.Deck
     }
 
