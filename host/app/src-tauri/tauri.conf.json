@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src http://127.0.0.1:*"
     }
   },
   "bundle": {
@@ -57,6 +57,63 @@
       "../../../plugins/uptime/": "plugins/uptime/",
       "../../../plugins/weather/": "plugins/weather/",
       "../../../plugins/wol/": "plugins/wol/"
+    },
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "allowDowngrades": true,
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "compression": "lzma"
+      },
+      "wix": {
+        "upgradeCode": "105995B0-7BA3-4946-AEE2-CD82FD788AB9",
+        "language": "en-US"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true,
+      "signingIdentity": "-",
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        }
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "desktopTemplate": "linux/perritodeck.desktop",
+        "depends": [],
+        "recommends": []
+      },
+      "rpm": {
+        "release": "1",
+        "desktopTemplate": "linux/perritodeck.desktop",
+        "depends": [],
+        "recommends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
     }
   }
 }

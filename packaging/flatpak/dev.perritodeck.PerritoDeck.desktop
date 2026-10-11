@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PerritoDeck
+GenericName=Tablet control deck
+Comment=Use a tablet as a stream deck
+Exec=perritodeck
+Icon=dev.perritodeck.PerritoDeck
+Terminal=false
+Categories=Utility;
+Keywords=deck;macro;hotkey;shortcut;tablet;button;streaming;
+StartupWMClass=perritodeck-app

@@ -1,0 +1,82 @@
+# DRAFT PKGBUILD for the AUR package "perritodeck" (builds from source). Not yet built or
+# published; see packaging/README.md. Before publishing: set sha256sums (updpkgsums),
+# build in a clean chroot (extra-x86_64-build), run namcap, and generate .SRCINFO
+# (makepkg --printsrcinfo > .SRCINFO).
+# Maintainer: PerritoDeck contributors <dev@perritodeck.dev>
+
+pkgname=perritodeck
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Use an Android tablet or phone as a programmable button deck (tray app and command-line host)"
+arch=('x86_64' 'aarch64')
+url="https://perritodeck.dev"
+license=('Apache-2.0')
+depends=('gcc-libs' 'glibc' 'gtk3' 'webkit2gtk-4.1' 'libayatana-appindicator' 'libxkbcommon' 'hicolor-icon-theme')
+makedepends=('cargo' 'nodejs' 'npm')
+optdepends=(
+  'python: first-party plugins (OBS, Proxmox, timers and more)'
+  'nodejs: JavaScript and Stream Deck plugins'
+  'android-tools: connect tablets by USB (adb reverse)'
+  'xdg-desktop-portal: keyboard and mouse input on Wayland'
+)
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/perritodeck/perritodeck/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # TODO: real checksum once the tag exists (updpkgsums)
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  local target
+  target="$(rustc -vV | sed -n 's/host: //p')"
+  (cd host && cargo fetch --locked --target "$target")
+  (cd host/app/src-tauri && cargo fetch --locked --target "$target")
+  (cd host/app && npm ci)
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  (cd host && cargo build --frozen --release -p perritodeck-host -p perritodeck-fakedeck)
+  (cd host/app && npm run build)
+  # What `tauri build --no-bundle` does: the release binary with the frontend embedded.
+  (cd host/app/src-tauri && cargo build --frozen --release --features tauri/custom-protocol)
+}
+
+check() {
+  cd "$pkgname-$pkgver/host"
+  RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target cargo test --frozen --release -p perritodeck-protocol -p perritodeck-profile
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 host/app/src-tauri/target/release/perritodeck-app "$pkgdir/usr/bin/perritodeck-app"
+  install -Dm755 host/target/release/perritodeck-host "$pkgdir/usr/bin/perritodeck-host"
+  install -Dm755 host/target/release/perritodeck-fakedeck "$pkgdir/usr/bin/perritodeck-fakedeck"
+
+  # Bundled plugins, where the .deb puts Tauri resources (/usr/lib/<productName>/).
+  local p
+  for p in counter gitlab http media mqtt obs ollama proxmox timer truenas uptime weather wol; do
+    install -d "$pkgdir/usr/lib/PerritoDeck/plugins"
+    cp -r --no-preserve=ownership "plugins/$p" "$pkgdir/usr/lib/PerritoDeck/plugins/"
+  done
+
+  install -Dm644 host/app/src-tauri/icons/32x32.png "$pkgdir/usr/share/icons/hicolor/32x32/apps/perritodeck-app.png"
+  install -Dm644 host/app/src-tauri/icons/128x128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/perritodeck-app.png"
+  install -Dm644 host/app/src-tauri/icons/128x128@2x.png "$pkgdir/usr/share/icons/hicolor/256x256@2/apps/perritodeck-app.png"
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/PerritoDeck.desktop" <<EOF
+[Desktop Entry]
+Categories=Utility;
+Comment=Use a tablet as a stream deck
+GenericName=Tablet control deck
+Keywords=deck;macro;hotkey;shortcut;tablet;button;streaming;
+Exec=perritodeck-app
+StartupWMClass=perritodeck-app
+Icon=perritodeck-app
+Name=PerritoDeck
+Terminal=false
+Type=Application
+EOF
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 plugins/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-plugins"
+}

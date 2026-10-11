@@ -1,6 +1,6 @@
 # perritodeck.dev
 
-Plain HTML and CSS, no build step. `index.html` is the landing page with a working demo deck; `privacy.html` is the privacy policy the Play Store listing links to.
+Plain HTML and CSS, no build step. `index.html` is the landing page with a working demo deck; `download.html` links the GitHub release files (its version is updated by `scripts/release-version.py`); `privacy.html` is the privacy policy the Play Store listing links to.
 
 ## Preview
 
@@ -20,5 +20,6 @@ Every push to `main` then redeploys the site automatically.
 
 ## Before launch
 
-- Swap the "coming soon" rows in the download table for real links.
+- Point the home page's Download links at `download.html`, and remove the "Not released yet" notice from it.
+- Unzip the release's plugin catalogue into `plugins/`.
 - The privacy policy already describes Phase 2 behaviour (pairing secret, host certificate); keep it in step with what the apps actually do.

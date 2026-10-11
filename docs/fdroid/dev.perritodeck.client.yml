@@ -1,0 +1,41 @@
+# DRAFT for gitlab.com/fdroid/fdroiddata: copy to metadata/dev.perritodeck.client.yml in a
+# merge request once the repository is public and v0.1.0 is tagged. See README.md here.
+# Field order follows `fdroid rewritemeta`; run `fdroid lint dev.perritodeck.client` and
+# `fdroid build -v -l dev.perritodeck.client` in a fdroiddata checkout before submitting.
+Categories:
+  - Connectivity
+  - System
+License: Apache-2.0
+AuthorName: PerritoDeck contributors
+AuthorEmail: dev@perritodeck.dev
+WebSite: https://perritodeck.dev
+SourceCode: https://github.com/perritodeck/perritodeck
+IssueTracker: https://github.com/perritodeck/perritodeck/issues
+Changelog: https://github.com/perritodeck/perritodeck/releases
+
+AutoName: Perrito
+
+RepoType: git
+Repo: https://github.com/perritodeck/perritodeck.git
+# Reproducible builds (stage 2, once release signing is set up): uncomment Binaries and
+# AllowedAPKSigningKeys. F-Droid then builds from source, compares with our signed APK
+# and, if they match, publishes ours, so F-Droid and GitHub users can update each other.
+# Binaries: https://github.com/perritodeck/perritodeck/releases/download/v%v/perrito-%v.apk
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 1
+    # F-Droid reviewers usually swap the tag for its full commit hash.
+    commit: v0.1.0
+    subdir: android/app
+    gradle:
+      - yes
+
+# Lowercase SHA-256 of the release certificate (keytool -printcert -jarfile perrito-0.1.0.apk,
+# without colons). Only with Binaries above.
+# AllowedAPKSigningKeys: 0000000000000000000000000000000000000000000000000000000000000000
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+$
+CurrentVersion: 0.1.0
+CurrentVersionCode: 1

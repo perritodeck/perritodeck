@@ -7,7 +7,7 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 | | |
 |---|---|
 | Android package | `dev.perritodeck.client` (debug: `dev.perritodeck.client.debug`) |
-| Desktop bundle id | `dev.perritodeck.host` |
+| Desktop bundle id | `dev.perritodeck.desktop` in `tauri.conf.json` (**undecided**: `dev.perritodeck.PerritoDeck` would suit Flatpak better; settle it before the first release, see [releasing](releasing.md#1-before-the-first-release-only)) |
 | Store title | Perrito: tablet control deck |
 | Contact | dev@perritodeck.dev |
 | Privacy policy | https://perritodeck.dev/privacy.html |
@@ -18,35 +18,7 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 
 ### F-Droid (main repo)
 - Needs: FOSS license ✔, no proprietary dependencies ✔, no Google Play Services ✔, `dependenciesInfo` block disabled ✔, fastlane metadata ✔, a tagged release (`v0.1.0`), reproducible build (optional but planned).
-- Submit a merge request to `gitlab.com/fdroid/fdroiddata` adding `metadata/dev.perritodeck.client.yml`. Draft:
-
-```yaml
-Categories:
-  - Connectivity
-  - System
-License: Apache-2.0
-WebSite: https://perritodeck.dev
-SourceCode: https://github.com/perritodeck/perritodeck
-IssueTracker: https://github.com/perritodeck/perritodeck/issues
-AutoName: Perrito
-
-RepoType: git
-Repo: https://github.com/perritodeck/perritodeck.git
-
-Builds:
-  - versionName: 0.1.0
-    versionCode: 1
-    commit: v0.1.0
-    subdir: android/app
-    gradle:
-      - yes
-
-AutoUpdateMode: Version
-UpdateCheckMode: Tags
-CurrentVersion: 0.1.0
-CurrentVersionCode: 1
-```
-
+- Submit a merge request to `gitlab.com/fdroid/fdroiddata` adding `metadata/dev.perritodeck.client.yml`. The draft, the lint/build steps and the reproducible-build plan are in [`fdroid/`](fdroid/README.md).
 - **Blocker:** the repository must be public before submission.
 - Expect no anti-features. Cleartext traffic (Phase 1) isn't an anti-feature, but Phase 2's TLS removes the question.
 
@@ -74,11 +46,24 @@ CurrentVersionCode: 1
 - Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after Play.
 
 ## Desktop channels (Phase 6)
-GitHub Releases (Windows MSI/MSIX, macOS universal .dmg signed + notarized, Linux AppImage/.deb/.rpm), winget manifest, Homebrew cask, Flathub, AUR.
+
+| Channel | Status |
+|---|---|
+| GitHub Releases | Ready: `release.yml` builds NSIS `.exe` (per user) + `.msi` (per machine), a universal `.dmg`, AppImage/`.deb`/`.rpm`, the CLI host for three OSes, the plugin catalogue and `SHA256SUMS`, into a **draft** release. Unsigned until secrets exist ([releasing](releasing.md)) |
+| Website downloads | Ready: [`website/download.html`](../website/download.html) links the release assets. The links work once the repository is public and a release is published |
+| Flathub | Draft manifest in [`packaging/flatpak/`](../packaging/flatpak/) with open questions (app ID, resource path, sandboxing of "Run command") |
+| AUR | Draft `PKGBUILD` in [`packaging/aur/`](../packaging/aur/) |
+| winget | After the first release: `wingetcreate new` with the NSIS or MSI URL |
+| Homebrew cask | After the first release, best once the app is notarised |
+| macOS signing + notarisation | Wired up behind secrets; needs an Apple Developer account |
+| Windows signing | Not wired up; SignPath Foundation (free for OSS) or Azure Trusted Signing |
 
 ## Still needed
-- [ ] Real phone and 10" tablet screenshots (`images/phoneScreenshots`, `images/tenInchScreenshots`) — take them on the Kindle and emulator.
+- [ ] Real phone and 10" tablet screenshots (`images/phoneScreenshots`, `images/tenInchScreenshots`). There's a shot list in [`fdroid/README.md`](fdroid/README.md#screenshot-shot-list).
 - [ ] Feature graphic 1024×500 (`images/featureGraphic.png`) for Play.
 - [ ] Final launcher icon artwork (the paw in `images/icon.png` is a placeholder).
-- [ ] Release signing config and a `release.yml` workflow that builds, signs and attaches the APK on tags.
-- [ ] Make the repository public before F-Droid/IzzyOnDroid submission.
+- [x] Release signing config and a `release.yml` workflow that builds, signs and attaches the APK on tags. Signing waits on the secrets.
+- [ ] Set the signing secrets (Android first; Apple and Windows optional).
+- [ ] Decide the desktop bundle identifier before the first release.
+- [ ] Make the repository public before F-Droid/IzzyOnDroid/Flathub submission and before the download page goes live.
+- [ ] The privacy policy says camera access comes "in a future version", but the app already requests `CAMERA` for QR scanning. Update `website/privacy.html` before the Play listing.

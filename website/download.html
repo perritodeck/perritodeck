@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download — PerritoDeck</title>
+  <meta name="description" content="Download PerritoDeck Host for Windows, macOS and Linux, and Perrito for Android tablets and phones. Free and open source.">
+  <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!--
+    Release links point at GitHub release assets for one version. scripts/release-version.py
+    rewrites every "/download/vX.Y.Z/", "perritodeck-X.Y.Z-" and data-version="X.Y.Z" here when
+    the version is bumped. The repository is private until launch, so these links 404 until
+    it's public and the first release is published.
+  -->
+  <style>
+    .page-head { max-width: 46em; }
+    .page-head .lede { margin-bottom: 20px; }
+    .notice {
+      max-width: 46em; margin: 0 0 8px; padding: 14px 18px;
+      background: var(--paper); border: 1px solid var(--line); border-left: 6px solid var(--apricot);
+      border-radius: 10px; color: var(--ink-soft);
+    }
+    .notice strong { color: var(--ink); }
+    .prose h2 { max-width: none; }
+    .lead-in { color: var(--ink-soft); }
+
+    .os-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 20px 0 8px; }
+    .os-card {
+      background: var(--paper); border: 1px solid var(--line); border-radius: 18px;
+      padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+    }
+    .os-card.is-yours { border-color: var(--apricot); box-shadow: 0 0 0 2px var(--apricot); }
+    .os-card h3 { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .os-card .yours { display: none; font: 700 0.75rem/1 var(--body); background: var(--apricot); color: #11111B; padding: 5px 9px; border-radius: 999px; }
+    .os-card.is-yours .yours { display: inline-block; }
+    .os-card p { margin: 0; color: var(--ink-soft); font-size: 0.95rem; }
+    .os-card .button { text-align: center; }
+    .os-card .more { list-style: none; margin: 0; padding: 0; font-size: 0.95rem; }
+    .os-card .more li { margin: 0 0 4px; }
+    .os-card .needs { font-size: 0.85rem; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
+
+    .store-list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; max-width: 46em; }
+    .store-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 14px 18px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+    .store-list strong { font: 700 1.05rem/1.3 var(--display); min-width: 9.5em; }
+    .store-list span:not(.badge) { color: var(--ink-soft); flex: 1 1 16em; }
+    .badge { flex: none; margin-left: auto; text-decoration: none; font: 700 0.75rem/1 var(--body); padding: 5px 9px; border-radius: 999px; background: var(--fog); border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap; }
+    .badge.now { background: var(--apricot); border-color: var(--apricot); color: #11111B; }
+
+    .prose .download-table { max-width: 900px; }
+    .download-table th { width: 26%; }
+    .download-table td code { overflow-wrap: anywhere; }
+
+    pre {
+      max-width: 46em; margin: 0 0 1.2em; padding: 14px 16px; overflow-x: auto;
+      background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+      font-size: 0.88rem; line-height: 1.5;
+    }
+    pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+    .os-label { font: 700 0.95rem/1.3 var(--display); margin: 18px 0 6px; }
+
+    @media (max-width: 860px) {
+      .os-grid { grid-template-columns: 1fr; }
+      .download-table th { width: 34%; }
+    }
+    @media (max-width: 520px) {
+      .download-table, .download-table tbody, .download-table tr, .download-table th, .download-table td { display: block; width: 100%; }
+      .download-table th { padding-bottom: 2px; border-bottom: 0; }
+      .download-table td { padding-top: 0; }
+      .store-list strong { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="/#how">How it works</a>
+        <a href="download.html" aria-current="page">Download</a>
+        <a href="plugins/">Plugins</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="prose" data-version="0.1.0">
+    <div class="wrap">
+      <div class="page-head">
+        <h1>Download PerritoDeck</h1>
+        <p class="updated">Version 0.1.0 · free and open source · no account needed</p>
+        <p class="lede">You need two things: <strong>PerritoDeck Host</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The host does what your buttons ask, and the tablet shows them.</p>
+      </div>
+      <p class="notice"><strong>Not released yet.</strong> PerritoDeck is in early development, and the download links below start working on launch day. Until then, you can build it from the source code.</p>
+
+      <h2 id="computer">1. Install the host on your computer</h2>
+      <p class="lead-in">The desktop app sits in your tray, pairs tablets, and lets you lay out your buttons.</p>
+
+      <div class="os-grid">
+        <article class="os-card" data-os="windows">
+          <h3>Windows <span class="yours">Your system</span></h3>
+          <p>Windows 10 or 11, 64-bit. Installs just for you, no administrator needed.</p>
+          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64-setup.exe">Download installer (.exe)</a>
+          <ul class="more">
+            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64.msi">MSI package</a> for all users and managed PCs</li>
+            <li><code>winget</code> package coming</li>
+          </ul>
+          <p class="needs">Uses Microsoft Edge WebView2, which Windows 11 already has. The installer adds it on Windows 10 if it's missing.</p>
+        </article>
+
+        <article class="os-card" data-os="mac">
+          <h3>macOS <span class="yours">Your system</span></h3>
+          <p>macOS 10.15 Catalina or newer. One app for Apple silicon and Intel Macs.</p>
+          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-macos-universal.dmg">Download for Mac (.dmg)</a>
+          <ul class="more">
+            <li>Homebrew cask coming</li>
+          </ul>
+          <p class="needs">To press keys for you, PerritoDeck asks for Accessibility access in System Settings → Privacy &amp; Security.</p>
+        </article>
+
+        <article class="os-card" data-os="linux">
+          <h3>Linux <span class="yours">Your system</span></h3>
+          <p>64-bit (x86_64), X11 or Wayland. The AppImage runs on most distributions.</p>
+          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-x86_64.AppImage">Download AppImage</a>
+          <ul class="more">
+            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-amd64.deb">.deb</a> for Debian, Ubuntu, Mint</li>
+            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-x86_64.rpm">.rpm</a> for Fedora, openSUSE</li>
+            <li>Flathub and AUR coming</li>
+          </ul>
+          <p class="needs">Needs WebKitGTK 4.1 (Ubuntu 22.04, Debian 12, Fedora 36 or newer). On Wayland, your desktop asks once per start to allow keyboard and mouse control.</p>
+        </article>
+      </div>
+
+      <h2 id="tablet">2. Install Perrito on your tablet</h2>
+      <p class="lead-in">Any Android tablet or phone running Android 5.1 or newer, including Amazon Fire tablets.</p>
+      <ul class="store-list">
+        <li><strong>Direct download</strong><span>The APK file, for sideloading or for <a href="https://obtainium.imranr.dev/">Obtainium</a>, which keeps it updated from GitHub.</span><a class="badge now" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perrito-0.1.0.apk">perrito-0.1.0.apk</a></li>
+        <li><strong>F-Droid</strong><span>The free and open-source app store. Builds Perrito from source itself.</span><span class="badge">Coming</span></li>
+        <li><strong>IzzyOnDroid</strong><span>An F-Droid repository that gets new versions within days.</span><span class="badge">Coming</span></li>
+        <li><strong>Google Play</strong><span>For tablets and phones with the Play Store.</span><span class="badge">Coming</span></li>
+        <li><strong>Amazon Appstore</strong><span>For Fire tablets without sideloading.</span><span class="badge">Later</span></li>
+        <li><strong>iPhone and iPad</strong><span>An iOS app is written and waiting to be built and tested on real devices.</span><span class="badge">Coming</span></li>
+      </ul>
+
+      <h2 id="requirements">System requirements</h2>
+      <table class="download-table">
+        <tr><th scope="row">Windows</th><td>Windows 10 or 11, 64-bit, with WebView2 (installed automatically if missing)</td></tr>
+        <tr><th scope="row">macOS</th><td>macOS 10.15 or newer, Apple silicon or Intel</td></tr>
+        <tr><th scope="row">Linux</th><td>x86_64 with GTK 3 and WebKitGTK 4.1; a tray that supports AppIndicator/StatusNotifier (GNOME needs the AppIndicator extension). Wayland input uses the Remote Desktop portal (GNOME and KDE Plasma).</td></tr>
+        <tr><th scope="row">Tablet or phone</th><td>Android 5.1 (Fire OS 5) or newer, on the same Wi-Fi as the computer or connected by USB</td></tr>
+        <tr><th scope="row">Plugins (optional)</th><td>The plugins that come with PerritoDeck (OBS, Proxmox, timers and more) need <strong>Python 3</strong>. Plugins written in JavaScript, and Stream Deck plugins, need <strong>Node.js 20 or newer</strong>. Without them, everything else works.</td></tr>
+        <tr><th scope="row">USB connection (optional)</th><td>Android's <code>adb</code> tool (Android SDK Platform-Tools) on the computer</td></tr>
+      </table>
+
+      <h3 class="os-label">Getting Python 3 and Node.js</h3>
+      <ul>
+        <li><strong>Windows:</strong> <code>winget install Python.Python.3.13</code> and <code>winget install OpenJS.NodeJS.LTS</code>, or the installers from python.org and nodejs.org.</li>
+        <li><strong>macOS:</strong> <code>brew install python node</code>, or the installers from python.org and nodejs.org.</li>
+        <li><strong>Linux:</strong> Python 3 is usually there already; Node.js is in your package manager (<code>nodejs</code>).</li>
+      </ul>
+
+      <h2 id="unsigned">First launch of an unsigned build</h2>
+      <p>Until the apps are code-signed, your system warns you the first time you open them. That's expected for any app without a paid certificate, and you can check the file yourself first (below).</p>
+      <ul>
+        <li><strong>Windows:</strong> SmartScreen says "Windows protected your PC". Click <em>More info</em>, then <em>Run anyway</em>.</li>
+        <li><strong>macOS:</strong> if macOS says the app can't be opened, open System Settings → Privacy &amp; Security and click <em>Open Anyway</em> next to the PerritoDeck message.</li>
+        <li><strong>Linux AppImage:</strong> make it executable first: <code>chmod +x perritodeck-*.AppImage</code>.</li>
+        <li><strong>Android:</strong> allow your browser or file manager to install unknown apps when it asks.</li>
+      </ul>
+
+      <h2 id="verify">Check your download</h2>
+      <p>Each release comes with a file called <a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a> that lists a SHA-256 checksum, a fingerprint of the exact bytes, for every file. If your file's checksum matches its line there, you got exactly what was built from the published source, with nothing changed or cut off along the way. Download SHA256SUMS into the same folder, then run:</p>
+      <p class="os-label">Linux</p>
+      <pre><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+      <p class="os-label">macOS</p>
+      <pre><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
+      <p>(If your <code>shasum</code> doesn't know <code>--ignore-missing</code>, run <code>shasum -a 256 perritodeck-0.1.0-macos-universal.dmg</code> and compare by eye.)</p>
+      <p class="os-label">Windows (PowerShell)</p>
+      <pre><code>Get-FileHash .\perritodeck-0.1.0-windows-x64-setup.exe -Algorithm SHA256</code></pre>
+      <p>On Linux and macOS each file should say <code>OK</code>. On Windows, compare the long hash with the line for that file in SHA256SUMS (upper or lower case doesn't matter).</p>
+      <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums. When the Android app is signed, its certificate fingerprint will be published here too, so you can check it with <code>apksigner verify --print-certs perrito-0.1.0.apk</code>.</p>
+
+      <h2 id="cli">Command-line host</h2>
+      <p>For servers, kiosks and scripting: the same host without a window, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. It's in the release as <code>perritodeck-host-0.1.0-linux-x86_64.tar.gz</code>, <code>-windows-x86_64.zip</code> and <code>-macos-universal.tar.gz</code>. Run <code>perritodeck-host --pair</code> to pair a tablet.</p>
+
+      <h2 id="source">Build it yourself</h2>
+      <p>Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). The README explains how to build the host, the desktop app and the Android app. Older versions and release notes are on the <a href="https://github.com/perritodeck/perritodeck/releases">releases page</a>.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="/">Home</a> &nbsp; <a href="privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Highlight the visitor's own system. Without JavaScript all three cards look the same.
+    (() => {
+      const ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
+      const os = /win/i.test(ua) ? "windows" : /mac/i.test(ua) && !/iphone|ipad/i.test(navigator.userAgent) ? "mac" : /linux|x11/i.test(ua) && !/android/i.test(navigator.userAgent) ? "linux" : "";
+      const card = os && document.querySelector(`.os-card[data-os="${os}"]`);
+      if (card) {
+        card.classList.add("is-yours");
+        card.parentNode.prepend(card);
+      }
+    })();
+  </script>
+</body>
+</html>

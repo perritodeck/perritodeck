@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DRAFT AppStream metadata for Flathub. Check with: flatpak run --command=flatpak-builder-lint org.flatpak.Builder appstream dev.perritodeck.PerritoDeck.metainfo.xml -->
+<component type="desktop-application">
+  <id>dev.perritodeck.PerritoDeck</id>
+  <name>PerritoDeck</name>
+  <summary>Use a tablet as a programmable button deck</summary>
+  <developer id="dev.perritodeck">
+    <name>PerritoDeck contributors</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <description>
+    <p>
+      PerritoDeck turns an Android tablet or phone into a grid of buttons for your computer.
+      Mute your microphone, switch OBS scenes, fire keyboard shortcuts, launch apps, control
+      media and your smart home, with one tap.
+    </p>
+    <p>
+      This app runs the host in your tray: pair tablets with a code, lay out your buttons, and
+      keep them working while the window is closed. Tablets connect over your own Wi-Fi or a
+      USB cable. There is no account and no cloud.
+    </p>
+    <ul>
+      <li>Encrypted pairing with a 6-digit code or a QR code</li>
+      <li>Pages, toggles, sliders, live values and animated keys</li>
+      <li>Profiles that switch with the focused app</li>
+      <li>Plugins for OBS Studio, Proxmox, MQTT, timers and more</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">dev.perritodeck.PerritoDeck.desktop</launchable>
+  <url type="homepage">https://perritodeck.dev</url>
+  <url type="bugtracker">https://github.com/perritodeck/perritodeck/issues</url>
+  <url type="vcs-browser">https://github.com/perritodeck/perritodeck</url>
+  <screenshots>
+    <!-- TODO: real screenshots of the desktop app, hosted at a stable URL. -->
+    <screenshot type="default">
+      <image>https://perritodeck.dev/screenshots/desktop-1.png</image>
+      <caption>The desktop app with a paired tablet's buttons</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">720</display_length>
+  </requires>
+  <keywords>
+    <keyword>deck</keyword>
+    <keyword>macro</keyword>
+    <keyword>hotkey</keyword>
+    <keyword>tablet</keyword>
+    <keyword>streaming</keyword>
+  </keywords>
+  <releases>
+    <release version="0.1.0" date="2026-10-11">
+      <description>
+        <p>First preview release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

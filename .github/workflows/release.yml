@@ -1,4 +1,10 @@
-# Push a tag like v0.1.0 to build everything and publish a GitHub Release.
+# Builds every release file for a version tag and puts them in a DRAFT GitHub Release.
+# Nothing is published until a maintainer reviews the draft and presses "Publish release".
+#
+# Runs only when a v*.*.* tag is pushed, or by hand (Actions → Release → Run workflow),
+# never on ordinary pushes: it uses macOS minutes, which cost ten times Linux ones.
+# Signing is optional. Every job checks for its secrets and builds unsigned without them.
+# See docs/releasing.md.
 name: Release
 
 on:
@@ -7,47 +13,63 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)build, e.g. v0.1.0"
+        description: "Existing tag to build, e.g. v0.1.0"
         required: true
+      publish:
+        description: "Also create or update the draft GitHub Release (off: build only and keep the files as workflow artifacts)"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   check-version:
+    name: Check versions
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      code: ${{ steps.v.outputs.code }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
       - id: v
-        name: Tag must match the app and host versions
+        name: The tag must match every version in the repository
         run: |
           version="${TAG#v}"
-          android=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts)
-          host=$(grep -m1 -oP '^version = "\K[^"]+' host/Cargo.toml)
-          echo "tag=$version android=$android host=$host"
-          [ "$version" = "$android" ] && [ "$version" = "$host" ] || { echo "::error::Tag $TAG does not match versionName ($android) and host version ($host)"; exit 1; }
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python3 scripts/release-version.py --check "$version"
+          code=$(grep -oP '^\s*versionCode = \K\d+' android/app/build.gradle.kts)
+          case "$version" in 0.*|*-*) prerelease=true ;; *) prerelease=false ;; esac
+          {
+            echo "version=$version"
+            echo "code=$code"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
   android:
+    name: Android APK
     needs: check-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+      - uses: gradle/actions/wrapper-validation@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Restore signing key
+      - name: Restore signing key (only if the secret exists)
         env:
           KEYSTORE_B64: ${{ secrets.PERRITO_KEYSTORE_BASE64 }}
         run: |
@@ -55,7 +77,7 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "PERRITO_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           else
-            echo "::warning::No signing key configured; the APK will be unsigned."
+            echo "::warning::No Android signing key configured; the release APK will be unsigned."
           fi
       - name: Build release APK and bundle
         working-directory: android
@@ -65,24 +87,44 @@ jobs:
           PERRITO_KEY_PASSWORD: ${{ secrets.PERRITO_KEY_PASSWORD }}
         run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease bundleRelease
       - name: Collect
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          v="${{ needs.check-version.outputs.version }}"
-          mkdir dist
-          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
-          case "$apk" in *unsigned*) cp "$apk" "dist/perrito-$v-unsigned.apk" ;; *) cp "$apk" "dist/perrito-$v.apk" ;; esac
-          cp android/app/build/outputs/bundle/release/*.aab "dist/perrito-$v.aab"
+          mkdir -p dist play
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/release/*.apk)
+          [ "${#apks[@]}" -eq 1 ] || { echo "::error::Expected one release APK, found ${#apks[@]}"; exit 1; }
+          case "${apks[0]}" in
+            *unsigned*) cp "${apks[0]}" "dist/perrito-$VERSION-unsigned.apk" ;;
+            *)
+              cp "${apks[0]}" "dist/perrito-$VERSION.apk"
+              # The certificate fingerprint users and IzzyOnDroid/Obtainium can check against.
+              apksigner=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+              "$apksigner" verify --print-certs "dist/perrito-$VERSION.apk" | grep -i 'SHA-256' | tee -a "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
+          # The App Bundle is only for Google Play; it stays a workflow artifact.
+          cp android/app/build/outputs/bundle/release/*.aab "play/perrito-$VERSION.aab"
       - uses: actions/upload-artifact@v4
         with:
-          name: android
+          name: release-android
           path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: play-bundle
+          path: play/
+          if-no-files-found: error
 
-  host:
+  cli:
+    name: Command-line host (${{ matrix.name }})
     needs: check-version
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # The oldest supported runner, so the binary runs on older glibc (2.35+).
+          - os: ubuntu-22.04
             name: linux-x86_64
           - os: windows-latest
             name: windows-x86_64
@@ -100,50 +142,248 @@ jobs:
       - name: Linux build dependencies (Wayland input needs xkbcommon)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libxkbcommon-dev
+      # The compiler version comes from host/rust-toolchain.toml.
       - name: Toolchain
         run: |
           rustup show active-toolchain || rustup toolchain install
           if [ "${{ matrix.name }}" = macos-universal ]; then rustup target add x86_64-apple-darwin aarch64-apple-darwin; fi
       - name: Build
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          NAME: ${{ matrix.name }}
         run: |
-          v="${{ needs.check-version.outputs.version }}"
-          out="../dist/perritodeck-host-$v-${{ matrix.name }}"
+          out="../dist/perritodeck-host-$VERSION-$NAME"
           mkdir -p "$out"
           bins="perritodeck-host perritodeck-fakedeck"
-          if [ "${{ matrix.name }}" = macos-universal ]; then
+          if [ "$NAME" = macos-universal ]; then
             cargo build --release --locked --target x86_64-apple-darwin --target aarch64-apple-darwin
-            for b in $bins; do lipo -create -output "$out/$b" target/x86_64-apple-darwin/release/$b target/aarch64-apple-darwin/release/$b; done
+            for b in $bins; do lipo -create -output "$out/$b" "target/x86_64-apple-darwin/release/$b" "target/aarch64-apple-darwin/release/$b"; done
           else
             cargo build --release --locked
-            ext=""; [ "${{ matrix.os }}" = windows-latest ] && ext=".exe"
+            ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
             for b in $bins; do cp "target/release/$b$ext" "$out/"; done
           fi
           cp ../LICENSE README.md "$out/"
           cd ../dist
-          if [ "${{ matrix.os }}" = windows-latest ]; then 7z a -bd "$(basename "$out").zip" "$(basename "$out")" > /dev/null; else tar czf "$(basename "$out").tar.gz" "$(basename "$out")"; fi
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -bd "$(basename "$out").zip" "$(basename "$out")" > /dev/null
+          else
+            tar czf "$(basename "$out").tar.gz" "$(basename "$out")"
+          fi
           rm -rf "$(basename "$out")"
       - uses: actions/upload-artifact@v4
         with:
-          name: host-${{ matrix.name }}
+          name: release-cli-${{ matrix.name }}
           path: dist/
+          if-no-files-found: error
 
-  publish:
-    needs: [check-version, android, host]
+  desktop:
+    name: Desktop app (${{ matrix.name }})
+    needs: check-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            bundles: nsis,msi
+            target: ""
+          # AppImage and .deb built on the oldest supported Ubuntu run on more distributions.
+          - os: ubuntu-22.04
+            name: linux
+            bundles: deb,rpm,appimage
+            target: ""
+          - os: macos-latest
+            name: macos
+            bundles: app,dmg
+            target: universal-apple-darwin
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: host/app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/app/package-lock.json
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxkbcommon-dev patchelf
+      - name: macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: npm ci
+      - name: Build and bundle
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          BUNDLES: ${{ matrix.bundles }}
+          TARGET: ${{ matrix.target }}
+          # linuxdeploy (AppImage) is itself an AppImage; this avoids needing FUSE on the runner.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          # macOS signing: a Developer ID Application certificate (.p12, base64) and its name.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS notarisation with an App Store Connect API key (.p8, base64).
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          # Empty variables would make the bundler try to sign or notarise and fail, so a
+          # missing secret means "skip that step", never "fail the release".
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "Signing with the Developer ID certificate."
+            if [ -n "$APPLE_API_ISSUER" ] && [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_P8_BASE64" ]; then
+              echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+              export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+              echo "Notarising."
+            else
+              echo "::warning::No notarisation key configured; the app is signed but not notarised."
+              unset APPLE_API_ISSUER APPLE_API_KEY
+            fi
+          else
+            [ "$RUNNER_OS" = macOS ] && echo "::warning::No Apple certificate configured; the app is ad-hoc signed only, so Gatekeeper will warn."
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY
+          fi
+          unset APPLE_API_KEY_P8_BASE64
+          # Windows code signing isn't set up yet (see docs/releasing.md); installers are unsigned.
+
+          # MSI versions must be numeric, so pre-releases like 1.2.0-rc.1 ship the NSIS installer only.
+          case "$VERSION" in *-*) BUNDLES="${BUNDLES//,msi/}" ;; esac
+          args=(--ci --bundles "$BUNDLES")
+          [ -n "$TARGET" ] && args+=(--target "$TARGET")
+          npx tauri build "${args[@]}"
+      - name: Collect
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          b=src-tauri/target/release/bundle
+          [ -n "$TARGET" ] && b="src-tauri/target/$TARGET/release/bundle"
+          out=../../dist
+          mkdir -p "$out"
+          shopt -s nullglob
+          # Copy the one file matching a pattern under a stable, versioned name.
+          one() {
+            # shellcheck disable=SC2206 # $1 is a glob on purpose
+            local files=("$b"/$1)
+            [ "${#files[@]}" -eq 1 ] || { echo "::error::Expected one $1, found ${#files[@]}"; exit 1; }
+            cp "${files[0]}" "$out/$2"
+          }
+          case "$RUNNER_OS" in
+            Windows)
+              one 'nsis/*-setup.exe' "perritodeck-$VERSION-windows-x64-setup.exe"
+              [ -d "$b/msi" ] && one 'msi/*.msi' "perritodeck-$VERSION-windows-x64.msi"
+              ;;
+            Linux)
+              one 'deb/*.deb' "perritodeck-$VERSION-linux-amd64.deb"
+              one 'rpm/*.rpm' "perritodeck-$VERSION-linux-x86_64.rpm"
+              one 'appimage/*.AppImage' "perritodeck-$VERSION-linux-x86_64.AppImage"
+              ;;
+            macOS)
+              one 'dmg/*.dmg' "perritodeck-$VERSION-macos-universal.dmg"
+              ;;
+          esac
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-desktop-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  catalogue:
+    name: Plugin catalogue
+    needs: check-version
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          python3 plugins/build_catalog.py "$RUNNER_TEMP/plugins"
+          mkdir dist
+          (cd "$RUNNER_TEMP/plugins" && zip -X -q -r "$GITHUB_WORKSPACE/dist/perritodeck-$VERSION-plugin-catalogue.zip" .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-catalogue
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Draft GitHub Release
+    needs: [check-version, android, cli, desktop, catalogue]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v4
         with:
+          pattern: release-*
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - name: Create or update the GitHub Release
+        working-directory: dist
+        run: |
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          cat SHA256SUMS
+          { echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          CODE: ${{ needs.check-version.outputs.code }}
+        run: |
+          {
+            echo "## Downloads"
+            echo
+            echo "| | File |"
+            echo "|---|---|"
+            echo "| Windows 10/11 | \`perritodeck-$VERSION-windows-x64-setup.exe\` (installs for you, no admin needed) or \`.msi\` (all users) |"
+            echo "| macOS 10.15+ (Intel and Apple silicon) | \`perritodeck-$VERSION-macos-universal.dmg\` |"
+            echo "| Linux x86_64 | \`.AppImage\`, \`.deb\` (Debian, Ubuntu) or \`.rpm\` (Fedora, openSUSE) |"
+            echo "| Android 5.1+ | \`perrito-$VERSION.apk\` |"
+            echo "| Command-line host | \`perritodeck-host-$VERSION-<os>\` archives |"
+            echo "| Plugin catalogue | \`perritodeck-$VERSION-plugin-catalogue.zip\` (what perritodeck.dev/plugins/ serves) |"
+            echo
+            echo "Check a download with \`sha256sum -c SHA256SUMS --ignore-missing\`. How to verify, and what an unsigned build looks like on each OS: https://perritodeck.dev/download.html"
+            echo
+            echo "## Android changes"
+            echo
+            cat "fastlane/metadata/android/en-US/changelogs/$CODE.txt"
+            echo
+          } > "$RUNNER_TEMP/notes.md"
+      - name: Create or update the draft
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          prerelease=""; case "$TAG" in v0.*|*-*) prerelease="--prerelease" ;; esac
-          if gh release view "$TAG" -R "${{ github.repository }}" > /dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber -R "${{ github.repository }}"
+          repo="${{ github.repository }}"
+          if draft=$(gh release view "$TAG" -R "$repo" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::Release $TAG is already published. Its files are not replaced automatically; turn it back into a draft first if you really mean to."
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --clobber -R "$repo"
           else
-            gh release create "$TAG" dist/* --generate-notes $prerelease --title "PerritoDeck ${TAG#v}" -R "${{ github.repository }}"
+            flags=(--draft --verify-tag --generate-notes --notes-file "$RUNNER_TEMP/notes.md" --title "PerritoDeck $VERSION")
+            [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+            gh release create "$TAG" dist/* "${flags[@]}" -R "$repo"
           fi
+          echo "Draft ready: review it under Releases, then press Publish." >> "$GITHUB_STEP_SUMMARY"

@@ -8,7 +8,7 @@
 | 3 — [Desktop app & editor](phase-3.md) | Tauri tray app with drag-and-drop editor, profiles, auto-switch | Mostly done ([status](phase-3.md#status-2026-10-11)) |
 | 4 — [Rich controls](phase-4.md) | USB polish, dials, touch strip, haptic patterns, live feedback (clock, CPU, now playing), animated keys | Mostly done ([status](phase-4.md#status-2026-10-11)) |
 | 5 — [Plugins](phase-5.md) | Plugin SDK (TypeScript, Python), plugin manager, first-party plugins: OBS, Home Assistant, MQTT, HTTP, Spotify/MPRIS/SMTC | Mostly done ([status](phase-5.md#status-2026-10-11)) |
-| 6 — Packaging & distribution | Signed installers for all desktops, F-Droid, IzzyOnDroid, Play, website downloads | Release workflow and store metadata ready ([distribution](../distribution.md), [releasing](../releasing.md)) |
+| 6 — Packaging & distribution | Signed installers for all desktops, F-Droid, IzzyOnDroid, Play, website downloads | Groundwork done: draft-release workflow for all OSes with checksums, version script, download page, F-Droid/Flatpak/AUR drafts. Waiting on signing secrets, public repo and the go-ahead ([distribution](../distribution.md), [releasing](../releasing.md)) |
 | 7 — [Stretch](phase-7.md) | Companion Satellite mode, Elgato-plugin compatibility, iOS client, real Stream Deck hardware, multi-device per host | Pulled forward: Companion mode, Stream Deck (Node.js) plugins and the iOS app written ([status](phase-7.md)); iOS not yet compiled |
 
 Each phase starts with a plan here, ends with a review, and records decisions in [`DECISIONS.md`](../DECISIONS.md).

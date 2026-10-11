@@ -1,0 +1,80 @@
+# DRAFT Flatpak manifest for Flathub. Not built or tested yet; see README.md in this folder.
+#
+# Flathub builds offline from source, so the Rust and npm dependencies come from generated
+# source lists (cargo-sources.json, node-sources.json). Regenerate them for every release:
+#   python3 flatpak-cargo-generator.py host/app/src-tauri/Cargo.lock -o cargo-sources.json
+#   flatpak-node-generator npm host/app/package-lock.json -o node-sources.json
+# (both from github.com/flatpak/flatpak-builder-tools).
+app-id: dev.perritodeck.PerritoDeck
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+command: perritodeck
+finish-args:
+  # The window (Wayland, with X11 as a fallback) and GPU for the WebView.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Tablets connect on port 46710 and find the host with mDNS on the local network.
+  - --share=network
+  # Tray icon (StatusNotifierItem).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # Media keys and "now playing" through MPRIS.
+  - --talk-name=org.mpris.MediaPlayer2.*
+  # Keyboard and mouse input on Wayland go through the Remote Desktop portal, which needs
+  # no extra permission. On X11 the fallback-x11 socket is enough for XTest.
+  #
+  # OPEN QUESTION for Flathub review: "Run command" keys and plugins run programs on the
+  # host system. Inside the sandbox they only see the runtime. Doing it properly needs
+  # --talk-name=org.freedesktop.Flatpak (flatpak-spawn --host), which is a sandbox escape
+  # that Flathub reviewers ask to justify. Without it, those keys are limited to the sandbox.
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+modules:
+  # Tray support: libayatana-appindicator and its dependencies, from Flathub's
+  # shared-modules (add it as a git submodule of the Flathub repo).
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
+
+  - name: perritodeck
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/perritodeck/cargo
+        CARGO_NET_OFFLINE: "true"
+        XDG_CACHE_HOME: /run/build/perritodeck/flatpak-node/cache
+        npm_config_cache: /run/build/perritodeck/flatpak-node/npm-cache
+        npm_config_offline: "true"
+    build-commands:
+      # The compiler is the SDK extension's (host/rust-toolchain.toml is read only by rustup,
+      # which isn't in the SDK). It must be at least as new as the pinned 1.97.
+      - cd host/app && npm ci --offline
+      - cd host/app && npm run build
+      # What `tauri build` does, without needing the Tauri CLI's native binary.
+      - cd host/app/src-tauri && cargo --offline build --release --locked --features tauri/custom-protocol
+      - install -Dm755 host/app/src-tauri/target/release/perritodeck-app /app/bin/perritodeck
+      # Bundled first-party plugins. UNVERIFIED: on Linux, Tauri's resource_dir() is
+      # /usr/lib/<productName> outside an AppImage, and /usr is the runtime inside a
+      # Flatpak. The app probably needs a fallback to /app/lib/PerritoDeck when
+      # FLATPAK_ID is set before the Plugins page can list these.
+      - mkdir -p /app/lib/PerritoDeck/plugins
+      - for p in counter gitlab http media mqtt obs ollama proxmox timer truenas uptime weather wol; do cp -r "plugins/$p" /app/lib/PerritoDeck/plugins/; done
+      - install -Dm644 host/app/src-tauri/icons/32x32.png /app/share/icons/hicolor/32x32/apps/dev.perritodeck.PerritoDeck.png
+      - install -Dm644 host/app/src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/dev.perritodeck.PerritoDeck.png
+      - install -Dm644 host/app/src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/dev.perritodeck.PerritoDeck.png
+      - install -Dm644 dev.perritodeck.PerritoDeck.desktop /app/share/applications/dev.perritodeck.PerritoDeck.desktop
+      - install -Dm644 dev.perritodeck.PerritoDeck.metainfo.xml /app/share/metainfo/dev.perritodeck.PerritoDeck.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/perritodeck/perritodeck.git
+        tag: v0.1.0
+        # commit: <full hash of v0.1.0>   (Flathub requires it next to the tag)
+      - cargo-sources.json
+      - node-sources.json
+      - type: file
+        path: dev.perritodeck.PerritoDeck.desktop
+      - type: file
+        path: dev.perritodeck.PerritoDeck.metainfo.xml
