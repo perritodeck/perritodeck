@@ -84,8 +84,7 @@ class HostEndToEndTest {
         shell("input keyevent KEYCODE_SLEEP")
         Thread.sleep(15_000)
         shell("input keyevent KEYCODE_WAKEUP")
-        shell("wm dismiss-keyguard") // API 23+
-        shell("input keyevent 82") // unlocks the swipe keyguard on older versions
+        unlock()
         waitForState("connected after sleep") { it is ConnState.Connected }
         compose.onNode(hasContentDescription("muted", substring = true)).performClick()
         compose.waitUntilAtLeastOneExists(hasContentDescription("live", substring = true), timeout)
@@ -104,6 +103,22 @@ class HostEndToEndTest {
         compose.onNode(hasContentDescription("live", substring = true)).performClick()
         compose.waitUntilAtLeastOneExists(hasContentDescription("muted", substring = true), timeout)
         screenshot("7-reconnected")
+    }
+
+    /** Get past the emulator's swipe lock screen until the app is in front again. */
+    private fun unlock() {
+        repeat(10) {
+            if (resumed()) return
+            shell("wm dismiss-keyguard") // API 23+
+            shell("input keyevent 82") // menu key unlocks the swipe keyguard on older versions
+            shell("input swipe 300 900 300 100")
+            Thread.sleep(1_000)
+        }
+        throw AssertionError("the app didn't come back after waking the screen")
+    }
+
+    private fun resumed(): Boolean = compose.runOnUiThread {
+        compose.activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
     }
 
     private val vm: DeckViewModel by lazy {

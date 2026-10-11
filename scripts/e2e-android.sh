@@ -21,18 +21,18 @@ args=(-Pandroid.testInstrumentationRunnerArguments.pairCode=424242 -Pandroid.inj
 if [ -n "${HOST_FINGERPRINT:-}" ]; then
   args+=("-Pandroid.testInstrumentationRunnerArguments.hostFingerprint=${HOST_FINGERPRINT}")
 fi
-(cd "$root/android" && ./gradlew --no-daemon connectedDebugAndroidTest "${args[@]}") 2>&1 | tee "$out/gradle.txt"
+(cd "$root/android" && timeout 1500 ./gradlew --no-daemon connectedDebugAndroidTest "${args[@]}") 2>&1 | tee "$out/gradle.txt"
 status=${PIPESTATUS[0]}
 
-adb logcat -d > "$out/logcat.txt" 2>&1 || true
+timeout 60 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 # Latency and other measurements from the test, as notes on the run summary.
 grep -oE "PerritoE2E: latency.*" "$out/logcat.txt" | sed "s/^/::notice title=${E2E_NAME:-E2E}::/" || true
 pkg=dev.perritodeck.client.debug
 mkdir -p "$out/e2e-screenshots"
-for f in $(adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r' | grep -E '^[A-Za-z0-9._-]+\.png$'); do
-  adb exec-out run-as "$pkg" cat "files/e2e-screenshots/$f" > "$out/e2e-screenshots/$f" 2>/dev/null || true
+for f in $(timeout 30 adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r' | grep -E '^[A-Za-z0-9._-]+\.png$'); do
+  timeout 30 adb exec-out run-as "$pkg" cat "files/e2e-screenshots/$f" > "$out/e2e-screenshots/$f" 2>/dev/null || true
 done
-adb exec-out screencap -p > "$out/final-screen.png" 2>/dev/null || true
+timeout 30 adb exec-out screencap -p > "$out/final-screen.png" 2>/dev/null || true
 cp -r "$root/android/app/build/reports/androidTests" "$out/report" 2>/dev/null || true
 
 if [ "$status" -ne 0 ]; then
