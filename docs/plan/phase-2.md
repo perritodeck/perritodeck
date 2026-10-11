@@ -88,3 +88,15 @@ Tauri UI and drag-and-drop editor (Phase 3), dials and touch strip (Phase 4), pl
 1. **Wayland input:** the RemoteDesktop portal asks for permission on every host start on some desktops. Is that acceptable for v1, or should we ship a small `uinput` helper? `uinput` needs a udev rule, and that's a sudo step during install.
 2. **Profile format:** TOML, which is human-friendly and supports comments, or JSON, which is the same format the Phase 3 editor and plugins use? Leaning TOML.
 3. **Run command scope:** allow arbitrary commands from day one, or require the host to be started with `--allow-commands` until the Phase 3 UI can confirm each new command?
+
+## Status (2026-10-11)
+
+| Item | State |
+|---|---|
+| Pairing (6-digit code, QR link), TLS with pinned host cert, per-device secrets, revoke | Done — host, fakedeck and Android; 15 host end-to-end tests; emulator test pairs over TLS |
+| `Origin` rejection, cleartext disabled on Android | Done |
+| mDNS advertisement (host) and discovery (Android NsdManager) | Done; untested on a real network until the laptop/Kindle check |
+| Actions crate (hotkey, text, media, open, launch, command, multi) | Prototype done, not yet wired to keys |
+| Host-rendered key images (Inter, auto-fit titles, PNG icons) | Done for the demo layout; Android draws them |
+| Profiles (TOML), navigation (folders/pages), states | Not started — waiting on open question 2 |
+| In-app QR scanning | Replaced by the `perritodeck://pair` link any camera app can open |

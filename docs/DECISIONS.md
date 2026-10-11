@@ -24,3 +24,6 @@ One line per decision, newest last. Format: `YYYY-MM-DD — decision — reason`
 - 2026-10-11 — QR codes open the app via a `perritodeck://pair` link instead of an in-app scanner — any camera app works, no CameraX/ZXing dependency, and most Fire tablets lack a rear camera anyway. In-app scanning can come later.
 - 2026-10-11 — Host listens on all interfaces by default from Phase 2 — safe now that pairing and TLS are mandatory, and Wi-Fi works out of the box. `--insecure` (plain ws, no pairing) is loopback-only.
 - 2026-10-11 — Phase 1 LAN token removed; `hello.token` stays in the schema as deprecated and ignored.
+- 2026-10-11 — Key images rendered with tiny-skia + ab_glyph and a bundled Inter SemiBold (OFL 1.1), sent as lossless PNG — pure Rust, small, deterministic; WebP would need libwebp. PNG of a flat key is a few KB.
+- 2026-10-11 — Key pixel size computed on the host from the tablet's reported screen and the client's layout rules (8dp padding/gaps) — images arrive at native resolution, no client-side scaling blur.
+- 2026-10-11 — Emulator E2E tests match keys by accessibility label (contentDescription) rather than visible text — works whether a key is drawn as text or as a host-rendered image, and keeps keys screen-reader friendly.
