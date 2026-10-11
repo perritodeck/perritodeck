@@ -52,6 +52,8 @@ struct State {
     /// Toggle state per (page, position).
     toggles: HashMap<(usize, [u32; 2]), usize>,
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
+    /// Why the last edit to the profile file was rejected, if it was.
+    reload_error: Option<String>,
 }
 
 pub struct Deck {
@@ -85,6 +87,7 @@ impl Deck {
                 devices: HashMap::new(),
                 toggles: HashMap::new(),
                 icons: HashMap::new(),
+                reload_error: None,
             }),
             outbox,
             executor,
@@ -131,9 +134,24 @@ impl Deck {
         self.lock().devices.remove(device_id);
     }
 
+    /// The profile currently shown on the tablets.
+    pub fn profile(&self) -> Profile {
+        self.lock().profile.clone()
+    }
+
+    /// Why the last edit to the profile file was rejected (cleared by a good reload).
+    pub fn reload_error(&self) -> Option<String> {
+        self.lock().reload_error.clone()
+    }
+
+    pub fn set_reload_error(&self, error: String) {
+        self.lock().reload_error = Some(error);
+    }
+
     /// Swap in a new profile (after the file changed) and redraw every device.
     pub fn reload(&self, profile: Profile) {
         let mut st = self.lock();
+        st.reload_error = None;
         let pages = profile.pages.len();
         st.profile = profile;
         st.icons.clear();

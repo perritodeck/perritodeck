@@ -49,7 +49,10 @@ pub fn watch_profile(path: PathBuf, deck: Arc<Deck>) -> notify::Result<notify::R
                     info!("{} changed", path.display());
                     deck.reload(profile);
                 }
-                Err(e) => error!("not applying your edit — {e}"),
+                Err(e) => {
+                    error!("not applying your edit — {e}");
+                    deck.set_reload_error(e.to_string());
+                }
             }
         }
     });

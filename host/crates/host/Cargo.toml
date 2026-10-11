@@ -1,12 +1,15 @@
 [package]
 name = "perritodeck-host"
-description = "PerritoDeck desktop host (headless during Phase 1)"
+description = "PerritoDeck desktop host runtime and command-line host"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
 
 [[bin]]
 name = "perritodeck-host"
@@ -19,7 +22,9 @@ perritodeck-render.workspace = true
 perritodeck-profile.workspace = true
 perritodeck-deck.workspace = true
 perritodeck-integrations.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+notify.workspace = true
 perritodeck-protocol.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
@@ -33,3 +38,6 @@ tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
