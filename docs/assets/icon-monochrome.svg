@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Single-colour paw for Android 13 themed icons and other monochrome uses. -->
+  <g fill="#000000" transform="translate(512 512) scale(0.74) translate(-512 -510)">
+    <rect x="337" y="474" width="350" height="296" rx="104"/>
+    <rect x="362" y="250" width="124" height="140" rx="46"/>
+    <rect x="538" y="250" width="124" height="140" rx="46"/>
+    <rect x="200" y="380" width="124" height="140" rx="46" transform="rotate(-18 262 450)"/>
+    <rect x="700" y="380" width="124" height="140" rx="46" transform="rotate(18 762 450)"/>
+  </g>
+</svg>
