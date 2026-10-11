@@ -175,6 +175,23 @@ steps = [
 # title = "Dim"
 # action = { type = "homeAssistant", service = "light.turn_on", entity = "light.desk", data = { brightness_pct = 30 } }
 
+# ---- Live values ----
+#
+# Titles can show values the computer keeps up to date: {cpu} and {mem} (percent
+# used), {ha:sensor.outside} (a Home Assistant state with its unit), or an attribute
+# like {ha:light.desk.brightness}; {obs:scene}, {obs:recording} and {obs:streaming}.
+#
+# A two-state toggle can follow one of them instead of flipping on each press, so a
+# REC key is red exactly while OBS records, however recording was started:
+#
+# [[pages.keys]]
+# at = [2, 1]
+# follow = "obs:recording"
+# states = [
+#   { title = "REC", action = { type = "obs", op = "startRecord" } },
+#   { title = "STOP", bg = "#F38BA8", fg = "#11111B", action = { type = "obs", op = "stopRecord" } },
+# ]
+
 # ---- Sliders ----
 #
 # A slider fills one cell; drag it up and down on the tablet. It can set the

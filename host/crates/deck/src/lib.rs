@@ -24,7 +24,11 @@ use perritodeck_protocol::{
 };
 use tracing::{info, warn};
 
-pub use templates::render_title;
+pub use templates::{render_title, tokens, truthy};
+
+/// Values for `{name}`s in titles (and toggles that follow them), kept up to date by
+/// the host: `cpu`, `mem`, `ha:<entity>`, `obs:recording`, …
+pub type LiveValues = Arc<std::sync::RwLock<HashMap<String, String>>>;
 
 /// Where the runtime sends messages (the server in production, a recorder in tests).
 pub trait Outbox: Send + Sync {
@@ -63,11 +67,13 @@ struct Slot {
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
     /// Why the last edit to the profile file was rejected, if it was.
     reload_error: Option<String>,
+    live: LiveValues,
 }
 
 impl Slot {
-    fn new(profile: Profile, base_dir: PathBuf) -> Self {
+    fn new(profile: Profile, base_dir: PathBuf, live: LiveValues) -> Self {
         Self {
+            live,
             profile,
             base_dir,
             toggles: HashMap::new(),
@@ -137,6 +143,7 @@ pub struct Deck {
     revision: std::sync::atomic::AtomicU64,
     paused: std::sync::atomic::AtomicBool,
     sliders: Mutex<SliderQueue>,
+    live: LiveValues,
 }
 
 /// Default grid when the profile doesn't fix one: sized to the device's screen.
@@ -169,8 +176,12 @@ impl Deck {
         outbox: Arc<dyn Outbox>,
         executor: Executor,
     ) -> Arc<Self> {
+        let live = LiveValues::default();
         let mut slots = HashMap::new();
-        slots.insert(default_id.to_owned(), Slot::new(profile, base_dir.into()));
+        slots.insert(
+            default_id.to_owned(),
+            Slot::new(profile, base_dir.into(), live.clone()),
+        );
         Arc::new(Self {
             state: Mutex::new(State {
                 slots,
@@ -183,6 +194,7 @@ impl Deck {
             revision: Default::default(),
             paused: Default::default(),
             sliders: Default::default(),
+            live,
         })
     }
 
@@ -330,7 +342,7 @@ impl Deck {
             None => {
                 st.slots.insert(
                     id.to_owned(),
-                    Slot::new(profile, base_dir.unwrap_or_default()),
+                    Slot::new(profile, base_dir.unwrap_or_default(), self.live.clone()),
                 );
             }
         }
@@ -459,6 +471,36 @@ impl Deck {
         }
         info!(device = device_id, "showing profile {profile_id}");
         self.show_page(st, device_id);
+    }
+
+    /// Update live values (`cpu`, `ha:sensor.x`, …). Keys showing them refresh on the
+    /// next tick.
+    pub fn set_live(&self, values: impl IntoIterator<Item = (String, String)>) {
+        let mut live = self.live.write().expect("live values poisoned");
+        for (k, v) in values {
+            live.insert(k, v);
+        }
+    }
+
+    /// Every live value name used by any loaded profile, in titles or toggles' `follow`.
+    pub fn live_tokens(&self) -> Vec<String> {
+        let st = self.lock();
+        let mut out: Vec<String> = Vec::new();
+        for slot in st.slots.values() {
+            for key in slot.profile.pages.iter().flat_map(|p| p.keys.iter()) {
+                let titles = key
+                    .title
+                    .iter()
+                    .chain(key.states.iter().filter_map(|s| s.title.as_ref()));
+                for t in titles {
+                    out.extend(tokens(t).map(str::to_owned));
+                }
+                out.extend(key.follow.iter().cloned());
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// A slider moved on a device: remember the value, show it on other tablets, and
@@ -665,7 +707,7 @@ impl Deck {
         }
 
         let slot = st.slot(&profile);
-        let state = slot.toggles.get(&(page, at)).copied().unwrap_or(0);
+        let state = state_of(slot, page, &key);
         let action = key.action(state).cloned();
         if key.states.len() >= 2 {
             st.slot_mut(&profile)
@@ -830,6 +872,9 @@ fn in_grid(key: &KeyDef, grid: Grid) -> bool {
 }
 
 fn has_template(key: &KeyDef) -> bool {
+    if key.follow.is_some() {
+        return true;
+    }
     key.title.as_deref().is_some_and(|t| t.contains('{'))
         || key
             .states
@@ -862,8 +907,21 @@ fn look_at(st: &Slot, page: usize, grid: Grid, index: u32) -> Option<(Look, [u32
         .keys
         .iter()
         .find(|k| k.at == at)?;
-    let state = st.toggles.get(&(page, at)).copied().unwrap_or(0);
-    Some((key.look(state), at))
+    Some((key.look(state_of(st, page, key)), at))
+}
+
+/// A toggle's current state: from what it follows, if anything, else from presses.
+fn state_of(st: &Slot, page: usize, key: &KeyDef) -> usize {
+    if let Some(token) = &key.follow {
+        let on = st
+            .live
+            .read()
+            .ok()
+            .and_then(|l| l.get(token).map(|v| truthy(v)))
+            .unwrap_or(false);
+        return usize::from(on);
+    }
+    st.toggles.get(&(page, key.at)).copied().unwrap_or(0)
 }
 
 fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32, sliders: bool) -> KeySpec {
@@ -872,7 +930,11 @@ fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32, sliders: bool) -> Ke
             let is_slider = sliders && slider_at(st, page, at).is_some();
             KeySpec {
                 index,
-                title: render_title(&look.title, chrono::Local::now()),
+                title: render_title(
+                    &look.title,
+                    chrono::Local::now(),
+                    &st.live.read().expect("live values poisoned"),
+                ),
                 bg_color: look.bg,
                 text_color: look.fg,
                 control: is_slider.then_some(Control::Slider),
@@ -946,7 +1008,11 @@ fn key_image(
     }
     let icon_png = look.icon.as_deref().and_then(|p| icon_bytes(st, p));
     let style = perritodeck_render::KeyStyle {
-        title: render_title(&look.title, chrono::Local::now()),
+        title: render_title(
+            &look.title,
+            chrono::Local::now(),
+            &st.live.read().expect("live values poisoned"),
+        ),
         background: perritodeck_render::parse_hex(&look.bg).unwrap_or([0x1E, 0x1E, 0x2E]),
         text: perritodeck_render::parse_hex(&look.fg).unwrap_or([0xCD, 0xD6, 0xF4]),
         icon_png,

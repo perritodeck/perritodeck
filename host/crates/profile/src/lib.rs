@@ -71,6 +71,10 @@ pub struct KeyDef {
     /// Makes the cell a slider (on tablets that support them) instead of a key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slider: Option<SliderSpec>,
+    /// For a two-state toggle: show the second state while this live value is "on"
+    /// (e.g. `"obs:recording"`, `"ha:light.desk"`) instead of flipping on each press.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follow: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -233,6 +237,11 @@ impl Profile {
                 if key.slider.is_some() && kinds.iter().any(|k| *k) {
                     out.push(format!(
                         "{here}: a slider can't also have an action, page or states"
+                    ));
+                }
+                if key.follow.is_some() && key.states.len() != 2 {
+                    out.push(format!(
+                        "{here}: \"follow\" needs a toggle with exactly two states (off, then on)"
                     ));
                 }
                 if key.states.len() == 1 {

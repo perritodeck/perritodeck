@@ -471,3 +471,70 @@ async fn sliders_set_the_volume_and_follow_it() {
     deck.poll_sliders().await;
     assert!(sent.take().is_empty(), "nothing new");
 }
+
+#[tokio::test]
+async fn live_values_and_followed_toggles() {
+    let profile = r##"
+schema_version = 1
+name = "L"
+[grid]
+cols = 2
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "CPU\n{cpu}"
+[[pages.keys]]
+at = [0, 1]
+follow = "obs:recording"
+states = [
+  { title = "Rec", action = { type = "text", text = "r" } },
+  { title = "Stop", bg = "#F38BA8", action = { type = "text", text = "s" } },
+]
+"##;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    assert_eq!(deck.live_tokens(), ["cpu", "obs:recording"]);
+    deck.connected("tab", Grid { cols: 2, rows: 1 }, hello().screen, &[]);
+    sent.take();
+
+    deck.set_live([
+        ("cpu".to_string(), "7%".to_string()),
+        ("obs:recording".into(), "on".into()),
+    ]);
+    deck.tick();
+    let msgs = sent.take();
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::SetTitle(t) if t.title == "CPU\n7%")),
+        "{msgs:?}"
+    );
+    // The toggle shows its second state because OBS is recording; text-only clients
+    // get a fresh page when colours change.
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "Stop")),
+        "{msgs:?}"
+    );
+
+    // Pressing runs the current state's action; the state then comes from OBS again.
+    deck.key_down("tab", 1);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        keys.0.lock().unwrap().last().map(String::as_str),
+        Some("text s")
+    );
+    deck.set_live([("obs:recording".to_string(), "off".to_string())]);
+    deck.tick();
+    assert!(sent
+        .take()
+        .iter()
+        .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "Rec")));
+}

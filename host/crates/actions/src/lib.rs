@@ -239,6 +239,11 @@ impl Executor {
         self
     }
 
+    /// The integrations, for reading state (live values on keys).
+    pub fn integrations_handle(&self) -> Option<Arc<dyn Integrations>> {
+        self.integrations.clone()
+    }
+
     pub(crate) fn integrations(&self, what: &str) -> Result<&Arc<dyn Integrations>, ActionError> {
         self.integrations
             .as_ref()

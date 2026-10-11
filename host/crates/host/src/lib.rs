@@ -7,6 +7,7 @@
 //! window, what's on each page), edits profiles, and broadcasts [`HostEvent`]s.
 
 pub mod focus;
+mod live;
 pub mod settings;
 pub mod views;
 
@@ -400,6 +401,7 @@ impl Host {
             events: events.clone(),
         });
         spawn_event_loop(shared.clone(), server_events);
+        live::spawn(deck.clone(), test_executor.integrations_handle());
         if opts.watch_focus && focus::supported() {
             spawn_focus_watch(shared.clone());
         }
