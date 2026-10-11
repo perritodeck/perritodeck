@@ -27,3 +27,6 @@ One line per decision, newest last. Format: `YYYY-MM-DD — decision — reason`
 - 2026-10-11 — Key images rendered with tiny-skia + ab_glyph and a bundled Inter SemiBold (OFL 1.1), sent as lossless PNG — pure Rust, small, deterministic; WebP would need libwebp. PNG of a flat key is a few KB.
 - 2026-10-11 — Key pixel size computed on the host from the tablet's reported screen and the client's layout rules (8dp padding/gaps) — images arrive at native resolution, no client-side scaling blur.
 - 2026-10-11 — Emulator E2E tests match keys by accessibility label (contentDescription) rather than visible text — works whether a key is drawn as text or as a host-rendered image, and keeps keys screen-reader friendly.
+- 2026-10-11 — Wayland input via the RemoteDesktop portal / libei, accepting a permission prompt each time the host starts — no root, no udev rule, works on GNOME and KDE.
+- 2026-10-11 — Profiles are TOML files — human-editable with comments; the Phase 3 editor writes the same format.
+- 2026-10-11 — "Run command" actions are allowed by default (argv only, no shell) — it's the user's own machine and profile; the Phase 3 UI will make commands visible before saving.
