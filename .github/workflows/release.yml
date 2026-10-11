@@ -1,0 +1,146 @@
+# Push a tag like v0.1.0 to build everything and publish a GitHub Release.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - id: v
+        name: Tag must match the app and host versions
+        run: |
+          version="${TAG#v}"
+          android=$(grep -oP 'versionName = "\K[^"]+' android/app/build.gradle.kts)
+          host=$(grep -m1 -oP '^version = "\K[^"]+' host/Cargo.toml)
+          echo "tag=$version android=$android host=$host"
+          [ "$version" = "$android" ] && [ "$version" = "$host" ] || { echo "::error::Tag $TAG does not match versionName ($android) and host version ($host)"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.PERRITO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "PERRITO_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No signing key configured; the APK will be unsigned."
+          fi
+      - name: Build release APK and bundle
+        working-directory: android
+        env:
+          PERRITO_KEYSTORE_PASSWORD: ${{ secrets.PERRITO_KEYSTORE_PASSWORD }}
+          PERRITO_KEY_ALIAS: ${{ secrets.PERRITO_KEY_ALIAS }}
+          PERRITO_KEY_PASSWORD: ${{ secrets.PERRITO_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease bundleRelease
+      - name: Collect
+        run: |
+          v="${{ needs.check-version.outputs.version }}"
+          mkdir dist
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          case "$apk" in *unsigned*) cp "$apk" "dist/perrito-$v-unsigned.apk" ;; *) cp "$apk" "dist/perrito-$v.apk" ;; esac
+          cp android/app/build/outputs/bundle/release/*.aab "dist/perrito-$v.aab"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/
+
+  host:
+    needs: check-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+          - os: windows-latest
+            name: windows-x86_64
+          - os: macos-latest
+            name: macos-universal
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: host
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Toolchain
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          if [ "${{ matrix.name }}" = macos-universal ]; then rustup target add x86_64-apple-darwin aarch64-apple-darwin; fi
+      - name: Build
+        run: |
+          v="${{ needs.check-version.outputs.version }}"
+          out="../dist/perritodeck-host-$v-${{ matrix.name }}"
+          mkdir -p "$out"
+          bins="perritodeck-host perritodeck-fakedeck"
+          if [ "${{ matrix.name }}" = macos-universal ]; then
+            cargo build --release --locked --target x86_64-apple-darwin --target aarch64-apple-darwin
+            for b in $bins; do lipo -create -output "$out/$b" target/x86_64-apple-darwin/release/$b target/aarch64-apple-darwin/release/$b; done
+          else
+            cargo build --release --locked
+            ext=""; [ "${{ matrix.os }}" = windows-latest ] && ext=".exe"
+            for b in $bins; do cp "target/release/$b$ext" "$out/"; done
+          fi
+          cp ../LICENSE README.md "$out/"
+          cd ../dist
+          if [ "${{ matrix.os }}" = windows-latest ]; then 7z a -bd "$(basename "$out").zip" "$(basename "$out")" > /dev/null; else tar czf "$(basename "$out").tar.gz" "$(basename "$out")"; fi
+          rm -rf "$(basename "$out")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-${{ matrix.name }}
+          path: dist/
+
+  publish:
+    needs: [check-version, android, host]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""; case "$TAG" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          if gh release view "$TAG" -R "${{ github.repository }}" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber -R "${{ github.repository }}"
+          else
+            gh release create "$TAG" dist/* --generate-notes $prerelease --title "PerritoDeck ${TAG#v}" -R "${{ github.repository }}"
+          fi

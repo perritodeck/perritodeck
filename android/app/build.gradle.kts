@@ -19,8 +19,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing comes from the environment (CI secrets or a local keystore). Without it,
+    // release builds are unsigned — which is what F-Droid expects, since it signs builds itself.
+    val keystorePath = System.getenv("PERRITO_KEYSTORE")
+    if (keystorePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("PERRITO_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PERRITO_KEY_ALIAS")
+                keyPassword = System.getenv("PERRITO_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
