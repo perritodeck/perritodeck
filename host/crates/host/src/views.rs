@@ -202,6 +202,7 @@ pub fn describe(a: &perritodeck_actions::ActionSpec) -> String {
             )
         }
         A::Plugin { plugin, action, .. } => format!("{plugin}: {action}"),
+        A::SdPlugin { action, .. } => format!("Stream Deck plugin: {action}"),
         A::None => "nothing".to_owned(),
     }
 }

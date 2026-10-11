@@ -89,6 +89,7 @@ export type ActionSpec =
   | ({ type: "obs" } & ObsAction)
   | { type: "homeAssistant"; service: string; entity?: string; data?: unknown }
   | { type: "plugin"; plugin: string; action: string; settings?: Record<string, unknown> }
+  | { type: "sdPlugin"; plugin: string; action: string; settings?: Record<string, unknown> }
   | { type: "none" };
 
 // Mirrors perritodeck_actions::SliderSpec.
@@ -250,4 +251,28 @@ export interface OnlineEntry {
   installed: string | null;
   /** The catalogue has a newer version. */
   update: boolean;
+}
+
+/** A Stream Deck plugin installed on this computer. */
+export interface SdPlugin {
+  uuid: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  folder: string;
+  status:
+    | { state: "starting" }
+    | { state: "running" }
+    | { state: "needsNode" }
+    | { state: "unsupported"; reason: string }
+    | { state: "crashed"; reason: string };
+  icon: string | null;
+  actions: { uuid: string; name: string; tooltip: string; icon: string | null; hasSettingsPage: boolean }[];
+}
+
+export interface SdPluginsView {
+  installed: SdPlugin[];
+  broken: { folder: string; problem: string }[];
+  folder: string;
 }

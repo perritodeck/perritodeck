@@ -3,11 +3,11 @@
 </script>
 
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { mediaKeys, obsOps } from "../lib/describe";
   import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
-  import type { ActionSpec, MediaKey, NavSpec, PluginField, PluginManifest, SliderSpec } from "../lib/types";
+  import type { ActionSpec, MediaKey, NavSpec, PluginField, PluginManifest, SdPlugin, SliderSpec } from "../lib/types";
 
   export type Picked = { action: ActionSpec | null; nav: NavSpec | null; slider: SliderSpec | null };
 
@@ -18,6 +18,7 @@
     plugins = [],
     allowNav = true,
     allowSlider = true,
+    allowSd = true,
     disabled = false,
     onchange,
   }: {
@@ -28,6 +29,8 @@
     plugins?: PluginManifest[];
     allowNav?: boolean;
     allowSlider?: boolean;
+    /** Offer Stream Deck plugin actions (not on toggle states). */
+    allowSd?: boolean;
     disabled?: boolean;
     /** The new choice, or a sentence saying what's missing; `delay` is how soon to save. */
     onchange: (result: Picked | string, delay: number) => void;
@@ -52,9 +55,10 @@
     | "homeAssistant"
     | "multi"
     | "slider"
-    | `plugin:${string}`;
+    | `plugin:${string}`
+    | `sd:${string}`;
 
-  const initial = untrack(() => ({ value, page, pageNames, plugins }));
+  const initial = untrack(() => ({ value, page, pageNames, plugins, allowSd }));
   const a = initial.value.action;
   const nav = initial.value.nav;
   const sl = initial.value.slider;
@@ -67,7 +71,9 @@
         : nav
       : a?.type === "plugin"
         ? `plugin:${a.plugin}/${a.action}`
-        : a
+        : a?.type === "sdPlugin"
+          ? `sd:${a.plugin}/${a.action}`
+          : a
           ? a.type
           : "none";
   let choice = $state<Choice>(initialChoice);
@@ -83,6 +89,22 @@
   // A slider kind: one of the built-in ones, or `plugin:<id>/<action>`.
   let sliderKind = $state<string>(sl?.type === "plugin" ? `plugin:${sl.plugin}/${sl.action}` : (sl?.type ?? "volume"));
   const sliderPlugin = $derived(choice === "slider" && sliderKind.startsWith("plugin:") ? findPlugin(sliderKind) : null);
+  // Stream Deck plugins, fetched when the picker opens.
+  let sdPlugins = $state<SdPlugin[]>([]);
+  onMount(() => {
+    if (!initial.allowSd) return;
+    api
+      .sdPlugins()
+      .then((v) => (sdPlugins = v.installed.filter((p) => p.actions.length)))
+      .catch(() => {});
+  });
+  const sdPick = $derived.by(() => {
+    if (!choice.startsWith("sd:")) return null;
+    const [pid, aid] = choice.slice(3).split("/");
+    const plugin = sdPlugins.find((p) => p.uuid === pid);
+    return { pid, aid, plugin, action: plugin?.actions.find((x) => x.uuid === aid) };
+  });
+  let sdSettings = $state(a?.type === "sdPlugin" && a.settings ? JSON.stringify(a.settings, null, 2) : "");
   let sliderFollow = $state(sl?.type === "plugin" ? (sl.follow ?? "") : "");
   const sliderPlugins = initial.plugins
     .map((p) => ({ ...p, actions: p.actions.filter((x) => x.slider) }))
@@ -235,7 +257,24 @@
         }
         break;
       default:
-        if (choice.startsWith("plugin:") && pluginPick) {
+        if (sdPick) {
+          let settings: unknown;
+          if (sdSettings.trim()) {
+            try {
+              settings = JSON.parse(sdSettings);
+            } catch {
+              return 'Settings must be JSON, like {"count": 0}';
+            }
+            if (!settings || typeof settings !== "object" || Array.isArray(settings))
+              return 'Settings are a JSON object, like {"count": 0}';
+          }
+          action = {
+            type: "sdPlugin",
+            plugin: sdPick.pid,
+            action: sdPick.aid,
+            ...(settings ? { settings: settings as Record<string, unknown> } : {}),
+          };
+        } else if (choice.startsWith("plugin:") && pluginPick) {
           const settings = pluginSettingsFor(pluginPick.action?.fields ?? []);
           action = {
             type: "plugin",
@@ -283,7 +322,7 @@
   // "Try it": run the action now. Keyboard actions wait a moment so the person can switch
   // to the window that should receive them.
   let trying = $state<null | { countdown: number } | { result: string; ok: boolean }>(null);
-  const tryable = $derived(!["none", "page", "back", "next", "previous", "slider"].includes(choice));
+  const tryable = $derived(!["none", "page", "back", "next", "previous", "slider"].includes(choice) && !choice.startsWith("sd:"));
   async function tryIt() {
     const out = build();
     if (typeof out === "string" || !out.action) {
@@ -395,13 +434,49 @@
       {#if initialChoice.startsWith("plugin:") && !initial.plugins.some((p) => initialChoice === `plugin:${p.id}/${initialChoice.split("/")[1]}`)}
         <option value={initialChoice}>{initialChoice.slice(7)} (plugin not installed)</option>
       {/if}
+      {#each sdPlugins as p (p.uuid)}
+        <optgroup label="{p.name} (Stream Deck plugin)">
+          {#each p.actions as act (act.uuid)}
+            <option value={`sd:${p.uuid}/${act.uuid}`}>{act.name}</option>
+          {/each}
+        </optgroup>
+      {/each}
+      {#if initialChoice.startsWith("sd:") && !sdPlugins.some((p) => initialChoice.startsWith(`sd:${p.uuid}/`))}
+        <option value={initialChoice}>{initialChoice.slice(3)}</option>
+      {/if}
       <optgroup label="Advanced">
         <option value="multi">Several steps</option>
       </optgroup>
     </select>
   </div>
 
-  {#if pluginPick}
+  {#if sdPick}
+    {#if sdPlugins.length && !sdPick.plugin}
+      <p class="note">This key uses a Stream Deck plugin that isn’t installed. Add it on the Plugins page.</p>
+    {:else if sdPick.action?.tooltip}
+      <p class="note">{sdPick.action.tooltip}</p>
+    {/if}
+    <div class="field">
+      <label for="{uid}-sd-settings">Settings, as JSON (optional)</label>
+      <textarea
+        id="{uid}-sd-settings"
+        rows="4"
+        class="mono"
+        bind:value={sdSettings}
+        oninput={() => changed()}
+        spellcheck="false"
+        placeholder={"{}"}
+      ></textarea>
+      <small>
+        {#if sdPick.action?.hasSettingsPage}
+          This action has its own settings page in the Stream Deck app, which PerritoDeck can’t show yet. Settings it
+          needs can go here; the plugin also remembers what it saves.
+        {:else}
+          The plugin draws this key and remembers its own settings.
+        {/if}
+      </small>
+    </div>
+  {:else if pluginPick}
     {#if !pluginPick.manifest}
       <p class="note">This key uses a plugin that isn’t installed. Add it on the Plugins page.</p>
     {/if}

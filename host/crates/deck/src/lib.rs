@@ -10,7 +10,7 @@ mod templates;
 pub mod watch;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -63,6 +63,43 @@ pub struct RemoteKey {
     pub fg: Option<String>,
 }
 
+/// A key run by a Stream Deck plugin (or anything else that draws its own keys): one
+/// instance per profile key, shared by every tablet showing it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentKey {
+    /// `profile/page/row/col`; stable while the key exists.
+    pub context: String,
+    pub profile: String,
+    pub page: usize,
+    pub row: u32,
+    pub col: u32,
+    /// A tablet showing it (the first one).
+    pub device: String,
+    pub plugin: String,
+    pub action: String,
+    /// Settings from the profile.
+    pub settings: serde_json::Value,
+}
+
+/// Runs keys whose action is [`ActionSpec::SdPlugin`].
+pub trait KeyAgents: Send + Sync {
+    /// A tablet connected (with its grid) or went away (`None`).
+    fn device(&self, device_id: &str, grid: Option<Grid>);
+    /// The key is now on at least one tablet.
+    fn appear(&self, key: &AgentKey);
+    /// No tablet shows the key any more (or the profile changed).
+    fn disappear(&self, key: &AgentKey);
+    fn press(&self, key: &AgentKey, down: bool);
+}
+
+/// What an agent drew on its key; `None` keeps the profile's own.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentLook {
+    pub title: Option<String>,
+    /// PNG, filling the key.
+    pub image: Option<Vec<u8>>,
+}
+
 struct DeviceView {
     /// Which profile this device is showing.
     profile: String,
@@ -82,6 +119,8 @@ struct DeviceView {
     remote: Option<(Grid, Option<u32>)>,
     /// Keys as the remote last drew them.
     remote_keys: HashMap<u32, RemoteKey>,
+    /// Agent keys this device counts as showing (contexts).
+    agent_keys: HashSet<String>,
 }
 
 /// One loaded profile and everything that belongs to it.
@@ -93,6 +132,8 @@ struct Slot {
     /// Last known slider value per (page, position).
     slider_values: HashMap<(usize, [u32; 2]), u8>,
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
+    /// What agents (Stream Deck plugins) drew, per (page, position).
+    agent_looks: HashMap<(usize, [u32; 2]), AgentLook>,
     /// Decoded animated icons (`None`: the icon isn't animated).
     animations: HashMap<PathBuf, Option<Arc<Animation>>>,
     /// Every frame of an animated key, rendered, so animating costs no drawing.
@@ -113,6 +154,7 @@ impl Slot {
             icons: HashMap::new(),
             animations: HashMap::new(),
             frames: HashMap::new(),
+            agent_looks: HashMap::new(),
             reload_error: None,
         }
     }
@@ -149,6 +191,8 @@ struct State {
     /// Device id → profile id, for devices that show something else.
     assignments: HashMap<String, String>,
     devices: HashMap<String, DeviceView>,
+    /// Agent keys on at least one tablet: context → (key, how many tablets).
+    agent_refs: HashMap<String, (AgentKey, usize)>,
 }
 
 impl State {
@@ -193,6 +237,7 @@ pub struct Deck {
     live: LiveValues,
     started: std::time::Instant,
     remote: Mutex<Option<Arc<dyn RemoteSurfaces>>>,
+    agents: Mutex<Option<Arc<dyn KeyAgents>>>,
     /// Shown on Companion profiles while Companion has drawn nothing (e.g. it's offline).
     remote_note: Mutex<String>,
     /// Tests: a fixed time in ms since `started` instead of the clock (`u64::MAX` = clock).
@@ -241,6 +286,7 @@ impl Deck {
                 default: default_id.to_owned(),
                 assignments: HashMap::new(),
                 devices: HashMap::new(),
+                agent_refs: HashMap::new(),
             }),
             outbox,
             executor,
@@ -250,6 +296,7 @@ impl Deck {
             live,
             started: std::time::Instant::now(),
             remote: Mutex::new(None),
+            agents: Mutex::new(None),
             remote_note: Mutex::new(NO_COMPANION.to_owned()),
             fake_ms: std::sync::atomic::AtomicU64::new(u64::MAX),
         })
@@ -323,8 +370,13 @@ impl Deck {
                 frames_sent: HashMap::new(),
                 remote: None,
                 remote_keys: HashMap::new(),
+                agent_keys: HashSet::new(),
             },
         );
+        if let Some(a) = self.agents() {
+            a.device(device_id, Some(grid));
+        }
+        self.sync_agents(&mut st, device_id);
         if st.slot(&st.profile_for(device_id)).profile.companion {
             self.sync_remote(&mut st, device_id);
         }
@@ -334,12 +386,197 @@ impl Deck {
     }
 
     pub fn disconnected(&self, device_id: &str) {
-        let gone = self.lock().devices.remove(device_id);
+        let mut st = self.lock();
+        if let Some(d) = st.devices.get_mut(device_id) {
+            let keys: Vec<String> = d.agent_keys.drain().collect();
+            self.release_agents(&mut st, &keys);
+        }
+        let gone = st.devices.remove(device_id);
+        drop(st);
+        if let Some(a) = self.agents() {
+            a.device(device_id, None);
+        }
         if gone.is_some_and(|d| d.remote.is_some()) {
             if let Some(r) = self.remote() {
                 r.detach(device_id);
             }
         }
+    }
+
+    // ---- Agents (Stream Deck plugins) ----
+
+    /// Let `agents` run keys with Stream Deck plugin actions.
+    pub fn set_agents(&self, agents: Arc<dyn KeyAgents>) {
+        *self.agents.lock().expect("agents poisoned") = Some(agents.clone());
+        let mut st = self.lock();
+        let ids: Vec<(String, Grid)> = st
+            .devices
+            .iter()
+            .map(|(k, d)| (k.clone(), d.grid))
+            .collect();
+        for (id, grid) in ids {
+            agents.device(&id, Some(grid));
+            self.sync_agents(&mut st, &id);
+        }
+    }
+
+    fn agents(&self) -> Option<Arc<dyn KeyAgents>> {
+        self.agents.lock().expect("agents poisoned").clone()
+    }
+
+    /// Count the agent keys on a device's current page, telling agents about keys that
+    /// appear or disappear.
+    fn sync_agents(&self, st: &mut State, device_id: &str) {
+        let Some(agents) = self.agents() else { return };
+        let Some(d) = st.devices.get(device_id) else {
+            return;
+        };
+        let slot = st.slot(&d.profile);
+        let mut want: HashMap<String, AgentKey> = HashMap::new();
+        if !slot.profile.companion {
+            if let Some(p) = slot.profile.pages.get(d.page) {
+                for k in p.keys.iter().filter(|k| in_grid(k, d.grid)) {
+                    if let Some(ActionSpec::SdPlugin {
+                        plugin,
+                        action,
+                        settings,
+                    }) = k.action(0)
+                    {
+                        let context = format!("{}/{}/{}/{}", d.profile, d.page, k.at[0], k.at[1]);
+                        want.insert(
+                            context.clone(),
+                            AgentKey {
+                                context,
+                                profile: d.profile.clone(),
+                                page: d.page,
+                                row: k.at[0],
+                                col: k.at[1],
+                                device: device_id.to_owned(),
+                                plugin: plugin.clone(),
+                                action: action.clone(),
+                                settings: settings.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        let gone: Vec<String> = d
+            .agent_keys
+            .iter()
+            .filter(|c| !want.contains_key(*c))
+            .cloned()
+            .collect();
+        let new: Vec<AgentKey> = want
+            .into_values()
+            .filter(|k| !d.agent_keys.contains(&k.context))
+            .collect();
+        if let Some(d) = st.devices.get_mut(device_id) {
+            for c in &gone {
+                d.agent_keys.remove(c);
+            }
+            for k in &new {
+                d.agent_keys.insert(k.context.clone());
+            }
+        }
+        self.release_agents(st, &gone);
+        for k in new {
+            let entry = st
+                .agent_refs
+                .entry(k.context.clone())
+                .or_insert_with(|| (k.clone(), 0));
+            entry.1 += 1;
+            if entry.1 == 1 {
+                agents.appear(&k);
+            }
+        }
+    }
+
+    fn release_agents(&self, st: &mut State, contexts: &[String]) {
+        let agents = self.agents();
+        for c in contexts {
+            let Some(entry) = st.agent_refs.get_mut(c) else {
+                continue;
+            };
+            entry.1 = entry.1.saturating_sub(1);
+            if entry.1 == 0 {
+                let (key, _) = st.agent_refs.remove(c).expect("just seen");
+                if let Some(slot) = st.slots.get_mut(&key.profile) {
+                    slot.agent_looks.remove(&(key.page, [key.row, key.col]));
+                }
+                if let Some(a) = &agents {
+                    a.disappear(&key);
+                }
+            }
+        }
+    }
+
+    /// An agent changed its key's title or image (`None` puts the profile's back).
+    pub fn agent_draw(
+        &self,
+        context: &str,
+        title: Option<Option<String>>,
+        image: Option<Option<Vec<u8>>>,
+    ) {
+        let mut st = self.lock();
+        let Some((key, _)) = st.agent_refs.get(context).cloned() else {
+            return;
+        };
+        let Some(slot) = st.slots.get_mut(&key.profile) else {
+            return;
+        };
+        let look = slot
+            .agent_looks
+            .entry((key.page, [key.row, key.col]))
+            .or_default();
+        if let Some(t) = title {
+            look.title = t;
+        }
+        if let Some(i) = image {
+            look.image = i;
+        }
+        for (id, index) in showing(&st, &key) {
+            if let Some(d) = st.devices.get_mut(&id) {
+                d.sent.remove(&index); // force a redraw
+            }
+            self.refresh_key(&mut st, &id, index);
+        }
+    }
+
+    /// Flash ✓ (`ok`) or ⚠ on an agent's key.
+    pub fn agent_feedback(&self, context: &str, ok: bool) {
+        let st = self.lock();
+        let Some((key, _)) = st.agent_refs.get(context).cloned() else {
+            return;
+        };
+        for (id, index) in showing(&st, &key) {
+            let fb = KeyFeedback {
+                key_index: index,
+                message: None,
+            };
+            self.outbox.send(
+                &id,
+                if ok {
+                    Message::ShowOk(fb)
+                } else {
+                    Message::ShowAlert(fb)
+                },
+            );
+        }
+    }
+
+    /// The agent key under a device's key, if it is one.
+    fn agent_at(&self, st: &State, device_id: &str, key_index: u32) -> Option<AgentKey> {
+        let d = st.devices.get(device_id)?;
+        let at = [
+            key_index / d.grid.cols.max(1),
+            key_index % d.grid.cols.max(1),
+        ];
+        let context = format!("{}/{}/{}/{}", d.profile, d.page, at[0], at[1]);
+        d.agent_keys
+            .contains(&context)
+            .then(|| st.agent_refs.get(&context).map(|(k, _)| k.clone()))
+            .flatten()
     }
 
     // ---- Companion (remote surfaces) ----
@@ -540,6 +777,21 @@ impl Deck {
                     Slot::new(profile, base_dir.unwrap_or_default(), self.live.clone()),
                 );
             }
+        }
+        // Agent keys start over with the new definitions.
+        let showing_it: Vec<String> = st
+            .devices
+            .iter()
+            .filter(|(_, d)| d.profile == id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for dev in showing_it {
+            let keys: Vec<String> = st
+                .devices
+                .get_mut(&dev)
+                .map(|d| d.agent_keys.drain().collect())
+                .unwrap_or_default();
+            self.release_agents(&mut st, &keys);
         }
         let fixed_grid = st.slots[id].profile.grid;
         let ids: Vec<String> = st
@@ -897,11 +1149,20 @@ impl Deck {
     /// A key came back up. Only Companion profiles care (Companion has press and release
     /// actions); PerritoDeck's own keys act on the way down.
     pub fn key_up(&self, device_id: &str, key_index: u32) {
-        let attached = self
-            .lock()
+        let st = self.lock();
+        if !self.paused() {
+            if let (Some(agent), Some(a)) =
+                (self.agent_at(&st, device_id, key_index), self.agents())
+            {
+                a.press(&agent, false);
+                return;
+            }
+        }
+        let attached = st
             .devices
             .get(device_id)
             .is_some_and(|d| d.remote.is_some());
+        drop(st);
         if attached {
             if let Some(r) = self.remote() {
                 r.press(device_id, key_index, false);
@@ -953,6 +1214,13 @@ impl Deck {
                     message: Some("Keys are paused on the computer".into()),
                 }),
             );
+            return;
+        }
+
+        if let Some(agent) = self.agent_at(&st, device_id, key_index) {
+            if let Some(a) = self.agents() {
+                a.press(&agent, true);
+            }
             return;
         }
 
@@ -1036,6 +1304,7 @@ impl Deck {
     /// Send the device's current page in full.
     fn show_page(&self, st: &mut State, device_id: &str) {
         self.sync_remote(st, device_id);
+        self.sync_agents(st, device_id);
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
@@ -1250,6 +1519,15 @@ impl Deck {
     }
 }
 
+/// Devices showing an agent key right now, with the key's index on each.
+fn showing(st: &State, key: &AgentKey) -> Vec<(String, u32)> {
+    st.devices
+        .iter()
+        .filter(|(_, d)| d.agent_keys.contains(&key.context))
+        .map(|(id, d)| (id.clone(), key.row * d.grid.cols + key.col))
+        .collect()
+}
+
 /// What the remote profile placeholder says before Companion is set up.
 const NO_COMPANION: &str = "Set up\nCompanion";
 
@@ -1372,13 +1650,19 @@ fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32, sliders: bool) -> Ke
     match look_at(st, page, grid, index) {
         Some((look, at)) => {
             let is_slider = sliders && slider_at(st, page, at).is_some();
+            let agent_title = st
+                .agent_looks
+                .get(&(page, at))
+                .and_then(|l| l.title.clone());
             KeySpec {
                 index,
-                title: render_title(
-                    &look.title,
-                    chrono::Local::now(),
-                    &st.live.read().expect("live values poisoned"),
-                ),
+                title: agent_title.unwrap_or_else(|| {
+                    render_title(
+                        &look.title,
+                        chrono::Local::now(),
+                        &st.live.read().expect("live values poisoned"),
+                    )
+                }),
                 bg_color: look.bg,
                 text_color: look.fg,
                 control: is_slider.then_some(Control::Slider),
@@ -1465,16 +1749,29 @@ fn key_image(
     if sliders && slider_at(st, page, at).is_some() {
         return None; // the tablet draws its sliders
     }
+    let agent = st.agent_looks.get(&(page, at)).cloned().unwrap_or_default();
     let style = perritodeck_render::KeyStyle {
-        title: render_title(
-            &look.title,
-            chrono::Local::now(),
-            &st.live.read().expect("live values poisoned"),
-        ),
+        title: agent.title.clone().unwrap_or_else(|| {
+            render_title(
+                &look.title,
+                chrono::Local::now(),
+                &st.live.read().expect("live values poisoned"),
+            )
+        }),
         background: perritodeck_render::parse_hex(&look.bg).unwrap_or([0x1E, 0x1E, 0x2E]),
         text: perritodeck_render::parse_hex(&look.fg).unwrap_or([0xCD, 0xD6, 0xF4]),
         icon_png: None,
     };
+    if let Some(img) = agent
+        .image
+        .as_deref()
+        .and_then(|b| perritodeck_render::Pixmap::decode_png(b).ok())
+    {
+        let png = perritodeck_render::render_full_image(&img, &style.title, style.text, px)
+            .encode_png()
+            .expect("encoding an in-memory pixmap");
+        return Some((perritodeck_render::data_url(&png), None));
+    }
     let Some(icon) = look.icon.as_deref() else {
         return Some((png_url(&style, None, px), None));
     };

@@ -293,6 +293,7 @@
           plugins={initial.plugins}
           allowNav={false}
           allowSlider={false}
+          allowSd={false}
           onchange={(r, delay) => {
             s.picked = r;
             changed(delay);

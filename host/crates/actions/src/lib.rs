@@ -89,6 +89,16 @@ pub enum ActionSpec {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         settings: serde_json::Value,
     },
+    /// An action from a Stream Deck plugin (`.sdPlugin`). The plugin draws the key and
+    /// gets its presses, so this only works on a key, not in "Several steps".
+    SdPlugin {
+        /// The plugin's UUID, e.g. `com.example.counter`.
+        plugin: String,
+        /// The action's UUID, e.g. `com.example.counter.increment`.
+        action: String,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        settings: serde_json::Value,
+    },
     /// Does nothing (an empty key).
     None,
 }
@@ -369,6 +379,10 @@ impl Executor {
                         .ok_or_else(|| ActionError::NotConfigured("Plugins".into()))?;
                     plugins.run_plugin(plugin, action, settings).await
                 }
+                ActionSpec::SdPlugin { .. } => Err(ActionError::Integration {
+                    service: "Stream Deck plugins".into(),
+                    reason: "this action works on a key only; press the key on the tablet".into(),
+                }),
                 ActionSpec::None => Ok(Outcome::Ok),
             }
         })

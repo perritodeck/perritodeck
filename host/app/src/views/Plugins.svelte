@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../lib/api";
-  import type { OnlineEntry, PluginStatus, PluginsView } from "../lib/types";
+  import type { OnlineEntry, PluginStatus, PluginsView, SdPlugin, SdPluginsView } from "../lib/types";
 
   let view = $state<PluginsView | null>(null);
   let error = $state<string | null>(null);
@@ -34,8 +34,26 @@
     }
   }
 
+  let sd = $state<SdPluginsView | null>(null);
+
   async function load() {
     view = await api.plugins();
+    sd = await api.sdPlugins().catch(() => null);
+  }
+
+  function sdStatus(s: SdPlugin["status"]): string {
+    switch (s.state) {
+      case "running":
+        return "Running";
+      case "starting":
+        return "Starting…";
+      case "needsNode":
+        return "Needs Node.js, which isn't installed";
+      case "unsupported":
+        return `Can't run here: ${s.reason}`;
+      case "crashed":
+        return `Stopped working: ${s.reason}`;
+    }
   }
 
   async function act(f: () => Promise<unknown>) {
@@ -123,6 +141,53 @@
       <p class="err">Can’t load <code>{b.folder}</code>: {b.problem}</p>
     {/each}
   </section>
+
+  {#if sd}
+    <section aria-labelledby="sd">
+      <div class="section-head">
+        <h2 id="sd">Stream Deck plugins</h2>
+        <span class="actions">
+          <button class="btn small" onclick={() => act(() => api.installSdPlugin(false))}>Add a plugin file…</button>
+          <button class="btn small quiet" onclick={() => act(() => api.installSdPlugin(true))}>From a folder…</button>
+        </span>
+      </div>
+      {#if sd.installed.length === 0}
+        <p class="empty">
+          Many plugins made for the Elgato Stream Deck also work here: add a <code>.streamDeckPlugin</code> file. Plugins
+          written in JavaScript need Node.js.
+        </p>
+      {:else}
+        <ul>
+          {#each sd.installed as p (p.uuid)}
+            {@const bad = p.status.state !== "running" && p.status.state !== "starting"}
+            <li>
+              {#if p.icon}<img class="sd-icon" src={p.icon} alt="" />{:else}<span class="dot" class:on={p.status.state === "running"} class:bad aria-hidden="true"></span>{/if}
+              <div class="what">
+                <strong>{p.name}</strong> <span class="version">{p.version}</span>
+                <span class="desc">{p.description || p.actions.map((a) => a.name).join(", ")}</span>
+                <span class="status" class:bad>{sdStatus(p.status)}</span>
+              </div>
+              {#if confirming === p.uuid}
+                <div class="confirm" role="group" aria-label="Remove {p.name}?">
+                  <span>Keys using it will stop working.</span>
+                  <button class="btn danger small" onclick={() => act(() => api.removeSdPlugin(p.uuid)).then(() => (confirming = null))}
+                    >Remove</button
+                  >
+                  <button class="btn quiet small" onclick={() => (confirming = null)}>Keep</button>
+                </div>
+              {:else}
+                <button class="btn quiet small" onclick={() => act(() => api.restartSdPlugin(p.uuid))} aria-label="Restart {p.name}">Restart</button>
+                <button class="btn quiet small" onclick={() => (confirming = p.uuid)} aria-label="Remove {p.name}…">Remove…</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#each sd.broken as b (b.folder)}
+        <p class="err">Can’t load <code>{b.folder}</code>: {b.problem}</p>
+      {/each}
+    </section>
+  {/if}
 
   {#if view.catalog.length}
     <section aria-labelledby="catalog">
@@ -233,6 +298,9 @@
   .btn.small { padding: 5px 12px; font-size: 0.85rem; }
   .empty, .hint { color: var(--ink-soft); }
   .empty .btn { margin-left: 8px; }
+  .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .section-head h2 { margin: 0; }
+  .sd-icon { width: 28px; height: 28px; border-radius: 6px; flex: none; }
   .hint { max-width: 70ch; font-size: 0.9rem; }
   .err { color: var(--danger); margin-bottom: 12px; }
 </style>

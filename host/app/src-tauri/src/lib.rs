@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
     updates, ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
-    Network, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView,
+    Network, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView, SdPluginsView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -288,6 +288,55 @@ fn list_plugins(app: State<'_, App>) -> Res<PluginsView> {
 #[tauri::command]
 fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
     app.host()?.install_from_catalog(&id)
+}
+
+#[tauri::command]
+fn list_sd_plugins(app: State<'_, App>) -> Res<SdPluginsView> {
+    Ok(app.host()?.sd_plugins())
+}
+
+/// Install a Stream Deck plugin the person picks: a `.streamDeckPlugin` file, or (with
+/// `folder`) a `.sdPlugin` folder. `None` if they cancelled.
+#[tauri::command]
+async fn install_sd_plugin(
+    handle: AppHandle,
+    app: State<'_, App>,
+    folder: bool,
+) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let host = app.host()?.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let dialog = handle.dialog().file();
+        if folder {
+            dialog
+                .set_title("Choose the plugin's .sdPlugin folder")
+                .blocking_pick_folder()
+        } else {
+            dialog
+                .set_title("Choose a Stream Deck plugin")
+                .add_filter("Stream Deck plugin", &["streamDeckPlugin"])
+                .blocking_pick_file()
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || host.install_sd_plugin(&path).map(Some))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn remove_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
+    app.host()?.remove_sd_plugin(&uuid)
+}
+
+#[tauri::command]
+fn restart_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
+    app.host()?.restart_sd_plugin(&uuid)
 }
 
 /// What the online plugin catalogue offers (asks the network only when called).
@@ -614,6 +663,10 @@ pub fn run() {
             open_release_page,
             list_online_plugins,
             install_online_plugin,
+            list_sd_plugins,
+            install_sd_plugin,
+            remove_sd_plugin,
+            restart_sd_plugin,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

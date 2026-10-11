@@ -219,6 +219,15 @@ pub struct CatalogEntry {
     pub installed: bool,
 }
 
+/// Stream Deck plugins on this computer.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdPluginsView {
+    pub installed: Vec<perritodeck_sdcompat::PluginInfo>,
+    pub broken: Vec<perritodeck_sdcompat::BrokenPlugin>,
+    pub folder: String,
+}
+
 /// A plugin in the online catalogue, and whether this computer has it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -322,6 +331,7 @@ pub struct Host {
     plugins: Arc<perritodeck_plugins::PluginHost>,
     plugin_catalog: Option<PathBuf>,
     plugin_index: String,
+    sd_plugins: Option<perritodeck_sdcompat::SdHost>,
     companion: companion::CompanionState,
     usb: usb::UsbDevices,
     usb_available: bool,
@@ -442,6 +452,17 @@ impl Host {
         );
         watch::load_all(&profiles_dir, &deck);
         let _ = live_sink.set(deck.clone());
+        // Stream Deck plugins run beside PerritoDeck's own.
+        let sd_plugins = match perritodeck_sdcompat::SdHost::start(dir.join("sdplugins")).await {
+            Ok(sd) => {
+                sd.attach(&deck);
+                Some(sd)
+            }
+            Err(e) => {
+                warn!("Stream Deck plugins are off: {e}");
+                None
+            }
+        };
         let companion_state = companion::CompanionState::default();
         if let Some(c) = companion_config {
             info!("Companion: connecting to {}:{}", c.host, c.port);
@@ -525,6 +546,7 @@ impl Host {
             plugins,
             plugin_catalog: opts.plugin_catalog.clone(),
             plugin_index: opts.plugin_index.clone(),
+            sd_plugins,
             companion: companion_state,
             usb: usb_devices,
             usb_available,
@@ -927,6 +949,39 @@ impl Host {
             ));
         }
         self.plugins.install_from(&folder)
+    }
+
+    // ---- Stream Deck plugins ----
+
+    fn sd(&self) -> Result<&perritodeck_sdcompat::SdHost, String> {
+        self.sd_plugins
+            .as_ref()
+            .ok_or_else(|| "Stream Deck plugins couldn't start on this computer.".to_owned())
+    }
+
+    /// Installed Stream Deck plugins, for the Plugins page and the key editor.
+    pub fn sd_plugins(&self) -> SdPluginsView {
+        match &self.sd_plugins {
+            Some(sd) => SdPluginsView {
+                installed: sd.list(),
+                broken: sd.broken(),
+                folder: sd.folder().display().to_string(),
+            },
+            None => SdPluginsView::default(),
+        }
+    }
+
+    /// Install a `.streamDeckPlugin` file or a `.sdPlugin` folder.
+    pub fn install_sd_plugin(&self, src: &Path) -> Result<String, String> {
+        self.sd()?.install(src)
+    }
+
+    pub fn remove_sd_plugin(&self, uuid: &str) -> Result<(), String> {
+        self.sd()?.remove(uuid)
+    }
+
+    pub fn restart_sd_plugin(&self, uuid: &str) -> Result<(), String> {
+        self.sd()?.restart(uuid)
     }
 
     /// Copy a plugin's folder into the plugins folder and start it.

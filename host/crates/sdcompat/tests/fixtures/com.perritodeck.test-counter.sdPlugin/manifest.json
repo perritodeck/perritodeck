@@ -1,0 +1,26 @@
+{
+  "Name": "Test counter",
+  "Version": "1.0.0.0",
+  "Author": "PerritoDeck contributors",
+  "Description": "A tiny plugin for PerritoDeck's tests: counts presses.",
+  "UUID": "com.perritodeck.test-counter",
+  "CodePath": "bin/plugin.js",
+  "SDKVersion": 2,
+  "Nodejs": { "Version": "20" },
+  "Icon": "imgs/key",
+  "Actions": [
+    {
+      "UUID": "com.perritodeck.test-counter.up",
+      "Name": "Count up",
+      "Tooltip": "Adds the step to the count",
+      "Icon": "imgs/key",
+      "States": [{ "Image": "imgs/key" }, { "Image": "imgs/key" }],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "UUID": "com.perritodeck.test-counter.dial",
+      "Name": "Dial only",
+      "Controllers": ["Encoder"]
+    }
+  ]
+}

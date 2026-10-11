@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { PluginManifest, PluginsView, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -193,6 +193,18 @@ const mqttPlugin: PluginManifest = {
   actions: [{ id: "publish", name: "Publish a message", description: "", fields: [{ id: "topic", label: "Topic", type: "text" }] }],
   values: [],
 };
+const sdCounter: SdPlugin = {
+  uuid: "com.example.counter",
+  name: "Counter",
+  version: "1.0.0.0",
+  author: "Example",
+  description: "Counts presses.",
+  folder: "/x",
+  status: { state: "running" },
+  icon: null,
+  actions: [{ uuid: "com.example.counter.up", name: "Count up", tooltip: "Adds one", icon: null, hasSettingsPage: true }],
+};
+let sdPlugins: SdPlugin[] = [];
 let installedPlugins: PluginsView["installed"] = [
   { manifest: httpPlugin, status: { state: "running" }, folder: "/home/me/.config/PerritoDeck/plugins/dev.perritodeck.http" },
 ];
@@ -500,6 +512,18 @@ export const mock = {
       case "check_for_updates":
         if (typeof this.latest === "string") throw this.latest;
         return out(this.latest);
+      case "list_sd_plugins":
+        return out({ installed: sdPlugins, broken: [], folder: "/home/me/.config/PerritoDeck/sdplugins" });
+      case "install_sd_plugin": {
+        if (sdPlugins.some((p) => p.uuid === sdCounter.uuid)) return out(null);
+        sdPlugins = [...sdPlugins, sdCounter];
+        return out(sdCounter.uuid);
+      }
+      case "remove_sd_plugin":
+        sdPlugins = sdPlugins.filter((p) => p.uuid !== args?.uuid);
+        return out(undefined);
+      case "restart_sd_plugin":
+        return out(undefined);
       case "list_online_plugins": {
         if (typeof this.onlineIndex === "string") throw this.onlineIndex;
         return out(

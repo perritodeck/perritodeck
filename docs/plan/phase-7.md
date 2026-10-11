@@ -38,3 +38,45 @@ Not done (Companion):
   PerritoDeck page.
 - Tested only against a fake Companion. A check against a real Companion 3.x/4.x is the
   next step.
+
+## Stream Deck plugins
+
+Many people own Stream Deck plugins (`.sdPlugin`), and most current ones are Node.js
+programs written against Elgato's public SDK. PerritoDeck runs them next to its own
+plugins, so their actions can go on a tablet key.
+
+- **Add one:** Plugins → "Stream Deck plugins" → "Add a plugin file…" (a
+  `.streamDeckPlugin`, which is a zip) or "From a folder…" (a `.sdPlugin` folder). They
+  live in `<settings folder>/sdplugins/`.
+- **Use it:** the key editor lists each plugin's key actions under "<name> (Stream Deck
+  plugin)". In a profile: `action = { type = "sdPlugin", plugin = "<plugin UUID>",
+  action = "<action UUID>", settings = { … } }`.
+- **How it runs** (from Elgato's published plugin documentation, no code from other
+  projects): the host listens on a WebSocket on 127.0.0.1, starts the plugin with
+  `-port -pluginUUID -registerEvent -info` (Node.js plugins with `node`; native plugins
+  on Windows and macOS), and the plugin registers. Supported events: `deviceDidConnect`,
+  `deviceDidDisconnect`, `willAppear`, `willDisappear`, `keyDown`, `keyUp`,
+  `didReceiveSettings`, `didReceiveGlobalSettings`. Supported commands: `setTitle`,
+  `setImage` (PNG, JPEG, GIF, BMP, WebP and SVG, as data URLs or plugin files),
+  `setState`, `showOk`, `showAlert`, `setSettings`, `getSettings`, `setGlobalSettings`,
+  `getGlobalSettings`, `openUrl` (web addresses only) and `logMessage`.
+- **Keys:** one action instance (context) per profile key, shared by every tablet that
+  shows it, like PerritoDeck's toggles. The plugin's image fills the key; its title (or
+  the profile's) is drawn over it. The manifest's state images are the defaults. Settings
+  a plugin saves are kept in `sdplugins/settings.json`.
+- **Supervision:** a plugin that exits is restarted with backoff and given up after five
+  crashes; the Plugins page shows the state ("Needs Node.js", "Can't run here: …").
+- **Tests:** `host/crates/sdcompat/tests` runs a small Node.js fixture plugin against a
+  real deck (needs Node 22+ for its built-in WebSocket; skipped otherwise).
+
+Not done (Stream Deck plugins):
+- Property inspectors (each action's settings page). Settings can be typed as JSON in
+  the key editor for now. Showing the plugin's own HTML page inside the app is the
+  obvious next step.
+- Dials, touch strips (`Encoder` actions are hidden), multi-actions, `switchToProfile`,
+  `sendToPropertyInspector`, `titleParametersDidChange`, application monitoring.
+- The old HTML/JavaScript plugins (they need a browser engine) and native plugins on
+  Linux.
+- Not yet tried with real published plugins.
+- Before shipping: review how the app may name Elgato's product (nominative "made for
+  the Elgato Stream Deck" only; no logos) and each plugin's own license terms.

@@ -9,7 +9,8 @@ use perritodeck_protocol::{Grid, Screen};
 pub use tiny_skia::Pixmap;
 use tiny_skia::{PixmapPaint, Transform};
 
-static FONT_BYTES: &[u8] = include_bytes!("../assets/Inter-SemiBold.otf");
+/// The bundled Inter SemiBold, for anything else that draws text.
+pub static FONT_BYTES: &[u8] = include_bytes!("../assets/Inter-SemiBold.otf");
 
 /// Smallest and largest key image we render, in pixels.
 pub const MIN_KEY_PX: u32 = 48;
@@ -115,6 +116,41 @@ pub fn render_with_icon(style: &KeyStyle, icon: Option<&Pixmap>, size: u32) -> P
             inner,
             area_h,
         );
+    }
+    pm
+}
+
+/// A key whose image fills it edge to edge (as a Stream Deck plugin draws it), with the
+/// title on top, at the bottom, outlined so it reads on any image.
+pub fn render_full_image(image: &Pixmap, title: &str, text: [u8; 3], size: u32) -> Pixmap {
+    let size = size.clamp(MIN_KEY_PX, MAX_KEY_PX);
+    let mut pm = Pixmap::new(size, size).expect("non-zero size");
+    pm.fill(tiny_skia::Color::BLACK);
+    let scale = (size as f32 / image.width() as f32).max(size as f32 / image.height() as f32);
+    let (w, h) = (image.width() as f32 * scale, image.height() as f32 * scale);
+    pm.draw_pixmap(
+        0,
+        0,
+        image.as_ref(),
+        &PixmapPaint {
+            quality: tiny_skia::FilterQuality::Bicubic,
+            ..Default::default()
+        },
+        Transform::from_scale(scale, scale)
+            .post_translate((size as f32 - w) / 2.0, (size as f32 - h) / 2.0),
+        None,
+    );
+    if !title.trim().is_empty() {
+        let margin = size as f32 * 0.06;
+        let inner = size as f32 - 2.0 * margin;
+        let (top, area) = (size as f32 * 0.55, size as f32 * 0.45 - margin);
+        // A dark outline first, then the text.
+        let outline = [0, 0, 0];
+        let d = (size as f32 / 72.0).max(1.0);
+        for (dx, dy) in [(-d, 0.0), (d, 0.0), (0.0, -d), (0.0, d)] {
+            draw_title(&mut pm, title, outline, margin + dx, top + dy, inner, area);
+        }
+        draw_title(&mut pm, title, text, margin, top, inner, area);
     }
     pm
 }

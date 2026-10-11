@@ -75,7 +75,8 @@
     }
   }
 
-  function show(view: ProfileView) {
+  /** `sync`: reset the key inspector if the key changed elsewhere. */
+  function show(view: ProfileView, sync = true) {
     if (view.id !== profile?.id) {
       pageIndex = 0;
       selected = null;
@@ -83,7 +84,7 @@
     profile = view;
     profileId = view.id;
     if (pageIndex >= view.pages.length) pageIndex = view.pages.length - 1;
-    resync();
+    if (sync) resync();
   }
 
   async function load() {
@@ -176,18 +177,28 @@
     }
   }
 
+  // Edits on their way to the host. While a newer one is pending, an older answer mustn't
+  // reset the inspector (that would throw away what was typed since).
+  let inFlight = 0;
+
   async function run(edits: Edit[]): Promise<boolean> {
     if (!profile) return false;
     busy = true;
+    inFlight++;
+    let counted = true;
     try {
-      show(await api.edit(profile.id, edits));
+      const view = await api.edit(profile.id, edits);
+      inFlight--;
+      counted = false;
+      show(view, inFlight === 0);
       error = null;
       return true;
     } catch (e) {
       error = String(e);
       return false;
     } finally {
-      busy = false;
+      if (counted) inFlight--;
+      busy = inFlight > 0;
     }
   }
 

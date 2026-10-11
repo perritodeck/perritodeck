@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, Network, OnlineEntry, PluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, Network, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -47,6 +47,10 @@ export const api = {
   setCheckUpdates: (enabled: boolean) => call<void>("set_check_updates", { enabled }),
   checkForUpdates: () => call<Update | null>("check_for_updates"),
   restart: () => call<void>("restart_app"),
+  sdPlugins: () => call<SdPluginsView>("list_sd_plugins"),
+  installSdPlugin: (folder = false) => call<string | null>("install_sd_plugin", { folder }),
+  removeSdPlugin: (uuid: string) => call<void>("remove_sd_plugin", { uuid }),
+  restartSdPlugin: (uuid: string) => call<void>("restart_sd_plugin", { uuid }),
   onlinePlugins: () => call<OnlineEntry[]>("list_online_plugins"),
   installOnlinePlugin: (id: string) => call<string>("install_online_plugin", { id }),
   openReleasePage: (url: string) => call<void>("open_release_page", { url }),

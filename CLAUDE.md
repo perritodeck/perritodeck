@@ -35,6 +35,7 @@ Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and st
 | Android app (Kotlin + Compose, JDK 17) | `android/` | `.\gradlew.bat testDebugUnitTest assembleDebug` |
 | Plugin runtime (host side) | `host/crates/plugins` | `cargo test -p perritodeck-plugins` |
 | Bitfocus Companion client (Satellite API) | `host/crates/companion` | `cargo test -p perritodeck-companion` |
+| Stream Deck plugin host (`.sdPlugin`) | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
 | Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py` |
 | Website | `website/` | static; open `index.html` |
 

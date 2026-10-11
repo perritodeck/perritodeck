@@ -793,3 +793,133 @@ fn companion_profiles_show_companions_buttons() {
         ]
     );
 }
+
+#[derive(Default)]
+struct FakeAgents(Mutex<Vec<String>>);
+
+impl KeyAgents for FakeAgents {
+    fn device(&self, device_id: &str, grid: Option<Grid>) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("device {device_id} {}", grid.is_some()));
+    }
+    fn appear(&self, key: &AgentKey) {
+        self.0.lock().unwrap().push(format!(
+            "appear {} {} {}",
+            key.context, key.action, key.settings
+        ));
+    }
+    fn disappear(&self, key: &AgentKey) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("disappear {}", key.context));
+    }
+    fn press(&self, key: &AgentKey, down: bool) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("press {} {down}", key.context));
+    }
+}
+
+const SD_PROFILE: &str = r##"
+schema_version = 1
+name = "sd"
+[grid]
+cols = 3
+rows = 2
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 1]
+title = "Count"
+action = { type = "sdPlugin", plugin = "com.example.counter", action = "com.example.counter.up", settings = { step = 2 } }
+[[pages.keys]]
+at = [1, 2]
+title = "More"
+nav = { page = "Two" }
+[[pages]]
+name = "Two"
+"##;
+
+#[test]
+fn stream_deck_plugin_keys_are_run_by_agents() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(SD_PROFILE).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    let agents = Arc::new(FakeAgents::default());
+    deck.set_agents(agents.clone());
+    connect(&deck, true);
+    deck.connected("tab2", GRID, hello().screen, &["keys".to_string()]);
+    let log = |a: &FakeAgents| std::mem::take(&mut *a.0.lock().unwrap());
+    assert_eq!(
+        log(&agents),
+        [
+            "device tab true",
+            r#"appear default/0/0/1 com.example.counter.up {"step":2}"#,
+            "device tab2 true",
+        ],
+        "one instance, however many tablets show it"
+    );
+    sent.take();
+
+    deck.key_down("tab", 1);
+    deck.key_up("tab", 1);
+    assert_eq!(
+        log(&agents),
+        ["press default/0/0/1 true", "press default/0/0/1 false"]
+    );
+    assert!(keys.0.lock().unwrap().is_empty());
+
+    // The plugin draws: every tablet showing the key updates.
+    let mut png = Vec::new();
+    perritodeck_render::Pixmap::new(4, 4)
+        .unwrap()
+        .encode_png()
+        .map(|p| png = p)
+        .unwrap();
+    deck.agent_draw("default/0/0/1", Some(Some("7".into())), Some(Some(png)));
+    let msgs = sent.take();
+    assert_eq!(
+        msgs.iter()
+            .filter(|m| matches!(m, Message::SetTitle(t) if t.title == "7" && t.key_index == 1))
+            .count(),
+        2
+    );
+    assert_eq!(
+        msgs.iter()
+            .filter(|m| matches!(m, Message::SetImage(_)))
+            .count(),
+        1,
+        "only the image tablet"
+    );
+    deck.agent_feedback("default/0/0/1", true);
+    assert_eq!(
+        sent.take()
+            .iter()
+            .filter(|m| matches!(m, Message::ShowOk(_)))
+            .count(),
+        2
+    );
+
+    // Leaving the page on one tablet keeps it; the last one leaving ends it.
+    deck.key_down("tab", 5);
+    assert!(log(&agents).is_empty());
+    deck.disconnected("tab2");
+    assert_eq!(
+        log(&agents),
+        ["disappear default/0/0/1", "device tab2 false"]
+    );
+    let mut h = hello();
+    h.capabilities = vec!["keys".into()];
+    deck.key_down("tab", 5); // "More" isn't on page Two; nothing happens
+    deck.reload(Profile::parse(SD_PROFILE).unwrap());
+    assert!(log(&agents).is_empty(), "tab is on page Two");
+}

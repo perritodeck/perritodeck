@@ -67,6 +67,8 @@ export function describeAction(a: ActionSpec): string {
       return `Home Assistant ${a.service}${a.entity ? ` ${a.entity}` : ""}`;
     case "plugin":
       return `${a.plugin}: ${a.action}`;
+    case "sdPlugin":
+      return `Stream Deck plugin: ${a.action}`;
     case "none":
       return "nothing";
   }

@@ -485,6 +485,32 @@ test.describe("plugins", () => {
     await expect(installed.getByText("HTTP requests")).toHaveCount(0);
   });
 
+  test("adds a Stream Deck plugin and puts its action on a key", async ({ page }) => {
+    await page.getByRole("button", { name: "Plugins" }).click();
+    const sd = page.locator("section", { has: page.getByRole("heading", { name: "Stream Deck plugins" }) });
+    await expect(sd.getByText("also work here")).toBeVisible();
+    await sd.getByRole("button", { name: "Add a plugin file…" }).click();
+    await expect(sd.getByText("Counter", { exact: true })).toBeVisible();
+    await expect(sd.getByText("Running")).toBeVisible();
+
+    await page.getByRole("button", { name: "Buttons" }).click();
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("sd:com.example.counter/com.example.counter.up");
+    await expect(page.getByText("its own settings page")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try it" })).toHaveCount(0);
+    await page.getByLabel("Settings, as JSON (optional)").fill("[1]");
+    await expect(page.getByText("Settings are a JSON object")).toBeVisible();
+    await page.getByLabel("Settings, as JSON (optional)").fill('{"step": 2}');
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
+      .toEqual({ type: "sdPlugin", plugin: "com.example.counter", action: "com.example.counter.up", settings: { step: 2 } });
+
+    await page.getByRole("button", { name: "Plugins" }).click();
+    await sd.getByRole("button", { name: "Remove Counter…" }).click();
+    await sd.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(sd.getByText("Counter", { exact: true })).toHaveCount(0);
+  });
+
   test("adds and updates plugins from the online catalogue", async ({ page }) => {
     await page.getByRole("button", { name: "Plugins" }).click();
     const online = page.locator("section", { has: page.getByRole("heading", { name: "More plugins online" }) });
