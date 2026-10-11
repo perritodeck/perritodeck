@@ -22,6 +22,7 @@ use perritodeck_protocol::{
     Control, Grid, Hello, KeyFeedback, KeySpec, Layout, Message, Screen, SetImage, SetTitle,
     SliderValue,
 };
+use perritodeck_render::Animation;
 use tracing::{info, warn};
 
 pub use templates::{render_title, tokens, truthy};
@@ -54,6 +55,8 @@ struct DeviceView {
     back: Vec<usize>,
     /// What each key showed last time, to send only changes.
     sent: HashMap<u32, KeySpec>,
+    /// Which frame each animated key showed last.
+    frames_sent: HashMap<u32, usize>,
 }
 
 /// One loaded profile and everything that belongs to it.
@@ -65,6 +68,10 @@ struct Slot {
     /// Last known slider value per (page, position).
     slider_values: HashMap<(usize, [u32; 2]), u8>,
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
+    /// Decoded animated icons (`None`: the icon isn't animated).
+    animations: HashMap<PathBuf, Option<Arc<Animation>>>,
+    /// Every frame of an animated key, rendered, so animating costs no drawing.
+    frames: HashMap<FramesKey, Arc<Vec<String>>>,
     /// Why the last edit to the profile file was rejected, if it was.
     reload_error: Option<String>,
     live: LiveValues,
@@ -79,10 +86,25 @@ impl Slot {
             toggles: HashMap::new(),
             slider_values: HashMap::new(),
             icons: HashMap::new(),
+            animations: HashMap::new(),
+            frames: HashMap::new(),
             reload_error: None,
         }
     }
 }
+
+/// Icon, size and the rest of the key's look: what an animated key's frames depend on.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FramesKey {
+    icon: PathBuf,
+    px: u32,
+    title: String,
+    bg: String,
+    fg: String,
+}
+
+/// Rendered animations kept per profile; more than this and the cache starts over.
+const MAX_CACHED_ANIMATIONS: usize = 32;
 
 /// A slider's position before anything is known about it.
 const SLIDER_START: u8 = 50;
@@ -144,6 +166,9 @@ pub struct Deck {
     paused: std::sync::atomic::AtomicBool,
     sliders: Mutex<SliderQueue>,
     live: LiveValues,
+    started: std::time::Instant,
+    /// Tests: a fixed time in ms since `started` instead of the clock (`u64::MAX` = clock).
+    fake_ms: std::sync::atomic::AtomicU64,
 }
 
 /// Default grid when the profile doesn't fix one: sized to the device's screen.
@@ -195,6 +220,8 @@ impl Deck {
             paused: Default::default(),
             sliders: Default::default(),
             live,
+            started: std::time::Instant::now(),
+            fake_ms: std::sync::atomic::AtomicU64::new(u64::MAX),
         })
     }
 
@@ -259,6 +286,7 @@ impl Deck {
                 page: 0,
                 back: Vec::new(),
                 sent,
+                frames_sent: HashMap::new(),
             },
         );
         if image_px.is_some() {
@@ -334,6 +362,8 @@ impl Deck {
                 slot.reload_error = None;
                 slot.profile = profile;
                 slot.icons.clear();
+                slot.animations.clear();
+                slot.frames.clear();
                 slot.toggles.retain(|(page, _), _| *page < pages);
                 if let Some(dir) = base_dir {
                     slot.base_dir = dir;
@@ -812,9 +842,14 @@ impl Deck {
             d.image_px.unwrap_or(0),
             d.sliders,
         );
+        let now = self.now_ms();
+        let mut frames = HashMap::new();
         let slot = st.slot_mut(&profile);
         for index in 0..grid.key_count() {
-            if let Some(url) = key_image(slot, page, grid, index, px, sliders) {
+            if let Some((url, frame)) = key_image(slot, page, grid, index, px, sliders, now) {
+                if let Some(f) = frame {
+                    frames.insert(index, f);
+                }
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -824,6 +859,80 @@ impl Deck {
                 );
             }
         }
+        if let Some(d) = st.devices.get_mut(device_id) {
+            d.frames_sent = frames;
+        }
+    }
+
+    /// Advance animated keys (GIF icons) on every device that shows images. The host
+    /// calls this often (every 40 ms); a frame is only sent when it changes.
+    pub fn animate(&self) {
+        let now = self.now_ms();
+        let mut st = self.lock();
+        let ids: Vec<String> = st
+            .devices
+            .iter()
+            .filter(|(_, d)| d.image_px.is_some())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            let Some(d) = st.devices.get(&id) else {
+                continue;
+            };
+            let (profile, page, grid, px, sliders) = (
+                d.profile.clone(),
+                d.page,
+                d.grid,
+                d.image_px.unwrap_or(0),
+                d.sliders,
+            );
+            let slot = st.slot_mut(&profile);
+            let animated: Vec<(u32, usize)> = (0..grid.key_count())
+                .filter_map(|index| {
+                    let (look, _) = look_at(slot, page, grid, index)?;
+                    let anim = animation(slot, look.icon.as_deref()?)?;
+                    Some((index, anim.frame_at(now)))
+                })
+                .collect();
+            for (index, frame) in animated {
+                let already = st
+                    .devices
+                    .get(&id)
+                    .and_then(|d| d.frames_sent.get(&index))
+                    .copied();
+                if already == Some(frame) {
+                    continue;
+                }
+                let slot = st.slot_mut(&profile);
+                let Some((url, Some(frame))) = key_image(slot, page, grid, index, px, sliders, now)
+                else {
+                    continue;
+                };
+                self.outbox.send(
+                    &id,
+                    Message::SetImage(SetImage {
+                        key_index: index,
+                        image: Some(url),
+                    }),
+                );
+                if let Some(d) = st.devices.get_mut(&id) {
+                    d.frames_sent.insert(index, frame);
+                }
+            }
+        }
+    }
+
+    fn now_ms(&self) -> u64 {
+        match self.fake_ms.load(std::sync::atomic::Ordering::Relaxed) {
+            u64::MAX => self.started.elapsed().as_millis() as u64,
+            ms => ms,
+        }
+    }
+
+    /// Tests: pretend this many ms have passed since the deck started.
+    #[doc(hidden)]
+    pub fn set_clock_ms(&self, ms: u64) {
+        self.fake_ms.store(ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Re-send one key if its look changed.
@@ -852,7 +961,13 @@ impl Deck {
                     title: spec.title,
                 }),
             );
-            if let Some(url) = key_image(st.slot_mut(&profile), page, grid, index, px, sliders) {
+            let now = self.now_ms();
+            if let Some((url, frame)) =
+                key_image(st.slot_mut(&profile), page, grid, index, px, sliders, now)
+            {
+                if let (Some(f), Some(d)) = (frame, st.devices.get_mut(device_id)) {
+                    d.frames_sent.insert(index, f);
+                }
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -1001,8 +1116,22 @@ fn icon_bytes(st: &mut Slot, path: &Path) -> Option<Vec<u8>> {
         .clone()
 }
 
-/// Render one key as a PNG data URL. `None` for empty positions (the client's
-/// background is enough).
+/// The decoded animation for an icon, if it's an animated GIF.
+fn animation(st: &mut Slot, path: &Path) -> Option<Arc<Animation>> {
+    let full = st.base_dir.join(path);
+    if let Some(a) = st.animations.get(&full) {
+        return a.clone();
+    }
+    let decoded = icon_bytes(st, path)
+        .filter(|b| perritodeck_render::is_gif(b))
+        .and_then(|b| perritodeck_render::decode_animation(&b))
+        .map(Arc::new);
+    st.animations.insert(full, decoded.clone());
+    decoded
+}
+
+/// Render one key as a PNG data URL, plus which frame it is for an animated key.
+/// `None` for empty positions (the client's background is enough).
 fn key_image(
     st: &mut Slot,
     page: usize,
@@ -1010,12 +1139,12 @@ fn key_image(
     index: u32,
     px: u32,
     sliders: bool,
-) -> Option<String> {
+    now_ms: u64,
+) -> Option<(String, Option<usize>)> {
     let (look, at) = look_at(st, page, grid, index)?;
     if sliders && slider_at(st, page, at).is_some() {
         return None; // the tablet draws its sliders
     }
-    let icon_png = look.icon.as_deref().and_then(|p| icon_bytes(st, p));
     let style = perritodeck_render::KeyStyle {
         title: render_title(
             &look.title,
@@ -1024,11 +1153,50 @@ fn key_image(
         ),
         background: perritodeck_render::parse_hex(&look.bg).unwrap_or([0x1E, 0x1E, 0x2E]),
         text: perritodeck_render::parse_hex(&look.fg).unwrap_or([0xCD, 0xD6, 0xF4]),
-        icon_png,
+        icon_png: None,
     };
-    Some(perritodeck_render::data_url(
-        &perritodeck_render::render_png(&style, px),
-    ))
+    let Some(icon) = look.icon.as_deref() else {
+        return Some((png_url(&style, None, px), None));
+    };
+    if let Some(anim) = animation(st, icon) {
+        let key = FramesKey {
+            icon: icon.to_owned(),
+            px,
+            title: style.title.clone(),
+            bg: look.bg.clone(),
+            fg: look.fg.clone(),
+        };
+        if !st.frames.contains_key(&key) && st.frames.len() >= MAX_CACHED_ANIMATIONS {
+            st.frames.clear();
+        }
+        let frames = st
+            .frames
+            .entry(key)
+            .or_insert_with(|| {
+                Arc::new(
+                    anim.frames
+                        .iter()
+                        .map(|f| png_url(&style, Some(f), px))
+                        .collect(),
+                )
+            })
+            .clone();
+        let i = anim.frame_at(now_ms);
+        return Some((frames[i].clone(), Some(i)));
+    }
+    let still = icon_bytes(st, icon).and_then(|b| perritodeck_render::decode_still(&b));
+    Some((png_url(&style, still.as_ref(), px), None))
+}
+
+fn png_url(
+    style: &perritodeck_render::KeyStyle,
+    icon: Option<&perritodeck_render::Pixmap>,
+    px: u32,
+) -> String {
+    let png = perritodeck_render::render_with_icon(style, icon, px)
+        .encode_png()
+        .expect("encoding an in-memory pixmap");
+    perritodeck_render::data_url(&png)
 }
 
 #[cfg(test)]

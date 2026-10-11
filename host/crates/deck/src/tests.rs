@@ -538,3 +538,63 @@ states = [
         .iter()
         .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "Rec")));
 }
+
+#[test]
+fn gif_icons_animate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("spin.gif"), perritodeck_render::test_gif()).unwrap();
+    let profile = r##"
+schema_version = 1
+name = "anim"
+[grid]
+cols = 3
+rows = 2
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+icon = "spin.gif"
+[[pages.keys]]
+at = [0, 1]
+title = "Still"
+"##;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        dir.path(),
+        sent.clone(),
+        Executor::new(keys.clone(), keys),
+    );
+    deck.set_clock_ms(0);
+    connect(&deck, true);
+    let images = |msgs: Vec<Message>| -> Vec<(u32, String)> {
+        msgs.into_iter()
+            .filter_map(|m| match m {
+                Message::SetImage(s) => Some((s.key_index, s.image?)),
+                _ => None,
+            })
+            .collect()
+    };
+    let first = images(sent.take());
+    assert_eq!(first.len(), 2, "both keys drawn once on connect");
+    let frame0 = first.iter().find(|(i, _)| *i == 0).unwrap().1.clone();
+
+    deck.animate();
+    assert!(sent.take().is_empty(), "same frame: nothing sent");
+
+    deck.set_clock_ms(u64::from(perritodeck_render::MIN_FRAME_MS) + 5);
+    deck.animate();
+    let next = images(sent.take());
+    assert_eq!(next.len(), 1, "only the animated key changes");
+    assert_eq!(next[0].0, 0);
+    assert_ne!(next[0].1, frame0);
+
+    deck.set_clock_ms(perritodeck_render::MIN_FRAME_MS as u64 + 500 + 5);
+    deck.animate();
+    assert_eq!(
+        images(sent.take()),
+        vec![(0, frame0)],
+        "it loops, from cached frames"
+    );
+}

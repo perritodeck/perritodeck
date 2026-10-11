@@ -23,9 +23,12 @@ Done:
 - **USB:** with Android's `adb` installed, the host forwards its port to every tablet
   on a cable (`adb reverse`), and Perrito tries 127.0.0.1 alongside the saved address,
   preferring whichever worked last. Settings shows the cable status.
+- **Animated keys:** a GIF icon animates. The host renders every frame once, then sends
+  only frame changes (at most about 12 a second, capped at 120 frames), so tablets need
+  nothing new.
 
 Not done:
-- Animated keys (GIF/APNG icons).
+- Animated APNG icons (animated GIFs work).
 - Dials and a touch strip as distinct controls (sliders cover the main use).
 - Live values through subscriptions (OBS events, Home Assistant WebSocket) instead of
   polling every 2 s.

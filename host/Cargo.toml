@@ -25,6 +25,7 @@ perritodeck-plugins = { path = "crates/plugins" }
 anyhow = "1"
 ab_glyph = "0.2"
 tiny-skia = "0.11"
+image = { version = "0.25", default-features = false }
 base64 = "0.23"
 directories = "6"
 if-addrs = "0.15"

@@ -957,12 +957,25 @@ impl Host {
         self.import_icon_bytes(&bytes)
     }
 
-    /// Like [`Host::import_icon`], from the image's bytes (PNG or JPEG).
+    /// Like [`Host::import_icon`], from the image's bytes (PNG, JPEG or GIF). Animated
+    /// GIFs are kept as they are, so the key animates.
     pub fn import_icon_bytes(&self, bytes: &[u8]) -> Result<String, String> {
         use sha2::{Digest, Sha256};
         const MAX: u32 = 288;
+        const MAX_GIF_BYTES: usize = 4 * 1024 * 1024;
+        if perritodeck_render::decode_animation(bytes).is_some() {
+            if bytes.len() > MAX_GIF_BYTES {
+                return Err("That animation is too big; use a GIF under 4 MB.".into());
+            }
+            let hash = Sha256::digest(bytes);
+            let name: String = hash.iter().take(6).map(|b| format!("{b:02x}")).collect();
+            let dir = self.profiles_dir.join("icons");
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::write(dir.join(format!("{name}.gif")), bytes).map_err(|e| e.to_string())?;
+            return Ok(format!("icons/{name}.gif"));
+        }
         let img = image::load_from_memory(bytes)
-            .map_err(|_| "That file isn't a PNG or JPEG image.".to_owned())?;
+            .map_err(|_| "That file isn't a PNG, JPEG or GIF image.".to_owned())?;
         let img = if img.width() > MAX || img.height() > MAX {
             img.resize(MAX, MAX, image::imageops::FilterType::Lanczos3)
         } else {
@@ -1240,6 +1253,16 @@ fn spawn_event_loop(
     shared: Arc<Shared>,
     mut server_events: tokio::sync::mpsc::UnboundedReceiver<ServerEvent>,
 ) {
+    let animator = shared.deck.clone();
+    tokio::spawn(async move {
+        // Animated (GIF) keys; cheap when there are none.
+        let mut every = tokio::time::interval(Duration::from_millis(40));
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            every.tick().await;
+            animator.animate();
+        }
+    });
     let ticker = shared.deck.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));

@@ -6,7 +6,8 @@
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use perritodeck_protocol::{Grid, Screen};
-use tiny_skia::{Pixmap, PixmapPaint, Transform};
+pub use tiny_skia::Pixmap;
+use tiny_skia::{PixmapPaint, Transform};
 
 static FONT_BYTES: &[u8] = include_bytes!("../assets/Inter-SemiBold.otf");
 
@@ -58,6 +59,16 @@ pub fn data_url(png: &[u8]) -> String {
 }
 
 pub fn render(style: &KeyStyle, size: u32) -> Pixmap {
+    let icon = style
+        .icon_png
+        .as_deref()
+        .and_then(|b| Pixmap::decode_png(b).ok());
+    render_with_icon(style, icon.as_ref(), size)
+}
+
+/// Like [`render`], with the icon already decoded (one frame of an [`Animation`], say);
+/// `style.icon_png` is ignored.
+pub fn render_with_icon(style: &KeyStyle, icon: Option<&Pixmap>, size: u32) -> Pixmap {
     let size = size.clamp(MIN_KEY_PX, MAX_KEY_PX);
     let mut pm = Pixmap::new(size, size).expect("non-zero size");
     let [r, g, b] = style.background;
@@ -69,11 +80,7 @@ pub fn render(style: &KeyStyle, size: u32) -> Pixmap {
 
     // Icon: fills the key if there's no title, otherwise the top ~55%.
     let mut text_top = margin;
-    if let Some(icon) = style
-        .icon_png
-        .as_deref()
-        .and_then(|b| Pixmap::decode_png(b).ok())
-    {
+    if let Some(icon) = icon {
         let box_h = if has_title { inner * 0.55 } else { inner };
         let scale = (inner / icon.width() as f32).min(box_h / icon.height() as f32);
         let (w, h) = (icon.width() as f32 * scale, icon.height() as f32 * scale);
@@ -210,6 +217,110 @@ fn wrap<F: Font>(text: &str, f: &ab_glyph::PxScaleFont<F>, max_w: f32) -> Vec<St
     out
 }
 
+/// An animated icon: its frames, already composited, and how long each one shows.
+#[derive(Debug, Clone)]
+pub struct Animation {
+    pub frames: Vec<Pixmap>,
+    pub delays_ms: Vec<u32>,
+}
+
+/// Animations are capped so a huge GIF can't eat memory or flood a tablet.
+pub const MAX_FRAMES: usize = 120;
+/// Shortest time a frame shows: about 12 frames a second, kind to Wi-Fi and old tablets.
+pub const MIN_FRAME_MS: u32 = 80;
+const MAX_ICON_SIDE: u32 = 288;
+
+impl Animation {
+    /// One run through all frames.
+    pub fn duration_ms(&self) -> u64 {
+        self.delays_ms.iter().map(|&d| u64::from(d)).sum()
+    }
+
+    /// Which frame shows `elapsed_ms` after the animation started (it loops).
+    pub fn frame_at(&self, elapsed_ms: u64) -> usize {
+        let total = self.duration_ms().max(1);
+        let mut t = elapsed_ms % total;
+        for (i, &d) in self.delays_ms.iter().enumerate() {
+            if t < u64::from(d) {
+                return i;
+            }
+            t -= u64::from(d);
+        }
+        0
+    }
+}
+
+/// Whether these bytes are a GIF (animated or not).
+pub fn is_gif(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")
+}
+
+/// Decode an animated GIF. `None` if it isn't a GIF, can't be read, or has only one
+/// frame (a still image is drawn like any other icon).
+pub fn decode_animation(bytes: &[u8]) -> Option<Animation> {
+    use image::AnimationDecoder;
+    if !is_gif(bytes) {
+        return None;
+    }
+    let decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes)).ok()?;
+    let mut frames = Vec::new();
+    let mut delays_ms = Vec::new();
+    for frame in decoder.into_frames().take(MAX_FRAMES) {
+        let frame = frame.ok()?;
+        let (num, den) = frame.delay().numer_denom_ms();
+        let delay = num.checked_div(den).unwrap_or(100);
+        // Browsers treat 0–10 ms as "as fast as possible" and show ~100 ms; do the same.
+        let delay = if delay <= 10 { 100 } else { delay };
+        let mut rgba = frame.into_buffer();
+        if rgba.width() > MAX_ICON_SIDE || rgba.height() > MAX_ICON_SIDE {
+            rgba = image::imageops::thumbnail(&rgba, MAX_ICON_SIDE, MAX_ICON_SIDE);
+        }
+        frames.push(pixmap_from_rgba(&rgba)?);
+        delays_ms.push(delay.max(MIN_FRAME_MS));
+    }
+    (frames.len() > 1).then_some(Animation { frames, delays_ms })
+}
+
+/// The first frame of a GIF, for a still image.
+pub fn decode_still(bytes: &[u8]) -> Option<Pixmap> {
+    if !is_gif(bytes) {
+        return Pixmap::decode_png(bytes).ok();
+    }
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Gif).ok()?;
+    pixmap_from_rgba(&img.to_rgba8())
+}
+
+fn pixmap_from_rgba(rgba: &image::RgbaImage) -> Option<Pixmap> {
+    let mut pm = Pixmap::new(rgba.width(), rgba.height())?;
+    // tiny-skia wants premultiplied alpha.
+    for (dst, src) in pm.pixels_mut().iter_mut().zip(rgba.pixels()) {
+        let [r, g, b, a] = src.0;
+        *dst = tiny_skia::ColorU8::from_rgba(r, g, b, a).premultiply();
+    }
+    Some(pm)
+}
+
+/// A small two-frame GIF (red, then blue), for tests in other crates.
+#[doc(hidden)]
+pub fn test_gif() -> Vec<u8> {
+    use image::{codecs::gif::GifEncoder, Delay, Frame, Rgba, RgbaImage};
+    let mut out = Vec::new();
+    {
+        let mut enc = GifEncoder::new(&mut out);
+        for (colour, ms) in [([255, 0, 0, 255], 30), ([0, 0, 255, 255], 500)] {
+            let img = RgbaImage::from_pixel(16, 16, Rgba(colour));
+            enc.encode_frame(Frame::from_parts(
+                img,
+                0,
+                0,
+                Delay::from_numer_denom_ms(ms, 1),
+            ))
+            .expect("encoding a GIF in memory");
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +343,33 @@ mod tests {
     fn ink(pm: &Pixmap) -> f32 {
         let lit = pm.pixels().iter().filter(|p| p.red() > 0x80).count();
         lit as f32 / pm.pixels().len() as f32
+    }
+
+    #[test]
+    fn gifs_animate() {
+        let gif = test_gif();
+        assert!(is_gif(&gif));
+        let anim = decode_animation(&gif).expect("two frames");
+        assert_eq!(anim.frames.len(), 2);
+        assert_eq!(
+            anim.delays_ms,
+            vec![MIN_FRAME_MS, 500],
+            "fast frames are slowed down"
+        );
+        assert_eq!(anim.frame_at(0), 0);
+        assert_eq!(anim.frame_at(u64::from(MIN_FRAME_MS)), 1);
+        assert_eq!(anim.frame_at(anim.duration_ms() + 1), 0, "it loops");
+        let px = anim.frames[1].pixel(8, 8).unwrap().demultiply();
+        assert_eq!([px.red(), px.green(), px.blue()], [0, 0, 255]);
+
+        let still = decode_still(&gif).expect("first frame");
+        let key = render_with_icon(&style(""), Some(&still), 96);
+        assert_eq!(
+            rgb(&key, 48, 48),
+            [255, 0, 0],
+            "the icon fills a key with no title"
+        );
+        assert!(decode_animation(b"not a gif").is_none());
     }
 
     #[test]

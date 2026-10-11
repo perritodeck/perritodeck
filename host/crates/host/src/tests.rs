@@ -484,3 +484,23 @@ async fn first_party_plugins_install_from_the_catalog() {
         .any(|c| c.manifest.id == "dev.perritodeck.http" && c.installed));
     assert!(host.install_from_catalog("nope").is_err());
 }
+
+#[tokio::test]
+async fn animated_gifs_are_kept_as_gifs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    let host = Host::start(opts).await.unwrap();
+    let gif = perritodeck_render::test_gif();
+    let path = host.import_icon_bytes(&gif).unwrap();
+    assert!(
+        path.starts_with("icons/") && path.ends_with(".gif"),
+        "{path}"
+    );
+    assert_eq!(std::fs::read(host.profiles_dir.join(&path)).unwrap(), gif);
+    assert!(host.import_icon_bytes(b"nope").unwrap_err().contains("GIF"));
+}

@@ -19,6 +19,7 @@ path = "src/main.rs"
 perritodeck-core.workspace = true
 perritodeck-actions.workspace = true
 perritodeck-render.workspace = true
+base64.workspace = true
 perritodeck-profile.workspace = true
 perritodeck-deck.workspace = true
 perritodeck-integrations.workspace = true
@@ -30,7 +31,7 @@ notify.workspace = true
 toml_edit.workspace = true
 sha2.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { workspace = true, features = ["png", "jpeg", "gif"] }
 perritodeck-protocol.workspace = true
 anyhow.workspace = true
 chrono.workspace = true

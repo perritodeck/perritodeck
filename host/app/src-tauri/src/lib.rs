@@ -208,7 +208,7 @@ async fn choose_icon(handle: AppHandle, app: State<'_, App>) -> Res<Option<Strin
             .dialog()
             .file()
             .set_title("Choose an image for the key")
-            .add_filter("Images", &["png", "jpg", "jpeg"])
+            .add_filter("Images", &["png", "jpg", "jpeg", "gif"])
             .blocking_pick_file()
     })
     .await
