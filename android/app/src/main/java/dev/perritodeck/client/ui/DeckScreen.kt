@@ -1,6 +1,7 @@
 package dev.perritodeck.client.ui
 
 import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -29,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -50,6 +54,7 @@ import dev.perritodeck.client.protocol.parseColor
 @Composable
 fun DeckScreen(
     layout: Layout?,
+    images: Map<Int, Any>,
     state: ConnState,
     rttMs: Double?,
     onKeyDown: (Int) -> Unit,
@@ -62,7 +67,7 @@ fun DeckScreen(
             .background(Background)
     ) {
         if (layout != null) {
-            KeyGrid(layout, onKeyDown, onKeyUp)
+            KeyGrid(layout, images, onKeyDown, onKeyUp)
         }
 
         // Small status line; stays out of the way of the grid.
@@ -107,7 +112,7 @@ private fun ConnectingOverlay(state: ConnState, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun KeyGrid(layout: Layout, onKeyDown: (Int) -> Unit, onKeyUp: (Int) -> Unit) {
+private fun KeyGrid(layout: Layout, images: Map<Int, Any>, onKeyDown: (Int) -> Unit, onKeyUp: (Int) -> Unit) {
     val byIndex = remember(layout) { layout.keys.associateBy { it.index } }
     BoxWithConstraints(
         Modifier
@@ -130,7 +135,7 @@ private fun KeyGrid(layout: Layout, onKeyDown: (Int) -> Unit, onKeyUp: (Int) -> 
                     for (c in 0 until cols) {
                         if (c > 0) Spacer(Modifier.size(gap))
                         val index = r * cols + c
-                        DeckKey(index, byIndex[index], cell, onKeyDown, onKeyUp)
+                        DeckKey(index, byIndex[index], images[index] as? ImageBitmap, cell, onKeyDown, onKeyUp)
                     }
                 }
             }
@@ -142,6 +147,7 @@ private fun KeyGrid(layout: Layout, onKeyDown: (Int) -> Unit, onKeyUp: (Int) -> 
 private fun DeckKey(
     index: Int,
     spec: KeySpec?,
+    image: ImageBitmap?,
     size: Dp,
     onKeyDown: (Int) -> Unit,
     onKeyUp: (Int) -> Unit,
@@ -182,6 +188,17 @@ private fun DeckKey(
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (image != null) {
+            // Host-rendered key: icon and title are already drawn into the image.
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                filterQuality = FilterQuality.Medium,
+                modifier = Modifier.matchParentSize(),
+            )
+            return@Box
+        }
         Text(
             text = title,
             color = fg,

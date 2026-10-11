@@ -46,7 +46,10 @@ pub fn grid_for(hello: &Hello) -> Grid {
 }
 
 pub fn layout_for(hello: &Hello) -> Layout {
-    let grid = grid_for(hello);
+    layout_for_grid(grid_for(hello))
+}
+
+pub fn layout_for_grid(grid: Grid) -> Layout {
     let keys = (0..grid.key_count())
         .map(|index| {
             let (bg, fg) = PALETTE[index as usize % PALETTE.len()];

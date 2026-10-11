@@ -19,7 +19,7 @@ use perritodeck_core::{
     pairing::{PairingStore, DEFAULT_OFFER_TTL},
     HostIdentity, Security, Server, ServerConfig, ServerEvent, ServerHandle,
 };
-use perritodeck_protocol::{Message, SetTitle, DEFAULT_PORT};
+use perritodeck_protocol::{Grid, Message, SetImage, SetTitle, DEFAULT_PORT};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::TcpListener,
@@ -320,17 +320,63 @@ fn spawn_console(store: Arc<PairingStore>, handle: ServerHandle, pairing: Pairin
     });
 }
 
+/// Devices that asked for host-rendered images: their key size and grid.
+type ImageDevices = Arc<std::sync::Mutex<HashMap<String, (u32, Grid)>>>;
+
+/// Render one demo key with `title` and send it as `setImage`.
+fn send_key_image(
+    handle: &ServerHandle,
+    device_id: &str,
+    grid: Grid,
+    px: u32,
+    key_index: u32,
+    title: &str,
+) {
+    let layout = demo::layout_for_grid(grid);
+    let Some(spec) = layout.keys.iter().find(|k| k.index == key_index) else {
+        return;
+    };
+    let style = perritodeck_render::KeyStyle {
+        title: title.to_owned(),
+        background: perritodeck_render::parse_hex(&spec.bg_color).unwrap_or([0x1E, 0x1E, 0x2E]),
+        text: perritodeck_render::parse_hex(&spec.text_color).unwrap_or([0xFF, 0xFF, 0xFF]),
+        icon_png: None,
+    };
+    let url = perritodeck_render::data_url(&perritodeck_render::render_png(&style, px));
+    handle.send(
+        device_id,
+        Message::SetImage(SetImage {
+            key_index,
+            image: Some(url),
+        }),
+    );
+}
+
 /// Demo behaviour until profiles exist: live clock on key 1, press counter on key 2.
+/// Devices that support images get host-rendered keys; others get titles only.
 fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) {
+    let image_devices: ImageDevices = Default::default();
+
     let clock = handle.clone();
+    let clock_devices = image_devices.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
             tick.tick().await;
+            let title = chrono::Local::now().format("%H:%M:%S").to_string();
             clock.broadcast(Message::SetTitle(SetTitle {
                 key_index: demo::CLOCK_KEY,
-                title: chrono::Local::now().format("%H:%M:%S").to_string(),
+                title: title.clone(),
             }));
+            let devices: Vec<_> = clock_devices
+                .lock()
+                .expect("poisoned")
+                .clone()
+                .into_iter()
+                .collect();
+            for (id, (px, grid)) in devices {
+                send_key_image(&clock, &id, grid, px, demo::CLOCK_KEY, &title);
+            }
         }
     });
 
@@ -338,6 +384,24 @@ fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) 
         let mut counts: HashMap<String, u64> = HashMap::new();
         while let Some(event) = events.recv().await {
             match event {
+                ServerEvent::Connected {
+                    device_id,
+                    grid,
+                    screen,
+                    capabilities,
+                    ..
+                } => {
+                    if capabilities.iter().any(|c| c == "images") {
+                        let px = perritodeck_render::key_pixel_size(&screen, grid);
+                        for spec in demo::layout_for_grid(grid).keys {
+                            send_key_image(&handle, &device_id, grid, px, spec.index, &spec.title);
+                        }
+                        image_devices
+                            .lock()
+                            .expect("poisoned")
+                            .insert(device_id, (px, grid));
+                    }
+                }
                 ServerEvent::KeyDown {
                     device_id,
                     key_index,
@@ -346,13 +410,22 @@ fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) 
                     if key_index == demo::COUNTER_KEY {
                         let n = counts.entry(device_id.clone()).or_default();
                         *n += 1;
+                        let title = demo::counter_title(*n);
                         handle.send(
                             &device_id,
                             Message::SetTitle(SetTitle {
                                 key_index,
-                                title: demo::counter_title(*n),
+                                title: title.clone(),
                             }),
                         );
+                        let image = image_devices
+                            .lock()
+                            .expect("poisoned")
+                            .get(&device_id)
+                            .copied();
+                        if let Some((px, grid)) = image {
+                            send_key_image(&handle, &device_id, grid, px, key_index, &title);
+                        }
                     }
                 }
                 ServerEvent::KeyUp {
@@ -366,6 +439,7 @@ fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) 
                 }
                 ServerEvent::Disconnected { device_id, .. } => {
                     counts.remove(&device_id);
+                    image_devices.lock().expect("poisoned").remove(&device_id);
                 }
                 _ => {}
             }

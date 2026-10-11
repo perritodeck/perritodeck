@@ -12,7 +12,7 @@ use std::{
 use futures_util::{SinkExt, StreamExt};
 use perritodeck_protocol::{
     decode, DecodeError, Decoded, Envelope, ErrorCode, Grid, Hello, KeyAck, Layout, Message, Pair,
-    Paired, Welcome, PROTOCOL_VERSION,
+    Paired, Screen, Welcome, PROTOCOL_VERSION,
 };
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -92,6 +92,8 @@ pub enum ServerEvent {
         device_name: String,
         peer: SocketAddr,
         grid: Grid,
+        screen: Screen,
+        capabilities: Vec<String>,
     },
     Paired {
         device_id: String,
@@ -321,6 +323,8 @@ impl Connection {
             device_name: hello.device_name.clone(),
             peer: self.peer,
             grid,
+            screen: hello.screen,
+            capabilities: hello.capabilities.clone(),
         });
 
         let welcome = Message::Welcome(Welcome {

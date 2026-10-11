@@ -3,8 +3,8 @@ package dev.perritodeck.client
 import android.graphics.Bitmap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -49,26 +49,34 @@ class HostEndToEndTest {
         compose.onNodeWithText("It matches").performClick()
 
         // Paired and connected over TLS: the host's demo counter key is on screen.
-        compose.waitUntilAtLeastOneExists(hasText("0×", substring = true), timeout)
+        // (Keys may be host-rendered images, so match their accessibility labels, not visible text.)
+        compose.waitUntilAtLeastOneExists(hasContentDescription("0×", substring = true), timeout)
         screenshot("2-connected")
 
         // Live clock: the host pushes setTitle every second, replacing the placeholder.
-        compose.waitUntilDoesNotExist(hasText("--:--:--"), timeout)
+        compose.waitUntilDoesNotExist(hasContentDescription("--:--:--", substring = true), timeout)
 
         // Press the counter key three times; the host answers each press with a new title.
         repeat(3) { n ->
-            compose.onNodeWithText("Pressed", substring = true).performClick()
-            compose.waitUntilAtLeastOneExists(hasText("${n + 1}×", substring = true), timeout)
+            compose.onNode(hasContentDescription("Pressed", substring = true)).performClick()
+            compose.waitUntilAtLeastOneExists(hasContentDescription("${n + 1}×", substring = true), timeout)
         }
         screenshot("3-after-presses")
     }
 
-    /** Saves to the app's external files dir; CI pulls the folder with adb. */
+    /**
+     * Best effort: saves to the app's external files dir (or internal files on emulators
+     * without shared storage); CI pulls them with adb. Never fails the test.
+     */
     private fun screenshot(name: String) {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.waitForIdleSync()
-        val bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
-        val dir = File(instrumentation.targetContext.getExternalFilesDir(null), "e2e-screenshots").apply { mkdirs() }
-        File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        runCatching {
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            instrumentation.waitForIdleSync()
+            val bitmap = instrumentation.uiAutomation.takeScreenshot() ?: return
+            val ctx = instrumentation.targetContext
+            val base = ctx.getExternalFilesDir(null)?.takeIf { it.exists() || it.mkdirs() } ?: ctx.filesDir
+            val dir = File(base, "e2e-screenshots").apply { mkdirs() }
+            File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
     }
 }

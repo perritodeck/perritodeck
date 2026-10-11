@@ -17,7 +17,15 @@ fi
 status=${PIPESTATUS[0]}
 
 adb logcat -d > "$out/logcat.txt" 2>&1 || true
-adb pull /sdcard/Android/data/dev.perritodeck.client.debug/files/e2e-screenshots "$out/" > /dev/null 2>&1 || true
+pkg=dev.perritodeck.client.debug
+adb pull "/sdcard/Android/data/$pkg/files/e2e-screenshots" "$out/" > /dev/null 2>&1 || true
+# Emulators without shared storage: screenshots are in the app's internal files dir.
+if [ ! -d "$out/e2e-screenshots" ]; then
+  mkdir -p "$out/e2e-screenshots"
+  for f in $(adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r'); do
+    adb exec-out run-as "$pkg" cat "files/e2e-screenshots/$f" > "$out/e2e-screenshots/$f" 2>/dev/null || true
+  done
+fi
 adb exec-out screencap -p > "$out/final-screen.png" 2>/dev/null || true
 cp -r "$root/android/app/build/reports/androidTests" "$out/report" 2>/dev/null || true
 

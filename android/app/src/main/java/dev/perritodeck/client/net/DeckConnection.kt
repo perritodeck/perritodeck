@@ -48,6 +48,8 @@ class DeckConnection(
     private val scope: CoroutineScope,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val nanoTime: () -> Long = System::nanoTime,
+    /** Turns a `setImage` data URL into something drawable; Android bitmaps in the app, fakes in tests. */
+    private val decodeImage: (String) -> Any? = KeyImages::decode,
 ) {
     private val _state = MutableStateFlow<ConnState>(ConnState.Idle)
     val state: StateFlow<ConnState> = _state.asStateFlow()
@@ -55,6 +57,10 @@ class DeckConnection(
     private val _layout = MutableStateFlow<Layout?>(null)
     /** Last layout received; kept while reconnecting so the grid stays on screen. */
     val layout: StateFlow<Layout?> = _layout.asStateFlow()
+
+    private val _images = MutableStateFlow<Map<Int, Any>>(emptyMap())
+    /** Host-rendered key images by key index (from `setImage`); cleared with each new layout. */
+    val images: StateFlow<Map<Int, Any>> = _images.asStateFlow()
 
     private val _rttMs = MutableStateFlow<Double?>(null)
     /** Round trip of the most recent key press, in milliseconds. */
@@ -69,6 +75,7 @@ class DeckConnection(
     fun connect(url: String, hello: Hello, client: OkHttpClient = http) {
         disconnect()
         _layout.value = null
+        _images.value = emptyMap()
         job = scope.launch { runLoop(url, hello, client) }
     }
 
@@ -189,7 +196,15 @@ class DeckConnection(
                                 heartbeat?.cancel()
                                 heartbeat = startHeartbeat(ws, m.payload.heartbeatIntervalMs, lastHeard)
                             }
-                            is Message.LayoutMsg -> _layout.value = m.payload
+                            is Message.LayoutMsg -> {
+                                _layout.value = m.payload
+                                _images.value = emptyMap()
+                            }
+                            is Message.SetImageMsg -> {
+                                val key = m.payload.keyIndex
+                                val decoded = m.payload.image?.let(decodeImage)
+                                _images.value = if (decoded == null) _images.value - key else _images.value + (key to decoded)
+                            }
                             is Message.SetTitleMsg -> _layout.value = _layout.value?.let { l ->
                                 l.copy(keys = l.keys.map { k ->
                                     if (k.index == m.payload.keyIndex) k.copy(title = m.payload.title) else k
@@ -207,7 +222,7 @@ class DeckConnection(
                                 ErrorCode.UNSUPPORTED_VERSION -> return SessionEnd.Fatal(m.payload.message)
                                 else -> Unit // non-fatal; Phase 2 surfaces these in a debug panel
                             }
-                            else -> Unit // setImage arrives in Phase 2; heartbeatAck only refreshes lastHeard
+                            else -> Unit // heartbeatAck only refreshes lastHeard
                         }
                     }
                 }

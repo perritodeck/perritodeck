@@ -81,11 +81,13 @@ private fun PerritoApp(vm: DeckViewModel) {
         Route.Deck -> {
             val state by vm.connection.state.collectAsStateWithLifecycle()
             val layout by vm.connection.layout.collectAsStateWithLifecycle()
+            val images by vm.connection.images.collectAsStateWithLifecycle()
             val rtt by vm.connection.rttMs.collectAsStateWithLifecycle()
             DeckMode()
             BackHandler { vm.disconnect() }
             DeckScreen(
                 layout = layout,
+                images = images,
                 state = state,
                 rttMs = rtt,
                 onKeyDown = vm.connection::keyDown,
