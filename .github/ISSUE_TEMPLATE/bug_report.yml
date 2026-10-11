@@ -1,0 +1,96 @@
+name: Bug report
+description: Something doesn't work the way the guide says it should.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check the [troubleshooting guide](https://perritodeck.dev/guide/troubleshooting.html) first.
+        **Security problems:** don't file them here; see [SECURITY.md](https://github.com/perritodeck/perritodeck/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Paired my tablet
+        2. Pressed a key set to "Hotkey: Ctrl+Shift+M"
+        3. Nothing happened on the computer; the key flashed ⚠
+    validations:
+      required: true
+
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      multiple: true
+      options:
+        - Desktop app (editor, tray, settings)
+        - Command-line host (perritodeck-host)
+        - Perrito on Android / Fire OS
+        - Perrito on iPhone / iPad
+        - Pairing or connection (Wi-Fi or USB)
+        - A plugin
+        - Stream Deck plugin compatibility
+        - Bitfocus Companion mode
+        - Website or guide
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: PerritoDeck version
+      description: Desktop app version (Settings, or `perritodeck-host --version`) and Perrito version (its Settings screen).
+      placeholder: "Desktop 0.1.0, Perrito 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Computer OS
+      description: Include the desktop session on Linux (X11 or Wayland, and which desktop).
+      placeholder: "Windows 11 23H2 / macOS 15.1 / Fedora 41 GNOME on Wayland"
+    validations:
+      required: true
+
+  - type: input
+    id: tablet
+    attributes:
+      label: Tablet or phone
+      description: Model and Android / Fire OS / iPadOS version. "None" if it's a desktop-only problem.
+      placeholder: "Amazon Fire 7 (2019), Fire OS 7.3.2.x"
+
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin (if any)
+      description: Plugin name and version, from the Plugins page.
+      placeholder: "OBS Studio 1.2.0"
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In the desktop app, open **Settings → Copy diagnostics** and paste the result here.
+        It lists versions, OS, settings and connected tablets, without pairing secrets or plugin tokens.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        **Settings → Open logs folder** opens the folder with the log files; attach the latest one, or paste the lines around the problem.
+        With the command-line host, `perritodeck-host paths` shows where they are.
+        Please remove tokens, passwords and anything personal before posting.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, your profile file (Profiles → Export), or how often it happens.

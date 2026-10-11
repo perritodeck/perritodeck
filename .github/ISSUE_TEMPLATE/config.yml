@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: User guide
+    url: https://perritodeck.dev/guide/
+    about: Installing, pairing, buttons, integrations and plugins.
+  - name: Troubleshooting
+    url: https://perritodeck.dev/guide/troubleshooting.html
+    about: The tablet can't find the computer, pairing problems, buttons that do nothing.
+  - name: Report a security vulnerability
+    url: https://github.com/perritodeck/perritodeck/security/advisories/new
+    about: Please report security problems privately, not as an issue.

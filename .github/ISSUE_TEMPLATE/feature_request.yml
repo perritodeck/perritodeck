@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest something PerritoDeck should do.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues and the [roadmap](https://github.com/perritodeck/perritodeck/tree/main/docs/plan) first.
+        For a new integration with a specific app or service, the **Plugin request** form fits better.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or workflow, not the solution yet. "When I stream, I want to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you imagine it working. Mock-ups and examples from other tools are welcome.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      multiple: true
+      options:
+        - Desktop app / editor
+        - Perrito (tablet app)
+        - Actions and integrations
+        - Plugins and the SDKs
+        - Packaging and installers
+        - Docs and guide
+        - Not sure
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've tried
+      description: Workarounds, or how Stream Deck / Companion / other tools handle it.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I'd like to work on this myself (see CONTRIBUTING.md)

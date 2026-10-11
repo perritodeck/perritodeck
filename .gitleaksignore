@@ -1,0 +1,6 @@
+# Known false positives for gitleaks (https://github.com/gitleaks/gitleaks): test fixtures and
+# a CI emulator log, not real secrets. Reviewed 2026-10-11.
+24f16323b2c8ff485cbfd823480974050fcb1401:plugins/truenas/test_plugin.py:generic-api-key:16
+7f02fcbf7468dfbeb9c96580acfa4a820e757e81:logcat.txt:generic-api-key:8438
+ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/hello-paired.json:generic-api-key:21
+ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/paired.json:generic-api-key:5

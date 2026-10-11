@@ -1,0 +1,11 @@
+# Reviewers requested automatically for pull requests. The last matching line wins.
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*                       @dmang-dev
+
+# Areas where a second reviewer can be added as the team grows.
+/host/crates/core/      @dmang-dev
+/protocol/              @dmang-dev
+/docs/SECURITY.md       @dmang-dev
+/.github/workflows/     @dmang-dev
+/plugins/               @dmang-dev

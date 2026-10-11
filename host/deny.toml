@@ -1,0 +1,90 @@
+# cargo-deny configuration for both Rust workspaces in host/.
+#
+#   cd host
+#   cargo deny check licenses bans sources
+#   cargo deny --manifest-path app/src-tauri/Cargo.toml --config deny.toml check licenses bans sources
+#
+# Install with `cargo install cargo-deny --locked`. The allow-list below is what the
+# dependency trees actually use today (2026-10); adding a licence here is a decision, so
+# record it in docs/DECISIONS.md. Never allow GPL/AGPL/LGPL-only crates: PerritoDeck is
+# Apache-2.0 and links everything statically.
+
+[graph]
+all-features = false
+no-default-features = false
+# Release targets. Linux, Windows and macOS (Intel and Apple Silicon).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+[output]
+feature-depth = 1
+
+[advisories]
+# `cargo deny check advisories` fetches the RustSec database; run it in CI, not offline.
+ignore = []
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    # Permissive
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    # Unicode data tables (icu_*, zerovec, yoke, ...)
+    "Unicode-3.0",
+    # Mozilla root certificate list (webpki-roots)
+    "CDLA-Permissive-2.0",
+    # File-level weak copyleft: option-ext (via directories), cssparser/selectors/
+    # dtoa-short (via Tauri). Used unmodified from crates.io; MPL-2.0 only requires that
+    # changes to those files stay MPL and that the source is available, which crates.io
+    # does. Listed in THIRD_PARTY_NOTICES.md.
+    "MPL-2.0",
+]
+# r-efi is "MIT OR Apache-2.0 OR LGPL-2.1-or-later"; cargo-deny picks an allowed option,
+# so LGPL is never needed and stays off the list.
+
+# Our own render crate embeds the Inter font (SIL OFL 1.1, see crates/render/assets/OFL.txt).
+exceptions = [
+    { allow = ["OFL-1.1"], crate = "perritodeck-render" },
+]
+
+[licenses.private]
+# The perritodeck-* crates are not published; they carry the workspace licence.
+ignore = true
+registries = []
+
+[bans]
+multiple-versions = "allow"   # common in Tauri/windows-rs trees; not worth failing on
+# The perritodeck-* path crates count as "public" until they set `publish = false`;
+# switch this back to "deny" once they do (see THIRD_PARTY_NOTICES.md follow-ups).
+wildcards = "warn"
+allow-wildcard-paths = true   # path dependencies inside this repo
+highlight = "all"
+deny = [
+    # Native TLS stacks: we use rustls with ring only.
+    { crate = "openssl", reason = "use rustls" },
+    { crate = "openssl-sys", reason = "use rustls" },
+    { crate = "native-tls", reason = "use rustls" },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

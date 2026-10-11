@@ -1,0 +1,60 @@
+name: Plugin request
+description: Ask for a plugin that connects PerritoDeck to an app, device or service.
+labels: ["plugin", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [plugin catalogue](https://perritodeck.dev/plugins/) and the [plugins guide](https://perritodeck.dev/guide/plugins.html) first.
+        Many things already work without a plugin: the **HTTP** and **MQTT** plugins, Home Assistant, OBS, and running a program or command from a key.
+        Many Stream Deck plugins (`.sdPlugin`) also run in PerritoDeck.
+
+  - type: input
+    id: target
+    attributes:
+      label: App, device or service
+      placeholder: "e.g. Philips Hue, VoiceMeeter, Jellyfin"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: Buttons (actions) you want
+      description: What should pressing a key do?
+      placeholder: |
+        - Toggle a light
+        - Switch to a scene
+    validations:
+      required: true
+
+  - type: textarea
+    id: values
+    attributes:
+      label: Live values to show on keys
+      description: Anything a key should display and keep up to date.
+      placeholder: "Current brightness, now playing title, ..."
+
+  - type: textarea
+    id: api
+    attributes:
+      label: How it can be controlled
+      description: Links to its API, CLI, local web API or protocol docs, and whether it needs an account or cloud service.
+
+  - type: dropdown
+    id: existing
+    attributes:
+      label: Is there a Stream Deck plugin for it?
+      options:
+        - "I don't know"
+        - "No"
+        - "Yes, and I tried it in PerritoDeck"
+        - "Yes, but I haven't tried it"
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I could write or test it (SDKs in Python and Node.js, see plugins/README.md)
+        - label: I can test it against the real app/device
