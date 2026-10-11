@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Troubleshooting and FAQ — PerritoDeck</title>
+  <meta name="description" content="Fixes for common PerritoDeck problems: the tablet can&#x27;t find the computer, pairing, USB, buttons that do nothing, and where settings are kept.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="../plugins/">Plugins</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="guide">
+    <div class="wrap">
+      <nav class="guide-nav" aria-label="User guide">
+        <p class="label">User guide</p>
+        <ol>
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="buttons.html">Buttons and profiles</a></li>
+          <li><a href="integrations.html">Integrations</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+          <li><a href="troubleshooting.html" aria-current="page">Troubleshooting and FAQ</a>
+            <ul>
+              <li><a href="#cant-find">The tablet can't find the computer</a></li>
+              <li><a href="#pairing">Pairing problems</a></li>
+              <li><a href="#usb">USB problems</a></li>
+              <li><a href="#nothing-happens">Buttons do nothing</a></li>
+              <li><a href="#linux">Linux notes</a></li>
+              <li><a href="#settings-folder">Where settings live</a></li>
+              <li><a href="#logs">Logs</a></li>
+              <li><a href="#faq">Questions</a></li>
+            </ul>
+          </li>
+        </ol>
+      </nav>
+
+      <article class="guide-body">
+<h1>Troubleshooting and FAQ</h1>
+<p class="lede">Something not working? Start with the heading that matches what you see.</p>
+
+<h2 id="cant-find">The tablet can't find the computer</h2>
+<p>If your computer doesn't appear under <strong>Found on this network</strong> in Perrito, or the tablet keeps saying <strong>Reconnecting…</strong>, go through these in order.</p>
+<ol>
+  <li><strong>Is PerritoDeck running?</strong> Look for the paw icon in the tray or menu bar. Closing the window is fine, but <span class="ui">Quit PerritoDeck</span> stops it.</li>
+  <li><strong>Are both on the same network?</strong> The tablet and the computer must be on the same Wi-Fi (a computer plugged into the same router by cable is fine). Guest networks, and some mesh and office networks, keep devices apart on purpose; that stops PerritoDeck too.</li>
+  <li><strong>Is the firewall letting PerritoDeck in?</strong> See <a href="#firewall">below</a>.</li>
+  <li><strong>Type the address instead.</strong> Some routers block the way devices find each other automatically. In PerritoDeck, open <span class="ui">Settings</span> and look under <strong>Tablets connect to</strong> for an address like <code>192.168.1.20:46710</code>. In Perrito, tap <span class="ui">Pair with a code</span> and type that address.</li>
+  <li><strong>Is Wi-Fi turned off in PerritoDeck?</strong> In <span class="ui">Settings</span>, <span class="ui">Let tablets connect over Wi-Fi</span> must be ticked, or only tablets on a USB cable can connect.</li>
+</ol>
+
+<h3 id="firewall">Firewall</h3>
+<p>PerritoDeck listens for tablets on <strong>port 46710</strong>. Your firewall has to allow it on your home network.</p>
+<ul>
+  <li><strong>Windows:</strong> the first time PerritoDeck starts, Windows asks whether to allow it; choose private networks. If you clicked Cancel, open Windows Security → Firewall &amp; network protection → <em>Allow an app through firewall</em>, click <em>Change settings</em>, and tick <em>Private</em> next to PerritoDeck. Also check that Windows treats your home Wi-Fi as a <em>private</em> network, not a public one.</li>
+  <li><strong>Mac:</strong> if the macOS firewall is on, open System Settings → Network → Firewall → Options and make sure PerritoDeck is set to allow incoming connections.</li>
+  <li><strong>Linux:</strong> most desktops have no firewall switched on. If yours does, allow TCP port 46710, and UDP port 5353 so tablets can find the computer by themselves. With <code>ufw</code>: <code>sudo ufw allow 46710/tcp</code> and <code>sudo ufw allow 5353/udp</code>.</li>
+</ul>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>The computer advertises itself on the local network with mDNS (Bonjour) as <code>_perritodeck._tcp</code>, which uses multicast on UDP port 5353. Networks with "client isolation", "AP isolation" or multicast filtering block this; typing the address always works as long as TCP 46710 can get through. All connections are encrypted (TLS), and the tablet checks the computer's certificate fingerprint every time.</p>
+  <p>If another program already uses port 46710, choose a different <strong>Port</strong> in <span class="ui">Settings</span>, click <span class="ui">Save network settings</span> and then <span class="ui">Restart now</span>. Tablets that found the computer by themselves follow; if you typed an address into Perrito, change it there too.</p>
+</div>
+
+<h3 id="didnt-start">"The host didn't start"</h3>
+<p>Only one PerritoDeck can run on a computer at a time, because they'd all want the same port. If you see this message, another copy is already running, perhaps the command-line version in a terminal. Quit it and open PerritoDeck again. The message also shows the exact error, which helps if it's something else.</p>
+
+<h2 id="pairing">Pairing problems</h2>
+<dl>
+  <dt><strong>"This code has expired."</strong></dt>
+  <dd><p>Pairing codes work for 5 minutes and only once. Click <span class="ui">New code</span>. A code also stops working after 5 wrong tries, to stop anyone guessing it.</p></dd>
+  <dt><strong>The fingerprints don't match.</strong></dt>
+  <dd><p>Tap <span class="ui">It doesn't match</span>. Make sure you're pairing with the right computer (check its name). If you typed an address, check it's the one shown in PerritoDeck's <span class="ui">Settings</span>. If they still don't match, something on your network may be pretending to be your computer, so don't pair on that network.</p></dd>
+  <dt><strong>"Couldn't reach" your computer.</strong></dt>
+  <dd><p>The tablet can't get through to the computer. See <a href="#cant-find">The tablet can't find the computer</a>.</p></dd>
+  <dt><strong>"This computer no longer recognises this tablet. Pair it again."</strong></dt>
+  <dd><p>The tablet was unpaired on the computer, or PerritoDeck's settings were reset. In Perrito, tap <span class="ui">Forget</span> next to the computer and pair again.</p></dd>
+  <dt><strong>"This isn't the computer you paired with."</strong></dt>
+  <dd><p>The computer's identity changed. That's expected if you reinstalled PerritoDeck with fresh settings or moved to a new computer: tap <span class="ui">Forget</span> in Perrito and pair again. If you didn't change anything, be careful: it may not be your computer.</p></dd>
+</dl>
+
+<h2 id="usb">USB problems</h2>
+<p>Look at the <strong>USB</strong> line in PerritoDeck's <span class="ui">Settings</span>:</p>
+<ul>
+  <li><strong>Not set up</strong>: PerritoDeck can't find Android's <code>adb</code> program. Install Android's platform-tools, then quit and reopen PerritoDeck. If you put platform-tools somewhere unusual, add that folder to your <code>PATH</code>.</li>
+  <li><strong>No tablet on a cable right now</strong>: PerritoDeck has <code>adb</code> but sees no tablet. Check that USB debugging is on, that you tapped <em>Allow</em> on the tablet's "Allow USB debugging?" prompt, and that the cable carries data (some cables only charge). On Windows, Fire tablets may need Amazon's USB driver.</li>
+</ul>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>Run <code>adb devices</code> in a terminal. A tablet listed as <code>device</code> is ready; <code>unauthorized</code> means the prompt on the tablet hasn't been accepted yet. PerritoDeck runs <code>adb reverse tcp:46710 tcp:46710</code> for each ready tablet; the tablet then reaches the computer at <code>127.0.0.1</code>.</p>
+</div>
+
+<h2 id="nothing-happens">Buttons do nothing</h2>
+<h3 id="paused">Keys are paused</h3>
+<p>If PerritoDeck shows <strong>Keys are paused.</strong> at the top of its window, presses on the tablets are ignored on purpose. Click <span class="ui">Resume</span>, or untick <span class="ui">Pause keys</span> in the tray menu, or <span class="ui">Pause all keys</span> in <span class="ui">Settings</span>. Pausing is handy when you're cleaning the screen or a cat walks across it.</p>
+
+<h3 id="mac-accessibility">Hotkeys and typing don't work on a Mac</h3>
+<p>macOS only lets apps press keys for you after you allow it. PerritoDeck shows <strong>Hotkeys and typing need your permission.</strong> until you do. Click <span class="ui">Open System Settings</span>, go to Privacy &amp; Security → Accessibility, and turn on PerritoDeck. If it's already on but hotkeys still don't work (this can happen after an update), turn it off and on again.</p>
+
+<h3 id="wrong-window">A hotkey goes to the wrong app</h3>
+<p>Hotkeys and typed text go to whichever window is in front on the computer, just as if you'd pressed the keys yourself. Click into the right app first. Some apps also have global shortcuts that work from anywhere; those are the best ones to put on a button.</p>
+
+<h3 id="warning-flash">The button flashes ⚠</h3>
+<p>The action ran into a problem. Common causes: OBS or Home Assistant isn't set up or isn't running, a plugin isn't running, or a program can't be found. Click the button on the <span class="ui">Buttons</span> page and use <span class="ui">Try it</span>: PerritoDeck shows the full message. For plugins, check their status on the <span class="ui">Plugins</span> page.</p>
+
+<h2 id="linux">Linux notes</h2>
+<h3 id="wayland">Wayland desktops</h3>
+<p>Most current Linux desktops (GNOME and KDE Plasma, for example) use Wayland, which is built to stop apps from watching or controlling each other. That's good for security but limits PerritoDeck in two ways:</p>
+<ul>
+  <li><strong>Hotkeys and typing:</strong> each time PerritoDeck starts, your desktop asks whether it may control your keyboard ("remote desktop" or "input" permission). Allow it, or hotkey and typing buttons won't work until the next start.</li>
+  <li><strong>Switching profiles by app isn't available.</strong> Wayland has no standard way for an app to ask which window is in front, so the <span class="ui">Switching</span> page says it isn't available here. <span class="soon">Coming</span> Support for specific desktops is planned. Choosing a profile per tablet on the <span class="ui">Tablets</span> page still works.</li>
+</ul>
+<p>On an X11 session, both work without asking.</p>
+<h3 id="tray">No tray icon on GNOME</h3>
+<p>GNOME doesn't show tray icons unless you install the "AppIndicator and KStatusNotifierItem Support" extension. PerritoDeck runs fine without it; you just can't reach its tray menu. Open PerritoDeck again from your app list to bring the window back.</p>
+
+<h2 id="settings-folder">Where settings live</h2>
+<p>PerritoDeck keeps everything in one folder for your user account. The quickest way there is <span class="ui">Settings</span> → <strong>Settings folder</strong> → <span class="ui">Open folder</span>, which also shows the exact path.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>System</th><th>Settings folder</th></tr></thead>
+  <tbody>
+    <tr><td>Windows</td><td><code>%APPDATA%\perritodeck\PerritoDeck\config</code></td></tr>
+    <tr><td>macOS</td><td><code>~/Library/Application Support/dev.perritodeck.PerritoDeck</code></td></tr>
+    <tr><td>Linux</td><td><code>~/.config/perritodeck</code> (or <code>$XDG_CONFIG_HOME/perritodeck</code>)</td></tr>
+  </tbody>
+</table></div>
+<p>Inside it:</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>File or folder</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td><code>profiles/</code></td><td>Your profiles, one <code>.toml</code> file each, plus <code>icons/</code> for images you picked</td></tr>
+    <tr><td><code>integrations.toml</code></td><td>OBS, Home Assistant and Companion settings, including passwords</td></tr>
+    <tr><td><code>devices.json</code></td><td>Paired tablets</td></tr>
+    <tr><td><code>host-cert.der</code>, <code>host-key.der</code></td><td>This computer's identity (its fingerprint comes from these)</td></tr>
+    <tr><td><code>app-settings.json</code></td><td>The app's own settings, such as the port and switching rules</td></tr>
+    <tr><td><code>plugins/</code>, <code>plugin-settings/</code></td><td>Installed plugins and their settings</td></tr>
+    <tr><td><code>sdplugins/</code></td><td>Plugins made for the Elgato Stream Deck</td></tr>
+  </tbody>
+</table></div>
+<p><strong>To back up</strong> your setup, copy the whole folder while PerritoDeck isn't running. To share just a layout, <a href="buttons.html#export">export a profile</a> instead.</p>
+<p><strong>To start over</strong>, quit PerritoDeck and delete the folder. You'll then need to pair your tablets again.</p>
+
+<h2 id="logs">Logs</h2>
+<p>PerritoDeck doesn't write a log file yet <span class="soon">coming</span>, along with a button to copy debug information for bug reports. Until then:</p>
+<ul>
+  <li>Most problems show up in the app itself: as a message on the page, a plugin's status, or the result of <span class="ui">Try it</span>.</li>
+  <li>On macOS and Linux, starting PerritoDeck from a terminal prints its log there.</li>
+  <li>The command-line version, <code>perritodeck-host</code>, prints its log in any terminal, including on Windows. Quit the app first, since only one can run at a time.</li>
+</ul>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>Set <code>RUST_LOG=debug</code> before starting either one for more detail. <code>perritodeck-host paths</code> prints where every file is kept. Plugins' error output goes to the same log.</p>
+</div>
+
+<h2 id="faq">Questions</h2>
+<dl>
+  <dt><strong>Does PerritoDeck collect any data?</strong></dt>
+  <dd><p>No. Neither app has analytics, ads, crash reporting or accounts, and neither sends anything to us. The tablet talks only to your computer. Your computer only goes online when you ask it to: <span class="ui">Look online</span> for plugins, the optional update check (off unless you tick <span class="ui">Tell me when a new version is out</span>), and the services your own buttons and plugins use. The full <a href="../privacy.html">privacy policy</a> is short.</p></dd>
+  <dt><strong>Is it safe? Could someone else on my Wi-Fi press my buttons?</strong></dt>
+  <dd><p>Only tablets you've paired can connect, and pairing needs the code shown on your computer's screen. Each tablet gets its own secret key, the connection is encrypted, and web pages in your browser can't connect to PerritoDeck. To remove a tablet, use <span class="ui">Unpair…</span> on the <span class="ui">Tablets</span> page; it's disconnected straight away.</p></dd>
+  <dt><strong>Do I need the tablet and computer on the internet?</strong></dt>
+  <dd><p>No. They only need to reach each other, over your Wi-Fi or a USB cable.</p></dd>
+  <dt><strong>Can I use a phone instead of a tablet?</strong></dt>
+  <dd><p>Yes. Perrito works on Android phones too; a phone just fits fewer buttons.</p></dd>
+  <dt><strong>Can I edit buttons on the tablet?</strong></dt>
+  <dd><p>Not yet. Buttons are edited on the computer, and changes appear on the tablet straight away.</p></dd>
+  <dt><strong>Does it work with an Elgato Stream Deck?</strong></dt>
+  <dd><p>PerritoDeck can run many <a href="plugins.html#stream-deck">plugins made for the Elgato Stream Deck</a>. Using Stream Deck hardware itself as a PerritoDeck panel isn't supported. PerritoDeck isn't affiliated with Elgato or Corsair.</p></dd>
+  <dt><strong>Is there an iPhone or iPad version?</strong></dt>
+  <dd><p>It's <span class="soon">coming</span>. The app is written but hasn't been built and tested yet.</p></dd>
+  <dt><strong>Where do I report a bug or a security problem?</strong></dt>
+  <dd><p>Bugs and ideas go to the project on <a href="https://github.com/perritodeck/perritodeck">GitHub</a>. Please report security problems privately with GitHub's "Report a vulnerability" button rather than in a public issue.</p></dd>
+</dl>
+        <nav class="next-page" aria-label="Previous and next"><a href="plugins.html">← Plugins</a><span></span></nav>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

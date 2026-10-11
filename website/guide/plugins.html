@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plugins — PerritoDeck</title>
+  <meta name="description" content="Add plugins to PerritoDeck for timers, weather, server status and more, run plugins made for the Elgato Stream Deck, or write your own.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="../plugins/">Plugins</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="guide">
+    <div class="wrap">
+      <nav class="guide-nav" aria-label="User guide">
+        <p class="label">User guide</p>
+        <ol>
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="buttons.html">Buttons and profiles</a></li>
+          <li><a href="integrations.html">Integrations</a></li>
+          <li><a href="plugins.html" aria-current="page">Plugins</a>
+            <ul>
+              <li><a href="#what">What plugins are</a></li>
+              <li><a href="#add">Add a plugin</a></li>
+              <li><a href="#settings">Plugin settings</a></li>
+              <li><a href="#first-party">The plugins that come with PerritoDeck</a></li>
+              <li><a href="#stream-deck">Plugins made for the Elgato Stream Deck</a></li>
+              <li><a href="#write-your-own">Write your own plugin</a></li>
+            </ul>
+          </li>
+          <li><a href="troubleshooting.html">Troubleshooting and FAQ</a></li>
+        </ol>
+      </nav>
+
+      <article class="guide-body">
+<h1>Plugins</h1>
+<p class="lede">Plugins add new things your buttons can do and new live values your titles can show. PerritoDeck comes with thirteen of them, and it can also run many plugins made for the Elgato Stream Deck.</p>
+
+<h2 id="what">What plugins are</h2>
+<p>A plugin is a small program that runs alongside PerritoDeck on your computer. Once you add one, its actions appear in the <strong>When pressed</strong> list of the button editor, in a group with the plugin's name, and its values appear in <span class="ui">Insert a live value…</span>.</p>
+<p>Plugins run on your computer with the same permissions as you, so only add plugins you trust. The ones that come with PerritoDeck are written by the PerritoDeck project and their source code is public.</p>
+
+<h2 id="add">Add a plugin</h2>
+<p>Open the <span class="ui">Plugins</span> page. It has a few sections:</p>
+<ul>
+  <li><strong>Installed</strong>: the plugins you've added, each with its status (for example <strong>Running</strong>) and buttons to <span class="ui">Restart</span> or <span class="ui">Remove…</span> it.</li>
+  <li><strong>Comes with PerritoDeck</strong>: the first-party plugins. Click <span class="ui">Add</span> next to the ones you want. Nothing is downloaded; they're already on your computer.</li>
+  <li><strong>More plugins online</strong>: click <span class="ui">Look online</span> to see plugins from the catalogue on perritodeck.dev, then <span class="ui">Add</span>. PerritoDeck only goes online when you click the button. <span class="soon">Coming</span> The online catalogue isn't published yet.</li>
+  <li><strong>Stream Deck plugins</strong>: see <a href="#stream-deck">below</a>.</li>
+</ul>
+<p>If someone gives you a plugin as a folder, click <span class="ui">Install from folder…</span> at the top of the page and pick it.</p>
+<div class="tip">
+  <p class="box-label">You need Python</p>
+  <p>All the plugins that come with PerritoDeck are written in Python, so your computer needs Python 3 installed. Macs and most Linux systems have it already. On Windows, install it from python.org or the Microsoft Store. If it's missing, the plugin's status says <strong>Needs Python 3, which isn't installed</strong>; after installing it, click <span class="ui">Restart</span>.</p>
+</div>
+
+<h2 id="settings">Plugin settings</h2>
+<p>Some plugins need to know a few things before they work, such as a server's address or a password. Those plugins have a <span class="ui">Settings</span> button on the Plugins page. Click it, fill in the form and click <span class="ui">Save settings</span>.</p>
+<p>Settings are kept only on your computer, in a file only your user account can read, and they're never part of an exported profile. Password fields are hidden as you type.</p>
+<p>Settings for a single button, such as which timer to start, are set in the button editor instead, under <strong>When pressed</strong>.</p>
+
+<h2 id="first-party">The plugins that come with PerritoDeck</h2>
+<p>Each plugin below has an example title showing one of its live values. Paste it into a button's title, or pick the value with <span class="ui">Insert a live value…</span>.</p>
+
+<h3 id="p-http">HTTP requests</h3>
+<p>Calls a web address when you press a button or move a slider: webhooks, smart plugs, home-made gadgets. Settings per button: web address, method, body and headers.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.http:last-status}</code> shows the status of the last request.</p>
+
+<h3 id="p-mqtt">MQTT</h3>
+<p>Publishes a message to an MQTT broker (such as Mosquitto) when you press a button or move a slider. Good for Zigbee2MQTT, Tasmota and Home Assistant. It has actions but no live values.</p>
+
+<h3 id="p-media">Now playing</h3>
+<p>Shows what's playing and adds play/pause, next and previous. Works with Windows' media controls, Spotify or Music on a Mac, and on Linux with any player through <code>playerctl</code> (install it first).</p>
+<p>Example title: <code>{plugin:dev.perritodeck.media:title}</code> shows the artist and title.</p>
+
+<h3 id="p-obs">OBS Studio</h3>
+<p>Full control of OBS 28 and newer: scenes, Studio Mode, transitions, streaming, recording, the replay buffer, the virtual camera, audio, sources, filters, screenshots, media and text sources, projectors, profiles and more, with live status. Fill in the OBS address and password under <span class="ui">Settings</span>.</p>
+<p>Example title: <code>LIVE\n{plugin:dev.perritodeck.obs:stream_time}</code> shows how long you've been streaming.</p>
+
+<h3 id="p-timer">Timers</h3>
+<p>Countdowns, stopwatches and a Pomodoro timer, each with its own name so several can run at once. They keep counting if PerritoDeck restarts. Optionally plays a sound when time's up.</p>
+<p>Example title: <code>Tea\n{plugin:dev.perritodeck.timer:remaining:tea}</code> shows the time left on the "tea" countdown, like 3:41.</p>
+
+<h3 id="p-counter">Counters</h3>
+<p>Counts presses: deaths on stream, laps, cups of coffee. Counts are kept, and can be written to text files that OBS can show on screen.</p>
+<p>Example title: <code>Deaths: {plugin:dev.perritodeck.counter:count:deaths}</code></p>
+
+<h3 id="p-uptime">Is it up?</h3>
+<p>Checks whether your servers and web services answer, from your computer. Perfect for a homelab wall where each button turns red when a service is down.</p>
+<p>Example title: <code>NAS\n{plugin:dev.perritodeck.uptime:ms:nas.local:22}</code> shows how fast the NAS answers, like 12 ms.</p>
+
+<h3 id="p-wol">Wake-on-LAN</h3>
+<p>Switches on a computer or server on your network with a button press. Wake-on-LAN has to be turned on in that computer's BIOS or network settings. It has an action but no live values.</p>
+
+<h3 id="p-weather">Weather</h3>
+<p>Current weather and today's forecast for any place, from Open-Meteo. Free, with no account. Choose metric or imperial units in <span class="ui">Settings</span>.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.weather:icon:Lisbon} {plugin:dev.perritodeck.weather:temp:Lisbon}</code> shows something like ⛅ 18°C.</p>
+
+<h3 id="p-ollama">Ollama</h3>
+<p>Loads, unloads and downloads local AI models in Ollama, shows which are loaded, and can ask a model a question from a button, putting the answer on your clipboard.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.ollama:loaded}</code> lists the loaded models.</p>
+
+<h3 id="p-proxmox">Proxmox VE</h3>
+<p>Starts, shuts down, restarts and snapshots Proxmox virtual machines and containers, and shows their status, CPU and memory. Needs an API token, filled in under <span class="ui">Settings</span>.</p>
+<p>Example title: <code>VM 101\n{plugin:dev.perritodeck.proxmox:status:101}</code> shows running, stopped or paused.</p>
+
+<h3 id="p-truenas">TrueNAS</h3>
+<p>Shows pool health and space, alerts and apps; starts and stops apps, scrubs pools and runs backup tasks. For TrueNAS Community Edition 25.04 and newer. Needs an API key.</p>
+<p>Example title: <code>tank\n{plugin:dev.perritodeck.truenas:pool_used:tank}%</code> shows how full the pool called "tank" is, in percent.</p>
+
+<h3 id="p-gitlab">GitLab</h3>
+<p>Runs, retries and cancels CI/CD pipelines, and shows pipeline status and open merge request and issue counts. Works with gitlab.com and your own GitLab. Needs an access token.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.gitlab:pipeline:my-group/my-project@main}</code></p>
+
+<div class="tech">
+  <p class="box-label">For each plugin's full details</p>
+  <p>Every plugin has a README in the source code under <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins"><code>plugins/</code></a> listing all its actions, values and settings, and how to create the tokens it needs. Most plugins have been tested against stand-ins for the real services so far; each README says what hasn't been tried for real yet.</p>
+</div>
+
+<h2 id="stream-deck">Plugins made for the Elgato Stream Deck</h2>
+<p>If you've used an Elgato Stream Deck, you may already own plugins for it. Many of them also work in PerritoDeck.</p>
+<div class="soon-box">
+  <p class="box-label">Preview</p>
+  <p>Support for these plugins is new and hasn't been tried with many published plugins yet. Some will work perfectly and some won't; we'd like to know which.</p>
+</div>
+
+<h3 id="sd-add">Add one</h3>
+<ol>
+  <li>Get the plugin file. It ends in <code>.streamDeckPlugin</code>.</li>
+  <li>On the <span class="ui">Plugins</span> page, under <strong>Stream Deck plugins</strong>, click <span class="ui">Add a plugin file…</span> and pick it. (If you have an unpacked plugin folder ending in <code>.sdPlugin</code>, use <span class="ui">From a folder…</span>.)</li>
+  <li>In the button editor, its actions appear under <strong>When pressed</strong> in a group called <em>the plugin's name</em> <strong>(Stream Deck plugin)</strong>.</li>
+</ol>
+<p>Most current plugins are written in JavaScript and need <strong>Node.js</strong> installed on your computer (from nodejs.org). Without it, the plugin's status says <strong>Needs Node.js, which isn't installed</strong>.</p>
+
+<h3 id="sd-works">What works</h3>
+<ul>
+  <li>Pressing and releasing buttons.</li>
+  <li>The plugin drawing its own button: its pictures and titles, the ✓ and ⚠ flashes, and switching between states.</li>
+  <li>Plugins remembering their settings, and opening web pages.</li>
+  <li>JavaScript (Node.js) plugins on Windows, macOS and Linux. Plugins that are compiled programs work on Windows and macOS.</li>
+</ul>
+
+<h3 id="sd-not-yet">What doesn't work yet</h3>
+<ul>
+  <li><strong>The plugin's own settings page</strong> (the panel that appears below a button in the Stream Deck app). <span class="soon">Coming</span> For now, settings can be typed in the button editor as JSON, under <strong>Settings, as JSON (optional)</strong>; many plugins also work without any.</li>
+  <li>Dials, touch strips, multi-actions, and plugins switching profiles by themselves.</li>
+  <li>Older plugins built as web pages (HTML and JavaScript) rather than Node.js programs.</li>
+  <li>Compiled plugins on Linux.</li>
+</ul>
+<p>Each plugin keeps its own license; adding it to PerritoDeck doesn't change that. PerritoDeck isn't affiliated with Elgato or Corsair.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>PerritoDeck implements the plugin side of Elgato's published plugin API: it listens on a WebSocket on 127.0.0.1, starts the plugin with <code>-port</code>, <code>-pluginUUID</code>, <code>-registerEvent</code> and <code>-info</code>, and sends <code>willAppear</code>, <code>keyDown</code>, <code>keyUp</code> and the settings events. It accepts <code>setTitle</code>, <code>setImage</code>, <code>setState</code>, <code>showOk</code>, <code>showAlert</code>, the settings commands, <code>openUrl</code> and <code>logMessage</code>. Stream Deck plugins live in the <code>sdplugins</code> folder inside the settings folder, and their saved settings in <code>sdplugins/settings.json</code>. A plugin that keeps crashing is stopped after five tries.</p>
+</div>
+
+<h2 id="write-your-own">Write your own plugin</h2>
+<p>A PerritoDeck plugin is a folder with a small description file, <code>perritodeck-plugin.json</code>, and a program that talks to PerritoDeck by reading and writing lines of text. You can write one in any language; there are ready-made helpers (SDKs) for Python and Node.js. A useful plugin can be a few dozen lines.</p>
+<p>Here's a whole plugin in Python, using the SDK file <code>perritodeck_plugin.py</code> copied next to it:</p>
+<pre><code>from perritodeck_plugin import Plugin
+
+plugin = Plugin()
+
+@plugin.action("say-hello")
+def say_hello(settings):
+    plugin.log(f"hello, {settings.get('name', 'world')}")
+
+plugin.run()</code></pre>
+<p>And its <code>perritodeck-plugin.json</code>:</p>
+<pre><code>{
+  "id": "com.example.hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    { "id": "say-hello", "name": "Say hello",
+      "fields": [{ "id": "name", "label": "Name", "type": "text" }] }
+  ]
+}</code></pre>
+<p>Use <span class="ui">Install from folder…</span> on the Plugins page to try it. The <code>fields</code> become a form in the button editor. Plugins can also publish live values, have settings on the Plugins page, and drive sliders.</p>
+<p>Read the full <a href="https://github.com/perritodeck/perritodeck/blob/main/plugins/PROTOCOL.md">plugin protocol</a> and the SDKs for <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins/sdk-python">Python</a> and <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins/sdk-node">Node.js</a>. The SDKs and first-party plugins are MIT-licensed, so you can use them in a plugin under any license.</p>
+        <nav class="next-page" aria-label="Previous and next"><a href="integrations.html">← Integrations</a><a href="troubleshooting.html">Troubleshooting and FAQ →</a></nav>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

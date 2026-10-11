@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buttons and profiles — PerritoDeck</title>
+  <meta name="description" content="Make buttons, pages, toggles and sliders in PerritoDeck, show live values in titles, and use different profiles per tablet or per app.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="../plugins/">Plugins</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="guide">
+    <div class="wrap">
+      <nav class="guide-nav" aria-label="User guide">
+        <p class="label">User guide</p>
+        <ol>
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="buttons.html" aria-current="page">Buttons and profiles</a>
+            <ul>
+              <li><a href="#editor">The Buttons page</a></li>
+              <li><a href="#make-a-button">Make or change a button</a></li>
+              <li><a href="#pages">Pages</a></li>
+              <li><a href="#toggles">Toggles</a></li>
+              <li><a href="#sliders">Sliders</a></li>
+              <li><a href="#several-steps">Several steps</a></li>
+              <li><a href="#images">Images and animated GIFs</a></li>
+              <li><a href="#live-values">Live values in titles</a></li>
+              <li><a href="#profiles">Profiles</a></li>
+              <li><a href="#file">Editing the profile file by hand</a></li>
+            </ul>
+          </li>
+          <li><a href="integrations.html">Integrations</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+          <li><a href="troubleshooting.html">Troubleshooting and FAQ</a></li>
+        </ol>
+      </nav>
+
+      <article class="guide-body">
+<h1>Buttons and profiles</h1>
+<p class="lede">Everything about designing what's on your tablet: buttons, pages, toggles, sliders, images, live values, and profiles for different tablets and apps.</p>
+
+<h2 id="editor">The Buttons page</h2>
+<p>Open PerritoDeck on your computer and click <span class="ui">Buttons</span>. You'll see:</p>
+<ul>
+  <li><strong>At the top:</strong> which profile you're editing, <span class="ui">+ Profile</span> and <span class="ui">Profile options</span>, plus <span class="ui">Undo</span> and <span class="ui">Redo</span>.</li>
+  <li><strong>Page tabs:</strong> one tab per page of buttons, with <span class="ui">+ Page</span> and <span class="ui">Page options</span>.</li>
+  <li><strong>The grid:</strong> your buttons laid out as the tablet shows them. Empty spots show a +.</li>
+  <li><strong>On the right:</strong> the settings for the button you've selected.</li>
+</ul>
+<p>There's no Save button. Every change is saved as you make it and reaches the tablets straight away. Undo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>) and Redo (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>) cover every change.</p>
+
+<h2 id="make-a-button">Make or change a button</h2>
+<ol>
+  <li>Click an empty spot to add a button, or an existing button to change it.</li>
+  <li>Type a <strong>Title</strong>. Two short lines fit best; press <kbd>Enter</kbd> for a line break.</li>
+  <li>Optionally pick an <strong>Image</strong> and the <strong>Background</strong> and <strong>Text</strong> colours. <span class="ui">Reset</span> puts a colour back to the default.</li>
+  <li>Choose what happens <strong>When pressed</strong> and fill in the details.</li>
+  <li>Click <span class="ui">Try it</span> to test it from the computer.</li>
+</ol>
+<p>To delete a button, select it and click <span class="ui">Remove key</span>, or press <kbd>Delete</kbd>.</p>
+
+<h3 id="actions">What a button can do</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>When pressed</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Nothing (a label)</td><td>Just shows its title. Handy for a clock or a live value.</td></tr>
+    <tr><td>Open a page, Go back, Next page, Previous page</td><td>Moves between pages of buttons (see <a href="#pages">Pages</a>).</td></tr>
+    <tr><td>Press a hotkey</td><td>Presses a key combination, like <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>. Click <span class="ui">Record</span> and press the keys, or type them.</td></tr>
+    <tr><td>Type text</td><td>Types the text exactly as written, into whichever window is in front.</td></tr>
+    <tr><td>Media key</td><td>Play / pause, next or previous track, stop, volume up or down, mute. Works with whatever is playing.</td></tr>
+    <tr><td>Open a website</td><td>Opens a web address in your browser (also <code>mailto:</code> links).</td></tr>
+    <tr><td>Open a file or folder</td><td>Opens it with its usual app.</td></tr>
+    <tr><td>Start a program</td><td>Starts an app and leaves it running.</td></tr>
+    <tr><td>Run a command</td><td>Runs a program and waits for it. The button flashes ✓ when it succeeds and ⚠ when it fails. You can set a time limit.</td></tr>
+    <tr><td>Slider</td><td>Turns the spot into a slider you drag on the tablet (see <a href="#sliders">Sliders</a>).</td></tr>
+    <tr><td>OBS Studio, Home Assistant</td><td>Built-in integrations (see <a href="integrations.html">Integrations</a>).</td></tr>
+    <tr><td>Plugin actions</td><td>Each plugin you've added gets its own group in the list (see <a href="plugins.html">Plugins</a>).</td></tr>
+    <tr><td>Several steps</td><td>Runs several actions in a row (see <a href="#several-steps">Several steps</a>).</td></tr>
+  </tbody>
+</table></div>
+<p>On a Mac, use <kbd>Meta</kbd> for the <kbd>Cmd</kbd> key: copy is <code>Meta+C</code>, not <code>Ctrl+C</code>. On Windows, <kbd>Meta</kbd> is the Windows key.</p>
+<p>When a button's action has a problem (for example OBS isn't running), the button flashes ⚠ on the tablet and the tablet gives a longer buzz.</p>
+
+<h3 id="moving">Move and copy buttons</h3>
+<ul>
+  <li><strong>Drag</strong> a button onto another spot to move it, or onto another button to swap them.</li>
+  <li>Drag a button onto a <strong>page tab</strong> to send it to that page.</li>
+  <li><kbd>Ctrl</kbd>+<kbd>C</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd> copy the selected button to another spot.</li>
+  <li>With the keyboard: arrow keys move the selection, <kbd>Alt</kbd>+arrows move the button itself.</li>
+</ul>
+
+<h2 id="pages">Pages</h2>
+<p>When one screen isn't enough, add pages. Pages work like folders: a button opens a page, and a Back button on that page brings you back.</p>
+<ul>
+  <li>Click <span class="ui">+ Page</span> to add one and give it a name.</li>
+  <li>Double-click a tab to rename it. <span class="ui">Page options</span> has <span class="ui">Move left</span>, <span class="ui">Move right</span> and <span class="ui">Remove page</span>.</li>
+  <li>To get to the new page from the tablet, add a button with <strong>Open a page</strong> and pick the page. Then, on the new page, add a button with <strong>Go back</strong>.</li>
+  <li>In the editor, double-click a page button (or select it and press <kbd>Enter</kbd>) to jump to its page.</li>
+</ul>
+
+<h2 id="toggles">Toggles</h2>
+<p>A toggle switches between two or more looks, each with its own title, colours and action. The starter layout's microphone button is one: it shows <strong>Mic live</strong> in green, and after a press, <strong>Mic muted</strong> in red.</p>
+<ol>
+  <li>Select a button and choose <strong>Toggle (switches between looks)</strong> at the top of its settings.</li>
+  <li>Click each state's tab and set its title, colours and action. <span class="ui">+ State</span> adds a third, fourth and so on.</li>
+</ol>
+<p>Each press runs the current state's action, then moves to the next state.</p>
+<h3 id="follow">Toggles that follow what's really happening</h3>
+<p>A plain toggle can get out of step: if you stop recording with the mouse, the tablet still says "recording". To fix that, fill in <strong>Follow a live value</strong> (or use <span class="ui">Choose a value to follow…</span>). The toggle then shows its second state exactly while that value is on, however it changed. For example, follow <code>obs:recording</code> to have a REC button that's red while OBS records.</p>
+
+<h2 id="sliders">Sliders</h2>
+<p>A slider fills one spot; drag up and down on it to set a level. The tablet gives a small tick every 10% as you drag. Choose <strong>Slider</strong> under <strong>When pressed</strong>, then pick what it sets in <strong>Slider sets</strong>:</p>
+<ul>
+  <li><strong>The computer's volume.</strong></li>
+  <li><strong>A Home Assistant light's brightness</strong>, e.g. <code>light.desk</code>.</li>
+  <li><strong>An OBS audio source's volume</strong>, e.g. <code>Mic/Aux</code>.</li>
+  <li><strong>A program, with the value</strong>: runs a program with the slider's position (0 to 100) wherever you write <code>{value}</code> in its arguments.</li>
+  <li>Plugin sliders, such as the HTTP plugin's <strong>Send the slider's value</strong> or MQTT's <strong>Publish the slider's value</strong>.</li>
+</ul>
+<p>If the level changes on the computer, the slider moves to match within a few seconds, and every tablet showing it stays in step. Dials and touch strips like those on some hardware decks are <span class="soon">coming</span>; sliders cover the main uses for now.</p>
+
+<h2 id="several-steps">Several steps</h2>
+<p>Choose <strong>Several steps</strong> (under Advanced) to run a list of actions in order, with optional pauses between them, such as "select all, wait a moment, copy". For now the steps are written as text in a format called JSON; the box starts with an example you can adapt:</p>
+<pre><code>[
+  { "action": { "type": "hotkey", "keys": "Ctrl+A" }, "delayMs": 100 },
+  { "action": { "type": "hotkey", "keys": "Ctrl+C" } }
+]</code></pre>
+<p><code>delayMs</code> is the pause after a step, in thousandths of a second. Each action is written the same way as in the profile file (see <a href="#actions-reference">the action reference</a> below).</p>
+
+<h2 id="images">Images and animated GIFs</h2>
+<p>Under <strong>Image</strong>, click <span class="ui">Choose…</span>:</p>
+<ul>
+  <li><strong>Search the built-in icons</strong> (type "mic", "light", "play"…). They're drawn in the button's text colour.</li>
+  <li><span class="ui">From a file…</span> uses your own picture: PNG, JPEG or GIF. Large pictures are shrunk to fit.</li>
+  <li><strong>Animated GIFs</strong> play on the tablet. Keep them under 4 MB; very long animations are cut short.</li>
+</ul>
+<p>The title is drawn over the image. Leave the title empty for an image-only button. <span class="ui">Remove</span> takes the image off again.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>Your computer draws every button as a picture at the tablet's exact size and sends only the ones that changed. Images you pick are copied into the profiles folder under <code>icons/</code> (PNG and JPEG scaled to at most 288 px). Animated GIFs are sent as frame changes, at most about 12 a second and up to 120 frames. Animated PNGs are <span class="soon">coming</span>.</p>
+</div>
+
+<h2 id="live-values">Live values in titles</h2>
+<p>A title can show information that keeps itself up to date: the time, the date, how busy your computer is, the current OBS scene, the temperature outside. Write the value's name in curly braces, or click <span class="ui">Insert a live value…</span> under the title, choose a value and click <span class="ui">Insert</span>.</p>
+<h3 id="built-in-values">Built-in values</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Write</th><th>Shows</th></tr></thead>
+  <tbody>
+    <tr><td><code>{time}</code></td><td>The time, e.g. 21:07</td></tr>
+    <tr><td><code>{time_s}</code></td><td>The time with seconds, e.g. 21:07:45</td></tr>
+    <tr><td><code>{date}</code></td><td>The date, e.g. Sun 11 Oct</td></tr>
+    <tr><td><code>{cpu}</code>, <code>{mem}</code></td><td>How much of this computer's processor and memory is in use, in percent</td></tr>
+    <tr><td><code>{obs:scene}</code>, <code>{obs:recording}</code>, <code>{obs:streaming}</code></td><td>OBS's current scene, and whether it's recording or streaming (needs <a href="integrations.html#obs">OBS set up</a>)</td></tr>
+    <tr><td><code>{ha:sensor.outside}</code></td><td>A Home Assistant entity's state, with its unit, e.g. 18.5 °C (needs <a href="integrations.html#home-assistant">Home Assistant set up</a>)</td></tr>
+    <tr><td><code>{ha:light.desk.brightness}</code></td><td>One attribute of a Home Assistant entity</td></tr>
+  </tbody>
+</table></div>
+<h3 id="plugin-values">Values from plugins</h3>
+<p>Plugins add many more values. In the <span class="ui">Insert a live value…</span> list, each plugin has its own group. Some values need you to say what to show (a city for the weather, a timer's name); a box appears for that. For example, the Weather plugin's temperature for Lisbon is written:</p>
+<pre><code>{plugin:dev.perritodeck.weather:temp:Lisbon}</code></pre>
+<p>Mix values with ordinary text: <code>CPU {cpu}</code> or <code>Tea\n{plugin:dev.perritodeck.timer:remaining:tea}</code>. See <a href="plugins.html#first-party">the plugin list</a> for more examples.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>PerritoDeck only fetches values that some profile actually uses. Home Assistant and the built-in OBS values are checked every 2 seconds; plugins decide their own timing (the Weather plugin, for instance, every 10 minutes).</p>
+</div>
+
+<h2 id="profiles">Profiles</h2>
+<p>A profile is a complete layout: its pages and all their buttons. You might have one for streaming, one for work and one for the living room tablet.</p>
+<ul>
+  <li><span class="ui">+ Profile</span> makes a new, empty profile with one page.</li>
+  <li><span class="ui">Profile options</span> lets you <span class="ui">Rename</span> it, <span class="ui">Make a copy</span>, <span class="ui">Open the file</span>, <span class="ui">Export…</span>, <span class="ui">Import a profile…</span> or <span class="ui">Delete profile</span>.</li>
+  <li>The profile marked <strong>(default)</strong> is what tablets show unless you choose otherwise. It can't be deleted.</li>
+</ul>
+<p>If a profile has a mistake in it (usually after editing the file by hand), it's marked <strong>has a mistake</strong> in the list, and the tablets keep showing the last version that worked.</p>
+
+<h3 id="per-tablet">A different profile on each tablet</h3>
+<p>Once you have more than one profile, the <span class="ui">Tablets</span> page shows a <strong>Shows</strong> menu next to each tablet. Pick the profile that tablet should show.</p>
+<p>New profiles fit their grid to each tablet's screen. The starter profile is the exception: it uses a 5 × 3 grid on every tablet. To change that, remove its <code>[grid]</code> lines in the file (see <a href="#grid">the file reference</a>).</p>
+
+<h3 id="switching">Switch profiles by app</h3>
+<p>PerritoDeck can show a different profile while a particular app is in front, for example your streaming buttons while OBS is open, and go back when you leave it.</p>
+<ol>
+  <li>Open the <span class="ui">Switching</span> page and tick <span class="ui">Switch profiles by app</span>.</li>
+  <li>Switch to the app you want, then come back to PerritoDeck. The app now appears in the list of names.</li>
+  <li>Click <span class="ui">Add a rule</span>. Under <strong>When this app is in front</strong>, type or pick the app's name; under <strong>Show</strong>, pick the profile; under <strong>On</strong>, pick <strong>Every tablet</strong> or one tablet.</li>
+</ol>
+<p>The first matching rule wins. When no rule matches, each tablet goes back to its own profile.</p>
+<p>App names are the program names your system uses, which aren't always what you'd expect: OBS on Windows is <code>obs64</code>, for example. That's why it's easiest to switch to the app first and pick it from the list.</p>
+<p>This works on Windows, macOS and Linux desktops that use X11. On Linux desktops that use Wayland, switching by app isn't available yet <span class="soon">coming</span>; see <a href="troubleshooting.html#wayland">why</a>.</p>
+
+<h3 id="export">Share or back up a profile</h3>
+<p><span class="ui">Profile options</span> → <span class="ui">Export…</span> saves the profile and all its images as one <code>.perritoprofile</code> file. Use <span class="ui">Import a profile…</span> to load one on another computer, or to restore it.</p>
+<p>Passwords and tokens for OBS, Home Assistant and plugins are never part of a profile, so exported files are safe to share.</p>
+
+<h2 id="file">Editing the profile file by hand</h2>
+<p>Every profile is a plain text file in a format called TOML, and the editor is just a friendly way to change it. You never need to touch the file, but some people like to: it's quick to copy many buttons, and you can keep notes in it. Use <span class="ui">Profile options</span> → <span class="ui">Open the file</span> to open it in your text editor.</p>
+<p>Save the file and the tablets update within a second. If something's wrong, the Buttons page says <strong>Your last edit to the file wasn't applied</strong> and shows what to fix; the tablets keep the previous version until then. Comments (lines starting with <code>#</code>) are kept when you also edit in the app.</p>
+<p>The starter profile is full of comments explaining each part. Here's a short reference.</p>
+
+<div class="tech">
+  <p class="box-label">Reference: the profile file</p>
+  <h3 id="file-basics">The basics</h3>
+<pre><code>schema_version = 1
+name = "Streaming"
+
+[grid]          # optional: leave it out to fit each tablet's screen
+cols = 5
+rows = 3
+
+[[pages]]
+name = "Main"
+
+[[pages.keys]]
+at = [0, 0]                 # [row, column], from 0 at the top left
+title = "Play /\nPause"     # \n is a line break
+bg = "#A6E3A1"              # background colour
+fg = "#11111B"              # text colour
+icon = "icons/play.png"     # optional, relative to the profiles folder
+action = { type = "media", key = "playPause" }</code></pre>
+  <p id="grid">Each <code>[[pages]]</code> starts a page; each <code>[[pages.keys]]</code> under it is one button. The first page is the one tablets open on.</p>
+
+  <h3 id="actions-reference">Actions</h3>
+<pre><code>action = { type = "hotkey", keys = "Ctrl+Shift+M" }
+action = { type = "text", text = "Hello! " }
+action = { type = "media", key = "volumeUp" }
+    # playPause, next, previous, stop, volumeUp, volumeDown, mute
+action = { type = "openUrl", url = "https://perritodeck.dev" }
+action = { type = "openPath", path = "C:\\Users\\me\\Videos" }
+action = { type = "launch", program = "obs64.exe" }
+action = { type = "command", program = "hostname", args = [],
+           timeoutMs = 30000 }
+action = { type = "obs", op = "scene", scene = "Gameplay" }
+action = { type = "homeAssistant", service = "light.toggle",
+           entity = "light.desk" }
+action = { type = "plugin", plugin = "dev.perritodeck.timer",
+           action = "start",
+           settings = { name = "tea", minutes = 4 } }</code></pre>
+  <p>Hotkeys are modifiers (<code>Ctrl</code>, <code>Alt</code>, <code>Shift</code>, <code>Meta</code>) and one key: a letter, a digit, <code>F1</code>–<code>F24</code>, <code>Enter</code>, <code>Tab</code>, <code>Space</code>, <code>Esc</code>, <code>Backspace</code>, <code>Delete</code>, <code>Home</code>, <code>End</code>, <code>PageUp</code>, <code>PageDown</code> or an arrow (<code>Up</code>, <code>Down</code>, <code>Left</code>, <code>Right</code>). Programs take their arguments as a list (<code>args = ["--flag", "value"]</code>); nothing goes through a shell.</p>
+
+  <h3 id="file-steps">Several steps</h3>
+<pre><code>[[pages.keys]]
+at = [0, 2]
+title = "Select all\n+ copy"
+[pages.keys.action]
+type = "multi"
+steps = [
+  { action = { type = "hotkey", keys = "Ctrl+A" }, delayMs = 100 },
+  { action = { type = "hotkey", keys = "Ctrl+C" } },
+]</code></pre>
+
+  <h3 id="file-pages">Pages</h3>
+<pre><code>nav = { page = "More" }   # open the page called More
+nav = "back"              # also "next" and "previous"</code></pre>
+
+  <h3 id="file-toggles">Toggles</h3>
+<pre><code>[[pages.keys]]
+at = [1, 0]
+follow = "obs:recording"   # optional: show state 2 while this is on
+states = [
+  { title = "REC", action = { type = "obs", op = "startRecord" } },
+  { title = "STOP", bg = "#F38BA8", action = { type = "obs", op = "stopRecord" } },
+]</code></pre>
+
+  <h3 id="file-sliders">Sliders</h3>
+<pre><code>slider = { type = "volume" }
+slider = { type = "homeAssistant", entity = "light.desk" }
+slider = { type = "obs", input = "Mic/Aux" }
+slider = { type = "command", program = "brightnessctl", args = ["set", "{value}%"] }</code></pre>
+  <p>A slider key also takes <code>title</code>, <code>bg</code> and <code>fg</code>.</p>
+
+  <h3 id="file-where">Where the files are</h3>
+  <p>Profiles are in the <code>profiles</code> folder inside PerritoDeck's settings folder; <span class="ui">Settings</span> shows the exact path under <strong>Profiles</strong>. Each <code>.toml</code> file there is one profile, and files you add, change or delete there show up in the app straight away. See <a href="troubleshooting.html#settings-folder">where settings live</a>.</p>
+</div>
+        <nav class="next-page" aria-label="Previous and next"><a href="getting-started.html">← Getting started</a><a href="integrations.html">Integrations →</a></nav>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

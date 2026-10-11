@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting started — PerritoDeck</title>
+  <meta name="description" content="Install PerritoDeck on your computer and Perrito on your tablet, pair them, and set up your first buttons.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="../plugins/">Plugins</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="guide">
+    <div class="wrap">
+      <nav class="guide-nav" aria-label="User guide">
+        <p class="label">User guide</p>
+        <ol>
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html" aria-current="page">Getting started</a>
+            <ul>
+              <li><a href="#what-you-need">What you need</a></li>
+              <li><a href="#install-desktop">Install PerritoDeck on your computer</a></li>
+              <li><a href="#install-perrito">Install Perrito on the tablet</a></li>
+              <li><a href="#pair">Pair the tablet with your computer</a></li>
+              <li><a href="#first-buttons">Your first buttons</a></li>
+              <li><a href="#usb">Connect with a USB cable</a></li>
+              <li><a href="#fire">Fire tablets</a></li>
+            </ul>
+          </li>
+          <li><a href="buttons.html">Buttons and profiles</a></li>
+          <li><a href="integrations.html">Integrations</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+          <li><a href="troubleshooting.html">Troubleshooting and FAQ</a></li>
+        </ol>
+      </nav>
+
+      <article class="guide-body">
+<h1>Getting started</h1>
+<p class="lede">Install PerritoDeck on your computer and Perrito on your tablet, pair them once, and you're ready to press buttons. It takes a few minutes.</p>
+
+<h2 id="what-you-need">What you need</h2>
+<ul>
+  <li>A computer running Windows, macOS or Linux.</li>
+  <li>An Android tablet or phone. Old ones are fine: Perrito is being built to run on Android 5.1 and newer, including Amazon Fire tablets.</li>
+  <li>Both on the same Wi-Fi network, or a USB cable between them (see <a href="#usb">Connect with a USB cable</a>).</li>
+</ul>
+
+<h2 id="install-desktop">Install PerritoDeck on your computer</h2>
+<p>Download PerritoDeck for your system and install it like any other app. <span class="soon">Coming</span> Downloads aren't available yet; they'll be listed on the <a href="../#download">download section</a> of the home page.</p>
+<p>When you open PerritoDeck, a window appears and an icon (a paw) is added to the tray: the system tray on Windows, the menu bar on a Mac, or the panel on Linux. The first time, the window opens on <span class="ui">Pair a tablet</span>.</p>
+<p>Closing the window doesn't stop PerritoDeck. It keeps running in the tray so your buttons keep working. To open the window again, use <span class="ui">Open PerritoDeck</span> in the tray menu. To stop it completely, choose <span class="ui">Quit PerritoDeck</span>.</p>
+<ul>
+  <li><strong>Windows:</strong> the first time, Windows Firewall asks whether PerritoDeck may use the network. Allow it on private networks, or tablets on Wi-Fi can't reach it.</li>
+  <li><strong>Mac:</strong> to press hotkeys and type text, PerritoDeck needs the Accessibility permission. A banner at the top of the window asks for it; click <span class="ui">Open System Settings</span> and turn on PerritoDeck under Privacy &amp; Security → Accessibility.</li>
+  <li><strong>Linux:</strong> on GNOME, the tray icon only shows if the AppIndicator extension is installed. On Wayland desktops, your desktop asks for permission to control the keyboard each time PerritoDeck starts. See <a href="troubleshooting.html#linux">Linux notes</a>.</li>
+</ul>
+<p>To have PerritoDeck start by itself, go to <span class="ui">Settings</span> and tick <span class="ui">Start PerritoDeck when I log in</span>. It then starts quietly in the tray.</p>
+
+<h2 id="install-perrito">Install Perrito on the tablet</h2>
+<p>Perrito will be available from F-Droid, Google Play and as a direct download (an APK file). <span class="soon">Coming</span> None of these are live yet.</p>
+<p>Amazon Fire tablets don't have Google Play; see <a href="#fire">Fire tablets</a> for how to install it there.</p>
+<p>An iPhone and iPad version of Perrito is <span class="soon">coming</span>. It's written but hasn't been built and tested yet.</p>
+
+<h2 id="pair">Pair the tablet with your computer</h2>
+<p>Pairing introduces the tablet to your computer once. After that, it connects by itself whenever both are on the same network.</p>
+<p>On the computer, open PerritoDeck and click <span class="ui">Pair a tablet</span> (it's also in the tray menu). You'll see a QR code, a 6-digit code and a short fingerprint. The codes work for 5 minutes; click <span class="ui">New code</span> for a fresh one.</p>
+
+<h3 id="pair-qr">If the tablet has a camera: scan the QR code</h3>
+<ol>
+  <li>Open Perrito on the tablet and tap <span class="ui">Scan QR code</span>.</li>
+  <li>The first time, allow the camera. Perrito uses it only to read the pairing code.</li>
+  <li>Point the camera at the QR code on your computer's screen.</li>
+</ol>
+<p>You can also point the tablet's own camera app at the code; it offers to open the link in Perrito. Scanning needs no further checks, because the QR code already tells the tablet exactly which computer to trust.</p>
+
+<h3 id="pair-code">No camera? Type the code</h3>
+<ol>
+  <li>Open Perrito. Your computer should appear under <strong>Found on this network</strong>. Tap <span class="ui">Pair</span> next to it.</li>
+  <li>Type the 6-digit code shown on the computer and tap <span class="ui">Continue</span>.</li>
+  <li>Perrito asks <strong>Is this your computer?</strong> and shows a fingerprint. Check that it's the same as the fingerprint on the computer's screen, then tap <span class="ui">It matches</span>.</li>
+</ol>
+<p>If your computer isn't listed, tap <span class="ui">Pair with a code</span> and type its address as well. PerritoDeck lists its addresses in <span class="ui">Settings</span> under <strong>Tablets connect to</strong> (for example <code>192.168.1.20:46710</code>).</p>
+<div class="tip">
+  <p class="box-label">Why compare fingerprints?</p>
+  <p>The fingerprint is your computer's unique identity. If the tablet shows a different one, something else on the network is pretending to be your computer: tap <span class="ui">It doesn't match</span> and don't pair.</p>
+</div>
+
+<h3 id="paired">When it's paired</h3>
+<p>The computer says <strong>Paired with</strong> and the tablet's name, and the tablet switches to showing your buttons. From now on, open Perrito and it connects by itself; your computer is listed under <strong>Your computers</strong> with a <span class="ui">Connect</span> button.</p>
+<p>Perrito keeps the tablet's screen on while it shows your buttons. To leave the buttons and go back to Perrito's start screen, use the tablet's Back button.</p>
+<p>You can pair several tablets with one computer. They're all listed on the <span class="ui">Tablets</span> page, where you can rename them (click the name), choose what each one shows, or <span class="ui">Unpair…</span> one.</p>
+
+<h2 id="first-buttons">Your first buttons</h2>
+<p>A new PerritoDeck comes with a starter layout so there's something to press straight away. Its first page, <strong>Main</strong>, has a clock, play/pause and volume keys, a microphone mute toggle, copy and paste, and a key that types some text. Press <strong>More ›</strong> for a second page with a volume slider and a few more examples.</p>
+<p>To change a button, open the <span class="ui">Buttons</span> page on the computer and click it. Its settings appear on the right: the title, an image, colours, and what happens <strong>When pressed</strong>. Every change is saved straight away and shows on the tablet within a moment. To add a button, click an empty spot (marked +).</p>
+<p>Try <span class="ui">Try it</span> under a button's action to run it from the computer without touching the tablet. For keyboard actions it counts down from 3 so you can switch to the window that should receive the keys.</p>
+<p>Next, read <a href="buttons.html">Buttons and profiles</a> for everything the editor can do.</p>
+
+<h2 id="usb">Connect with a USB cable</h2>
+<p>A cable is steadier than Wi-Fi, keeps the tablet charged, and works where Wi-Fi is unreliable. It uses Android's developer tools, so it takes a little setup once.</p>
+<ol>
+  <li><strong>On the computer:</strong> install Android's "platform-tools" from the Android developer website (it contains a program called <code>adb</code>). If you already have Android Studio, you have it. Then quit PerritoDeck from the tray and open it again.</li>
+  <li><strong>On the tablet:</strong> turn on developer options (usually Settings → About → tap <em>Build number</em> seven times), then turn on <em>USB debugging</em> in the developer options.</li>
+  <li>Plug the tablet in. It asks whether to allow USB debugging from this computer: tap <em>Allow</em> (tick "Always allow" so it doesn't ask every time).</li>
+  <li>In PerritoDeck's <span class="ui">Settings</span>, the <strong>USB</strong> line should now say <strong>1 tablet on a cable</strong>.</li>
+</ol>
+<p>Pair the tablet as usual. From then on it uses the cable by itself whenever it's plugged in, and Wi-Fi when it isn't. If the tablet has no Wi-Fi at all, pair over the cable: in Perrito, tap <span class="ui">Pair with a code</span>, tap <span class="ui">USB (adb reverse)</span> to fill in the address, then type the code.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>When PerritoDeck finds <code>adb</code> (on your <code>PATH</code>, under <code>ANDROID_HOME</code> or <code>ANDROID_SDK_ROOT</code>, or in Android Studio's usual SDK folder), it runs <code>adb reverse</code> for every tablet on a cable, so the tablet reaches the computer at <code>127.0.0.1:46710</code>. Perrito tries that address alongside the saved Wi-Fi one and prefers whichever worked last. Settings shows <strong>Not set up</strong> on the USB line when <code>adb</code> wasn't found.</p>
+  <p>If you only want cable connections, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span> and restart PerritoDeck.</p>
+</div>
+
+<h2 id="fire">Fire tablets</h2>
+<p>Amazon Fire tablets run Fire OS, which is based on Android, so Perrito works on them; old Fire tablets are exactly what it was built for. <span class="soon">Coming</span> We're still finishing checks on real Fire hardware, so treat Fire support as a preview for now.</p>
+<ul>
+  <li><strong>Installing:</strong> Fire tablets don't have Google Play. Until Perrito is in the Amazon Appstore, install the APK file directly: in the Fire's Settings → Security &amp; Privacy, allow apps from unknown sources (newer Fire OS versions ask per app, e.g. for Silk Browser or Files), then download and open the APK.</li>
+  <li><strong>Pairing:</strong> most recent Fire tablets have a camera, so <span class="ui">Scan QR code</span> works. Older ones may not; type the code instead.</li>
+  <li><strong>USB:</strong> to turn on developer options, go to Settings → Device Options → About Fire Tablet and tap <em>Serial Number</em> seven times. Then turn on <em>Enable ADB</em> in Developer Options. On Windows you may also need Amazon's USB driver for Fire tablets.</li>
+</ul>
+        <nav class="next-page" aria-label="Previous and next"><a href="./">← Overview</a><a href="buttons.html">Buttons and profiles →</a></nav>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>

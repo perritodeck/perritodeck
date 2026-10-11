@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Integrations — PerritoDeck</title>
+  <meta name="description" content="Control OBS Studio and Home Assistant from PerritoDeck, or use your tablet as a Bitfocus Companion surface.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="../plugins/">Plugins</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="guide">
+    <div class="wrap">
+      <nav class="guide-nav" aria-label="User guide">
+        <p class="label">User guide</p>
+        <ol>
+          <li><a href="./">Overview</a></li>
+          <li><a href="getting-started.html">Getting started</a></li>
+          <li><a href="buttons.html">Buttons and profiles</a></li>
+          <li><a href="integrations.html" aria-current="page">Integrations</a>
+            <ul>
+              <li><a href="#integrations-file">The integrations file</a></li>
+              <li><a href="#obs">OBS Studio</a></li>
+              <li><a href="#home-assistant">Home Assistant</a></li>
+              <li><a href="#companion">Bitfocus Companion</a></li>
+            </ul>
+          </li>
+          <li><a href="plugins.html">Plugins</a></li>
+          <li><a href="troubleshooting.html">Troubleshooting and FAQ</a></li>
+        </ol>
+      </nav>
+
+      <article class="guide-body">
+<h1>Integrations</h1>
+<p class="lede">PerritoDeck can talk directly to OBS Studio and Home Assistant, and it can turn your tablet into a panel for Bitfocus Companion.</p>
+
+<h2 id="integrations-file">The integrations file</h2>
+<p>OBS, Home Assistant and Companion are set up in a small text file called <code>integrations.toml</code>. It's kept separate from your button layouts because it holds passwords, so you can share a profile without giving away your logins.</p>
+<ol>
+  <li>In PerritoDeck, go to <span class="ui">Settings</span> and, under <strong>Settings folder</strong>, click <span class="ui">Open folder</span>.</li>
+  <li>Open <code>integrations.toml</code> in a text editor such as Notepad or TextEdit. If it isn't there, create it (on Windows, make sure the name doesn't end in <code>.txt</code>).</li>
+  <li>Add the sections below for what you use, and save.</li>
+  <li>Restart PerritoDeck: choose <span class="ui">Quit PerritoDeck</span> in the tray menu, then open it again. It reads this file only when it starts.</li>
+</ol>
+<p>To check it worked, look at <span class="ui">Settings</span> → <strong>Integrations</strong>, which lists what's set up (for example "OBS, Home Assistant").</p>
+<p>Here's a complete example. Lines starting with <code>#</code> are notes and are ignored.</p>
+<pre><code>[obs]
+url = "ws://127.0.0.1:4455"
+password = "your OBS WebSocket password"
+
+[home_assistant]
+url = "http://homeassistant.local:8123"
+token = "your long-lived access token"
+
+[companion]
+host = "127.0.0.1"
+port = 16622</code></pre>
+<div class="tip">
+  <p class="box-label">Keep it private</p>
+  <p>This file contains passwords. Don't post it online or attach it to bug reports.</p>
+</div>
+
+<h2 id="obs">OBS Studio</h2>
+<p>Switch scenes, start and stop recording or streaming, mute your mic, and see what OBS is doing, right on the tablet. It works with OBS 28 and newer, which have remote control built in.</p>
+
+<h3 id="obs-setup">Set it up</h3>
+<ol>
+  <li>In OBS, open <strong>Tools → WebSocket Server Settings</strong> and tick <strong>Enable WebSocket server</strong>.</li>
+  <li>Click <strong>Show Connect Info</strong> to see the port (usually 4455) and the password.</li>
+  <li>Add an <code>[obs]</code> section to <a href="#integrations-file">the integrations file</a> with that password, then restart PerritoDeck:
+<pre><code>[obs]
+url = "ws://127.0.0.1:4455"
+password = "the password from OBS"</code></pre>
+  </li>
+</ol>
+<p>If OBS runs on a different computer, use that computer's address instead of <code>127.0.0.1</code>, for example <code>ws://192.168.1.20:4455</code>, and allow port 4455 through its firewall.</p>
+
+<h3 id="obs-buttons">OBS buttons</h3>
+<p>In the button settings, choose <strong>OBS Studio</strong> under <strong>When pressed</strong>, then pick what to do <strong>In OBS</strong>:</p>
+<ul>
+  <li>Switch scene (type the scene's name exactly as OBS shows it)</li>
+  <li>Start or stop recording; start recording; stop recording</li>
+  <li>Start or stop streaming; start streaming; stop streaming</li>
+  <li>Mute or unmute an audio source (e.g. <code>Mic/Aux</code>)</li>
+  <li>Start or stop the replay buffer; save the replay</li>
+</ul>
+<p>You can also show OBS's state in titles with <code>{obs:scene}</code>, <code>{obs:recording}</code> and <code>{obs:streaming}</code>, make a <a href="buttons.html#follow">toggle that follows</a> <code>obs:recording</code> so it's red exactly while you record, and set an audio source's volume with a <a href="buttons.html#sliders">slider</a>.</p>
+
+<h3 id="obs-plugin">Want more? The OBS Studio plugin</h3>
+<p>The built-in OBS support covers the everyday buttons. For much more, such as Studio Mode and transitions, showing or hiding sources, filters, screenshots, the virtual camera, chapter markers, stream time, dropped frames and a live "is this scene on air?" value, add the <strong>OBS Studio</strong> plugin from the <span class="ui">Plugins</span> page. It's set up on the Plugins page rather than in the integrations file. See <a href="plugins.html#first-party">Plugins</a>.</p>
+<p>You can use both at once: they're independent.</p>
+
+<h2 id="home-assistant">Home Assistant</h2>
+<p>Turn lights on and off, run scripts and scenes, and show sensor readings like the temperature on your buttons.</p>
+
+<h3 id="ha-setup">Set it up</h3>
+<ol>
+  <li>In Home Assistant, click your user name at the bottom left to open your profile, then open the <strong>Security</strong> tab.</li>
+  <li>Under <strong>Long-lived access tokens</strong>, click <strong>Create token</strong>, name it "PerritoDeck" and copy the token. Home Assistant shows it only once.</li>
+  <li>Add a <code>[home_assistant]</code> section to <a href="#integrations-file">the integrations file</a>, then restart PerritoDeck:
+<pre><code>[home_assistant]
+url = "http://homeassistant.local:8123"
+token = "the token you copied"</code></pre>
+  </li>
+</ol>
+<p>Use the same address you use to open Home Assistant in your browser.</p>
+
+<h3 id="ha-buttons">Home Assistant buttons</h3>
+<p>Choose <strong>Home Assistant</strong> under <strong>When pressed</strong> and fill in:</p>
+<ul>
+  <li><strong>Service</strong>: what to do, such as <code>light.toggle</code>, <code>switch.turn_off</code>, <code>scene.turn_on</code> or <code>script.turn_on</code>. (Newer versions of Home Assistant call these "actions"; they're the same thing.)</li>
+  <li><strong>Entity</strong> (optional): which device, such as <code>light.desk</code>. You'll find entity IDs in Home Assistant under Settings → Devices &amp; services → Entities.</li>
+  <li><strong>Extra data as JSON</strong> (optional): settings for the service, such as <code>{"brightness_pct": 40}</code> to dim a light to 40%.</li>
+</ul>
+<p>To show a reading in a title, write <code>{ha:</code> followed by the entity ID and <code>}</code>: <code>{ha:sensor.outside_temperature}</code> shows the state with its unit. For one attribute, add it after a dot: <code>{ha:light.desk.brightness}</code>.</p>
+<p>A <a href="buttons.html#sliders">slider</a> can set a light's brightness, and a <a href="buttons.html#follow">toggle can follow</a> a light, such as <code>ha:light.desk</code>, so it shows whether the light is really on.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>PerritoDeck uses Home Assistant's REST API with your token, calling <code>/api/services/&lt;domain&gt;/&lt;service&gt;</code> and reading <code>/api/states/&lt;entity&gt;</code>. Values are polled every 2 seconds while a button shows them. Updates pushed over Home Assistant's WebSocket API are <span class="soon">coming</span>. Another way in is the MQTT plugin, which can publish to a broker Home Assistant listens to.</p>
+</div>
+
+<h2 id="companion">Bitfocus Companion</h2>
+<p><a href="https://bitfocus.io/companion">Bitfocus Companion</a> controls broadcast and AV gear: video switchers, cameras, audio desks, lighting and thousands more. PerritoDeck can make your tablet a Companion <em>surface</em>, so Companion draws the buttons and handles the presses, just like a hardware button panel. You don't need to install anything in Companion.</p>
+<div class="soon-box">
+  <p class="box-label">Preview</p>
+  <p>Companion mode is new and so far has only been tested against a stand-in for Companion, not the real thing. If you try it, we'd love to hear how it goes.</p>
+</div>
+
+<h3 id="companion-setup">Set it up</h3>
+<ol>
+  <li>Add a <code>[companion]</code> section to <a href="#integrations-file">the integrations file</a>. Use <code>127.0.0.1</code> if Companion runs on the same computer, or the address of the computer that runs it. 16622 is Companion's usual port for remote surfaces.
+<pre><code>[companion]
+host = "127.0.0.1"
+port = 16622</code></pre>
+  </li>
+  <li>Restart PerritoDeck.</li>
+  <li>On the <span class="ui">Buttons</span> page, click <span class="ui">+ Profile</span>, type a name such as "Companion", tick <span class="ui">Show Bitfocus Companion's buttons</span> and click <span class="ui">Create</span>.</li>
+  <li>Show that profile on a tablet: on the <span class="ui">Tablets</span> page, pick it in the tablet's <strong>Shows</strong> menu. (A <a href="buttons.html#switching">switching rule</a> works too.)</li>
+</ol>
+
+<h3 id="companion-surfaces">How tablets appear in Companion</h3>
+<p>Each tablet showing a Companion profile appears in Companion's <strong>Surfaces</strong> list as <strong>PerritoDeck</strong> followed by the tablet's name. Set up its buttons in Companion as you would for any surface. The surface has the same number of rows and columns as the tablet's grid, and pressing and releasing a button both reach Companion, so "on press" and "on release" actions work.</p>
+<p>When the tablet disconnects or switches to a different profile, its surface disappears from Companion, and it comes back when the tablet returns.</p>
+<p>The Buttons page shows the connection, for example <strong>Connected to Companion 3.4.0</strong> or <strong>Connecting…</strong>. While Companion can't be reached, the tablet's first button says <strong>Companion offline</strong>, and PerritoDeck keeps trying to reconnect.</p>
+<p><span class="ui">Pause keys</span> on the computer pauses Companion buttons too.</p>
+
+<h3 id="companion-limits">Not yet supported</h3>
+<ul>
+  <li>Companion's rotary encoders and LED rings; PerritoDeck sliders don't map to anything in Companion. <span class="soon">Coming</span></li>
+  <li>Putting single Companion buttons on an ordinary PerritoDeck page: a Companion profile shows only Companion's buttons. <span class="soon">Coming</span></li>
+  <li>Connecting through Companion's WebSocket port (16623). The regular port works with every Companion since version 2.</li>
+</ul>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>PerritoDeck connects to Companion's Satellite API over TCP as a client. Each tablet is registered as its own device, with id <code>perritodeck-&lt;tablet id&gt;</code>, at the tablet's grid size and button resolution. Companion's button images go to the tablet as they are (PNG from Satellite API 1.12; older raw images are converted). PerritoDeck pings every 2 seconds and reconnects with backoff, from 1 up to 15 seconds.</p>
+</div>
+        <nav class="next-page" aria-label="Previous and next"><a href="buttons.html">← Buttons and profiles</a><a href="plugins.html">Plugins →</a></nav>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+</body>
+</html>
