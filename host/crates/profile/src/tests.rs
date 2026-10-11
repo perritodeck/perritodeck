@@ -174,7 +174,7 @@ fn obs_and_home_assistant_actions_parse() {
         .split("then add keys like these")
         .nth(1)
         .unwrap()
-        .split("# ---- Sliders")
+        .split("# ---- ")
         .next()
         .unwrap()
         .lines()
