@@ -111,7 +111,7 @@ private fun HostRow(title: String, detail: String, actions: @Composable () -> Un
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Surface)
+            .background(SurfaceColor)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

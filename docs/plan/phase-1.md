@@ -65,5 +65,5 @@ Pairing/QR, mDNS, actions, host-rendered images, Tauri UI, plugins, packaging.
 | Rust host: protocol, core, host binary, fakedeck | Done — 22 tests incl. 9 end-to-end; CI green on Linux, Windows, macOS |
 | Android client: connect + deck screens, reconnect, multi-touch, haptics | Done — fixture + MockWebServer tests and lint pass in CI; debug APK published as a CI artifact |
 | Latency (fakedeck over loopback, 300 presses) | Median 0.17 ms, p95 0.30 ms round trip |
-| Emulator test | Pending — needs the maintainer's laptop (this cloud workspace has no KVM and can't reach Google's SDK servers) |
+| Emulator test | Done in CI on Android 5.1 (API 22) and 14 (API 34) tablet emulators |
 | Kindle test | Pending — tomorrow |

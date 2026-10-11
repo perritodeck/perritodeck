@@ -157,7 +157,7 @@ private fun DeckKey(
     val down by rememberUpdatedState(onKeyDown)
     val up by rememberUpdatedState(onKeyUp)
 
-    val bg = spec?.bgColor?.let(::parseColor)?.let(::Color) ?: Surface
+    val bg = spec?.bgColor?.let(::parseColor)?.let(::Color) ?: SurfaceColor
     val fg = spec?.textColor?.let(::parseColor)?.let(::Color) ?: OnSurface
     val title = spec?.title.orEmpty()
     val fontSize = with(LocalDensity.current) { (size.toPx() * 0.16f).toSp() }
