@@ -669,3 +669,127 @@ slider = { type = "plugin", plugin = "dev.x", action = "dim", settings = { lamp 
         .iter()
         .any(|m| matches!(m, Message::SetValue(v) if v.value == 87)));
 }
+
+#[derive(Default)]
+struct FakeCompanion(Mutex<Vec<String>>);
+
+impl RemoteSurfaces for FakeCompanion {
+    fn attach(&self, device_id: &str, grid: Grid, image_px: Option<u32>) {
+        self.0.lock().unwrap().push(format!(
+            "attach {device_id} {}x{} {}",
+            grid.cols,
+            grid.rows,
+            image_px.is_some()
+        ));
+    }
+    fn detach(&self, device_id: &str) {
+        self.0.lock().unwrap().push(format!("detach {device_id}"));
+    }
+    fn press(&self, device_id: &str, key_index: u32, down: bool) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("press {device_id} {key_index} {down}"));
+    }
+}
+
+#[test]
+fn companion_profiles_show_companions_buttons() {
+    let (deck, sent, keys) = setup();
+    deck.load_profile(
+        "companion",
+        Profile::parse("schema_version = 1\nname = \"Companion\"\ncompanion = true\n").unwrap(),
+        None,
+    );
+    deck.assign("tab", Some("companion"));
+    let mut h = hello();
+    h.capabilities = vec!["keys".into(), "images".into()];
+    let l = deck.initial_layout(&h);
+    assert_eq!(l.keys[0].title, "Set up\nCompanion", "says what's missing");
+    connect(&deck, true);
+    deck.key_down("tab", 0);
+    assert!(keys.0.lock().unwrap().is_empty(), "nothing runs");
+    sent.take();
+
+    let fake = Arc::new(FakeCompanion::default());
+    deck.set_remote(fake.clone());
+    assert_eq!(fake.0.lock().unwrap().as_slice(), ["attach tab 3x2 true"]);
+    let Some(Message::Layout(l)) = sent.take().into_iter().next() else {
+        panic!("a layout first")
+    };
+    assert_eq!(l.keys[0].title, "Connecting to\nCompanion");
+
+    deck.remote_status(None);
+    deck.remote_key(
+        "tab",
+        4,
+        RemoteKey {
+            png: None,
+            title: "Cam 2".into(),
+            bg: Some("#ff0000".into()),
+            fg: Some("#ffffff".into()),
+        },
+    );
+    let msgs = sent.take();
+    let Some(Message::Layout(l)) = msgs.first() else {
+        panic!("the first key redraws the page: {msgs:?}")
+    };
+    assert_eq!(
+        (l.keys[4].title.as_str(), l.keys[4].bg_color.as_str()),
+        ("Cam 2", "#ff0000")
+    );
+    assert_eq!(l.keys[0].title, "", "the note is gone");
+    assert!(msgs
+        .iter()
+        .any(|m| matches!(m, Message::SetImage(i) if i.key_index == 4)));
+
+    // A second change only sends that key.
+    deck.remote_key(
+        "tab",
+        4,
+        RemoteKey {
+            title: "Cam 3".into(),
+            bg: Some("#ff0000".into()),
+            ..Default::default()
+        },
+    );
+    let msgs = sent.take();
+    assert!(
+        matches!(&msgs[..], [Message::SetTitle(t), Message::SetImage(_)] if t.title == "Cam 3"),
+        "{msgs:?}"
+    );
+
+    deck.key_down("tab", 4);
+    deck.key_up("tab", 4);
+    deck.set_paused(true);
+    deck.key_down("tab", 4);
+    assert!(sent
+        .take()
+        .iter()
+        .any(|m| matches!(m, Message::ShowAlert(_))));
+    deck.set_paused(false);
+    deck.tick();
+    deck.animate();
+    assert!(
+        sent.take().is_empty(),
+        "the deck doesn't draw over Companion"
+    );
+
+    // Companion goes away: the keys say so.
+    deck.remote_status(Some("Companion\noffline"));
+    let msgs = sent.take();
+    assert!(matches!(&msgs[0], Message::Layout(l) if l.keys[0].title == "Companion\noffline"));
+
+    deck.assign("tab", None);
+    deck.connected("other", GRID, hello().screen, &["keys".to_string()]);
+    deck.disconnected("tab");
+    assert_eq!(
+        fake.0.lock().unwrap().as_slice(),
+        [
+            "attach tab 3x2 true",
+            "press tab 4 true",
+            "press tab 4 false",
+            "detach tab"
+        ]
+    );
+}

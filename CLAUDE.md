@@ -34,6 +34,7 @@ Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and st
 | Desktop tray app (Tauri 2 + Svelte 5, its own Cargo workspace) | `host/app` | `npm ci`, `npm run check`, `npx playwright test`, `npx tauri dev` |
 | Android app (Kotlin + Compose, JDK 17) | `android/` | `.\gradlew.bat testDebugUnitTest assembleDebug` |
 | Plugin runtime (host side) | `host/crates/plugins` | `cargo test -p perritodeck-plugins` |
+| Bitfocus Companion client (Satellite API) | `host/crates/companion` | `cargo test -p perritodeck-companion` |
 | Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py` |
 | Website | `website/` | static; open `index.html` |
 

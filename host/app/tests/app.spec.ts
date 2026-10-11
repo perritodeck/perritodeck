@@ -337,6 +337,18 @@ test.describe("profiles, tablets and switching", () => {
     await expect(page.getByRole("menuitem", { name: "Delete profile" })).toBeDisabled();
   });
 
+  test("a profile can show Companion's buttons", async ({ page }) => {
+    await page.getByRole("button", { name: "+ Profile" }).click();
+    await page.getByLabel("New profile name").fill("Show");
+    await page.getByLabel("Show Bitfocus Companion’s buttons").check();
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByRole("heading", { name: "Buttons from Bitfocus Companion" })).toBeVisible();
+    await expect(page.getByText("From Companion")).toBeVisible();
+    await expect(page.getByText("[companion]")).toBeVisible();
+    await page.evaluate(() => ((window as any).__perritoMock.hostStatus.companion = "Connected to Companion 4.1.0"));
+    await expect(page.getByText("Connected to Companion 4.1.0")).toBeVisible({ timeout: 6000 });
+  });
+
   test("export and import profiles", async ({ page }) => {
     await page.getByRole("button", { name: "Profile options" }).click();
     await page.getByRole("menuitem", { name: "Export…" }).click();

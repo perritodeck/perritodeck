@@ -5,13 +5,29 @@
   import KeyInspector from "../components/KeyInspector.svelte";
   import type { Edit, HostStatus, KeyFields, KeyView, PluginManifest, Pos, ProfileSummary, ProfileView } from "../lib/types";
 
-  let { status: _status }: { status: HostStatus } = $props();
+  let { status: hostStatus }: { status: HostStatus } = $props();
 
   let profiles = $state<ProfileSummary[]>([]);
   let plugins = $state<PluginManifest[]>([]);
   let profileId = $state<string | undefined>(undefined);
   let profile = $state<ProfileView | null>(null);
   let profileMenu = $state(false);
+  // A new profile can show Bitfocus Companion's buttons instead of its own.
+  let newCompanion = $state(false);
+  // Companion's connection state, kept fresh while a Companion profile is open.
+  let companionState = $state<string | null>(null);
+  $effect(() => {
+    if (!profile?.companion) return;
+    companionState = hostStatus.companion;
+    const t = setInterval(async () => {
+      try {
+        companionState = (await api.status()).companion;
+      } catch {
+        // keep the last state
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  });
   let profileNaming = $state<null | { mode: "new" } | { mode: "copy" } | { mode: "rename" }>(null);
   let profileNameDraft = $state("");
   let notice = $state<string | null>(null);
@@ -91,6 +107,7 @@
     profileMenu = false;
     profileNameDraft = mode === "rename" ? (profile?.name ?? "") : mode === "copy" ? `${profile?.name ?? ""} copy` : "";
     profileNaming = { mode };
+    newCompanion = false;
     tick().then(() => document.querySelector<HTMLInputElement>("#profile-name")?.select());
   }
 
@@ -104,7 +121,11 @@
       if (profileNaming.mode === "rename") {
         show(await api.edit(profile.id, [{ op: "setName", name }]));
       } else {
-        const id = await api.createProfile(name, profileNaming.mode === "copy" ? profile.id : undefined);
+        const id = await api.createProfile(
+          name,
+          profileNaming.mode === "copy" ? profile.id : undefined,
+          profileNaming.mode === "new" && newCompanion,
+        );
         profiles = await api.profiles();
         await openProfile(id);
       }
@@ -374,6 +395,12 @@
               >{profileNaming.mode === "rename" ? "Rename" : profileNaming.mode === "copy" ? "Make copy" : "Create"}</button
             >
             <button class="btn small quiet" type="button" onclick={() => (profileNaming = null)}>Cancel</button>
+            {#if profileNaming.mode === "new"}
+              <label class="check">
+                <input type="checkbox" bind:checked={newCompanion} />
+                Show Bitfocus Companion’s buttons
+              </label>
+            {/if}
           </form>
         {:else}
           <label class="sr-only" for="profile-select">Profile</label>
@@ -382,7 +409,7 @@
               <option value={p.id}>{p.name}{p.isDefault ? " (default)" : ""}{p.hasError ? " — has a mistake" : ""}</option>
             {/each}
           </select>
-          <span class="sub">{profile.cols} × {profile.rows} keys</span>
+          <span class="sub">{profile.companion ? "From Companion" : `${profile.cols} × ${profile.rows} keys`}</span>
           <button class="btn small quiet" onclick={() => startProfileNaming("new")}>+ Profile</button>
           <div class="menu-wrap">
             <button class="btn small quiet" aria-expanded={profileMenu} aria-haspopup="menu" onclick={() => (profileMenu = !profileMenu)}
@@ -433,7 +460,26 @@
   </div>
 {/if}
 
-{#if profile && page}
+{#if profile?.companion}
+  <section class="companion" aria-labelledby="companion-h">
+    <h2 id="companion-h">Buttons from Bitfocus Companion</h2>
+    <p>
+      Tablets showing “{profile.name}” become surfaces in Companion: set up their buttons there, and presses on the
+      tablet go straight to Companion. Each tablet keeps its own grid size.
+    </p>
+    {#if companionState !== null}
+      <p class="state" role="status">{companionState}</p>
+    {:else}
+      <p>
+        First tell PerritoDeck where Companion runs. Add this to <code>integrations.toml</code> in the settings folder,
+        then restart PerritoDeck:
+      </p>
+      <pre class="selectable">[companion]
+host = "127.0.0.1"   # the computer running Companion
+port = 16622         # Companion's Satellite port</pre>
+    {/if}
+  </section>
+{:else if profile && page}
   <div class="pages">
     <div class="tabs" role="tablist" aria-label="Pages">
       {#each profile.pages as p, i (p.name)}
@@ -645,7 +691,18 @@
   .tabs button.active { background: var(--ink); border-color: var(--ink); color: var(--fog); }
   .tabs button.drop { border-color: var(--apricot); border-style: dashed; color: var(--ink); }
   .btn.small { padding: 5px 12px; font-size: 0.85rem; }
-  .naming { display: flex; gap: 6px; align-items: center; }
+  .naming { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .naming .check { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--ink-soft); }
+  .companion { max-width: 64ch; display: grid; gap: 12px; margin-top: 8px; }
+  .companion .state { font-weight: 700; }
+  .companion pre {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    font-size: 0.9rem;
+  }
   .naming input {
     font: inherit;
     padding: 4px 10px;

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 exclude = ["vendor"]
-members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/profile", "crates/deck", "crates/integrations", "crates/host", "crates/fakedeck", "crates/plugins"]
+members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/profile", "crates/deck", "crates/integrations", "crates/host", "crates/fakedeck", "crates/plugins", "crates/companion"]
 
 [workspace.package]
 version = "0.1.0"
@@ -21,6 +21,7 @@ perritodeck-deck = { path = "crates/deck" }
 perritodeck-integrations = { path = "crates/integrations" }
 perritodeck-fakedeck = { path = "crates/fakedeck" }
 perritodeck-plugins = { path = "crates/plugins" }
+perritodeck-companion = { path = "crates/companion" }
 
 anyhow = "1"
 ab_glyph = "0.2"

@@ -3230,6 +3230,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "perritodeck-companion"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "image",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "perritodeck-core"
 version = "0.1.0"
 dependencies = [
@@ -3281,6 +3292,7 @@ dependencies = [
  "image",
  "notify",
  "perritodeck-actions",
+ "perritodeck-companion",
  "perritodeck-core",
  "perritodeck-deck",
  "perritodeck-integrations",

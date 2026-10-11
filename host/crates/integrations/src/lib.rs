@@ -11,6 +11,10 @@
 //! [home_assistant]
 //! url = "http://homeassistant.local:8123"
 //! token = "…"                        # Profile → Security → Long-lived access tokens
+//!
+//! [companion]                        # Bitfocus Companion, for profiles with companion = true
+//! host = "127.0.0.1"
+//! port = 16622                       # Companion's Satellite port (the default)
 //! ```
 
 pub mod home_assistant;
@@ -28,6 +32,26 @@ pub struct Config {
     pub obs: Option<obs::ObsConfig>,
     #[serde(default)]
     pub home_assistant: Option<home_assistant::HaConfig>,
+    #[serde(default)]
+    pub companion: Option<CompanionConfig>,
+}
+
+/// Where Bitfocus Companion runs. Profiles with `companion = true` show its buttons.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompanionConfig {
+    #[serde(default = "default_companion_host")]
+    pub host: String,
+    #[serde(default = "default_companion_port")]
+    pub port: u16,
+}
+
+fn default_companion_host() -> String {
+    "127.0.0.1".into()
+}
+
+fn default_companion_port() -> u16 {
+    16622
 }
 
 impl Config {
@@ -138,6 +162,9 @@ mod tests {
         let c = Config::load(&path).unwrap();
         assert_eq!(c.obs.unwrap().password.as_deref(), Some("pw"));
         assert_eq!(c.home_assistant.unwrap().url, "http://ha:8123");
+        std::fs::write(&path, "[companion]\nhost = \"10.0.0.5\"\n").unwrap();
+        let c = Config::load(&path).unwrap().companion.unwrap();
+        assert_eq!((c.host.as_str(), c.port), ("10.0.0.5", 16622));
         std::fs::write(&path, "[obz]\n").unwrap();
         assert!(Config::load(&path).unwrap_err().contains("obz"));
     }

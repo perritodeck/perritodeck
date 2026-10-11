@@ -16,6 +16,8 @@ export interface HostStatus {
   usbDevices: string[];
   /** adb was found, so tablets on USB work. */
   usbAvailable: boolean;
+  /** How the connection to Bitfocus Companion is doing; null if it isn't set up. */
+  companion: string | null;
 }
 
 export interface DeviceInfo {
@@ -168,6 +170,8 @@ export interface ProfileView {
   cols: number;
   rows: number;
   fixedGrid: boolean;
+  /** Shows Bitfocus Companion's buttons; `pages` is then unused. */
+  companion: boolean;
   pages: PageView[];
   reloadError: string | null;
   canUndo: boolean;

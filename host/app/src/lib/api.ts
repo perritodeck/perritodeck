@@ -28,7 +28,8 @@ export const api = {
   profiles: () => call<ProfileSummary[]>("list_profiles"),
   profile: (id?: string) => call<ProfileView>("get_profile", { id: id ?? null }),
   edit: (id: string, edits: Edit[]) => call<ProfileView>("edit_profile", { id, edits }),
-  createProfile: (name: string, copyOf?: string) => call<string>("create_profile", { name, copyOf: copyOf ?? null }),
+  createProfile: (name: string, copyOf?: string, companion = false) =>
+    call<string>("create_profile", { name, copyOf: copyOf ?? null, companion }),
   deleteProfile: (id: string) => call<void>("delete_profile", { id }),
   undo: () => call<ProfileView>("undo_edit"),
   redo: () => call<ProfileView>("redo_edit"),

@@ -11,6 +11,8 @@
 
 schema_version = 1
 name = "Starter"
+# companion = true   # show Bitfocus Companion's buttons instead of the pages below
+#                    # (needs [companion] in integrations.toml)
 
 # Every tablet gets this grid. Delete these lines to size the grid to each tablet.
 [grid]

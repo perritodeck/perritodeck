@@ -42,6 +42,27 @@ impl Outbox for ServerHandle {
     }
 }
 
+/// Something else that draws a device's keys and takes its presses: Bitfocus Companion,
+/// for devices showing a profile with `companion = true`.
+pub trait RemoteSurfaces: Send + Sync {
+    /// The device now shows a Companion profile. Called again when its grid or key size
+    /// changes.
+    fn attach(&self, device_id: &str, grid: Grid, image_px: Option<u32>);
+    fn detach(&self, device_id: &str);
+    fn press(&self, device_id: &str, key_index: u32, down: bool);
+}
+
+/// One key as the remote draws it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RemoteKey {
+    /// The finished image, as PNG.
+    pub png: Option<Vec<u8>>,
+    pub title: String,
+    /// `#rrggbb`
+    pub bg: Option<String>,
+    pub fg: Option<String>,
+}
+
 struct DeviceView {
     /// Which profile this device is showing.
     profile: String,
@@ -57,6 +78,10 @@ struct DeviceView {
     sent: HashMap<u32, KeySpec>,
     /// Which frame each animated key showed last.
     frames_sent: HashMap<u32, usize>,
+    /// Attached to the remote (Companion) with this grid and key size.
+    remote: Option<(Grid, Option<u32>)>,
+    /// Keys as the remote last drew them.
+    remote_keys: HashMap<u32, RemoteKey>,
 }
 
 /// One loaded profile and everything that belongs to it.
@@ -167,6 +192,9 @@ pub struct Deck {
     sliders: Mutex<SliderQueue>,
     live: LiveValues,
     started: std::time::Instant,
+    remote: Mutex<Option<Arc<dyn RemoteSurfaces>>>,
+    /// Shown on Companion profiles while Companion has drawn nothing (e.g. it's offline).
+    remote_note: Mutex<String>,
     /// Tests: a fixed time in ms since `started` instead of the clock (`u64::MAX` = clock).
     fake_ms: std::sync::atomic::AtomicU64,
 }
@@ -221,6 +249,8 @@ impl Deck {
             sliders: Default::default(),
             live,
             started: std::time::Instant::now(),
+            remote: Mutex::new(None),
+            remote_note: Mutex::new(NO_COMPANION.to_owned()),
             fake_ms: std::sync::atomic::AtomicU64::new(u64::MAX),
         })
     }
@@ -256,6 +286,10 @@ impl Deck {
         let st = self.lock();
         let slot = st.slot(&st.profile_for(&hello.device_id));
         let grid = device_grid(&slot.profile, demo::grid_for(hello));
+        if slot.profile.companion {
+            let note = self.remote_note.lock().expect("note poisoned").clone();
+            return note_layout(grid, &note);
+        }
         page_layout(
             slot,
             0,
@@ -287,15 +321,146 @@ impl Deck {
                 back: Vec::new(),
                 sent,
                 frames_sent: HashMap::new(),
+                remote: None,
+                remote_keys: HashMap::new(),
             },
         );
+        if st.slot(&st.profile_for(device_id)).profile.companion {
+            self.sync_remote(&mut st, device_id);
+        }
         if image_px.is_some() {
             self.send_images(&mut st, device_id);
         }
     }
 
     pub fn disconnected(&self, device_id: &str) {
-        self.lock().devices.remove(device_id);
+        let gone = self.lock().devices.remove(device_id);
+        if gone.is_some_and(|d| d.remote.is_some()) {
+            if let Some(r) = self.remote() {
+                r.detach(device_id);
+            }
+        }
+    }
+
+    // ---- Companion (remote surfaces) ----
+
+    /// Let `remote` draw devices that show a Companion profile.
+    pub fn set_remote(&self, remote: Arc<dyn RemoteSurfaces>) {
+        *self.remote.lock().expect("remote poisoned") = Some(remote);
+        *self.remote_note.lock().expect("note poisoned") = "Connecting to\nCompanion".into();
+        let mut st = self.lock();
+        let ids: Vec<String> = st.devices.keys().cloned().collect();
+        for id in ids {
+            if st.slot(&st.devices[&id].profile.clone()).profile.companion {
+                self.show_page(&mut st, &id);
+            }
+        }
+    }
+
+    fn remote(&self) -> Option<Arc<dyn RemoteSurfaces>> {
+        self.remote.lock().expect("remote poisoned").clone()
+    }
+
+    /// The remote drew a key.
+    pub fn remote_key(&self, device_id: &str, index: u32, key: RemoteKey) {
+        let mut st = self.lock();
+        let Some(d) = st.devices.get_mut(device_id) else {
+            return;
+        };
+        if d.remote.is_none() || index >= d.grid.key_count() {
+            return;
+        }
+        if d.remote_keys.get(&index) == Some(&key) {
+            return;
+        }
+        let first = d.remote_keys.is_empty();
+        d.remote_keys.insert(index, key.clone());
+        let spec = remote_spec(d, index, "");
+        let colours_changed = d
+            .sent
+            .get(&index)
+            .is_some_and(|p| p.bg_color != spec.bg_color || p.text_color != spec.text_color);
+        if first || (d.image_px.is_none() && colours_changed) {
+            // The placeholder note goes, or a text-only tablet needs new colours.
+            self.show_page(&mut st, device_id);
+            return;
+        }
+        let px = d.image_px;
+        d.sent.insert(index, spec.clone());
+        self.outbox.send(
+            device_id,
+            Message::SetTitle(SetTitle {
+                key_index: index,
+                title: spec.title.clone(),
+            }),
+        );
+        if let Some(px) = px {
+            self.outbox.send(
+                device_id,
+                Message::SetImage(SetImage {
+                    key_index: index,
+                    image: Some(remote_image(&key, &spec, px)),
+                }),
+            );
+        }
+    }
+
+    /// The remote blanked a device's keys.
+    pub fn remote_clear(&self, device_id: &str) {
+        let mut st = self.lock();
+        if let Some(d) = st.devices.get_mut(device_id) {
+            d.remote_keys.clear();
+            if d.remote.is_some() {
+                self.show_page(&mut st, device_id);
+            }
+        }
+    }
+
+    /// Companion connected (`None`) or went away (why, shown on the keys until it's back).
+    pub fn remote_status(&self, note: Option<&str>) {
+        let mut st = self.lock();
+        let ids: Vec<String> = st
+            .devices
+            .iter()
+            .filter(|(_, d)| d.remote.is_some())
+            .map(|(id, _)| id.clone())
+            .collect();
+        *self.remote_note.lock().expect("note poisoned") = note.unwrap_or_default().to_owned();
+        if note.is_none() {
+            return; // Companion redraws everything once the tablets are registered.
+        }
+        for id in ids {
+            if let Some(d) = st.devices.get_mut(&id) {
+                d.remote_keys.clear();
+            }
+            self.show_page(&mut st, &id);
+        }
+    }
+
+    /// Attach or detach a device from the remote to match the profile it shows.
+    fn sync_remote(&self, st: &mut State, device_id: &str) {
+        let Some(d) = st.devices.get(device_id) else {
+            return;
+        };
+        let remote = self.remote();
+        let want = (st.slot(&d.profile).profile.companion && remote.is_some())
+            .then_some((d.grid, d.image_px));
+        if want == d.remote {
+            return;
+        }
+        let had = d.remote.is_some();
+        if let Some(d) = st.devices.get_mut(device_id) {
+            d.remote = want;
+            if want.is_none() {
+                d.remote_keys.clear();
+            }
+        }
+        let Some(r) = remote else { return };
+        match want {
+            Some((grid, px)) => r.attach(device_id, grid, px),
+            None if had => r.detach(device_id),
+            None => {}
+        }
     }
 
     /// The default profile.
@@ -551,6 +716,9 @@ impl Deck {
             return;
         };
         let (profile, page, grid) = (d.profile.clone(), d.page, d.grid);
+        if st.slot(&profile).profile.companion {
+            return;
+        }
         let at = [key_index / grid.cols.max(1), key_index % grid.cols.max(1)];
         let Some(spec) = slider_at(st.slot(&profile), page, at).cloned() else {
             return;
@@ -642,7 +810,11 @@ impl Deck {
             let st = self.lock();
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
-            for d in st.devices.values().filter(|d| d.sliders) {
+            for d in st
+                .devices
+                .values()
+                .filter(|d| d.sliders && !st.slot(&d.profile).profile.companion)
+            {
                 let Some(p) = st.slot(&d.profile).profile.pages.get(d.page) else {
                     continue;
                 };
@@ -698,8 +870,10 @@ impl Deck {
         let ids: Vec<String> = st.devices.keys().cloned().collect();
         for id in ids {
             let (profile, page, grid) = match st.devices.get(&id) {
-                Some(d) => (d.profile.clone(), d.page, d.grid),
-                None => continue,
+                Some(d) if !st.slot(&d.profile).profile.companion => {
+                    (d.profile.clone(), d.page, d.grid)
+                }
+                _ => continue,
             };
             let indexes: Vec<u32> = st
                 .slot(&profile)
@@ -720,12 +894,44 @@ impl Deck {
         }
     }
 
+    /// A key came back up. Only Companion profiles care (Companion has press and release
+    /// actions); PerritoDeck's own keys act on the way down.
+    pub fn key_up(&self, device_id: &str, key_index: u32) {
+        let attached = self
+            .lock()
+            .devices
+            .get(device_id)
+            .is_some_and(|d| d.remote.is_some());
+        if attached {
+            if let Some(r) = self.remote() {
+                r.press(device_id, key_index, false);
+            }
+        }
+    }
+
     /// A key went down on a device.
     pub fn key_down(self: &Arc<Self>, device_id: &str, key_index: u32) {
         let mut st = self.lock();
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
+        if st.slot(&d.profile).profile.companion {
+            if d.remote.is_none() {
+                return; // Companion isn't set up; the key says so
+            }
+            if self.paused() {
+                self.outbox.send(
+                    device_id,
+                    Message::ShowAlert(KeyFeedback {
+                        key_index,
+                        message: Some("Keys are paused on the computer".into()),
+                    }),
+                );
+            } else if let Some(r) = self.remote() {
+                r.press(device_id, key_index, true);
+            }
+            return;
+        }
         let (profile, page, grid) = (d.profile.clone(), d.page, d.grid);
         let at = [key_index / grid.cols.max(1), key_index % grid.cols.max(1)];
         let Some(key) = st
@@ -829,9 +1035,14 @@ impl Deck {
 
     /// Send the device's current page in full.
     fn show_page(&self, st: &mut State, device_id: &str) {
+        self.sync_remote(st, device_id);
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
+        if st.slot(&d.profile).profile.companion {
+            self.show_remote_page(st, device_id);
+            return;
+        }
         let layout = page_layout(st.slot(&d.profile), d.page, d.grid, d.sliders);
         let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
         self.outbox.send(device_id, Message::Layout(layout));
@@ -844,10 +1055,45 @@ impl Deck {
         }
     }
 
+    /// A Companion profile: the keys as Companion drew them (or a note while it hasn't).
+    fn show_remote_page(&self, st: &mut State, device_id: &str) {
+        let note = self.remote_note.lock().expect("note poisoned").clone();
+        let Some(d) = st.devices.get_mut(device_id) else {
+            return;
+        };
+        let layout = Layout {
+            cols: d.grid.cols,
+            rows: d.grid.rows,
+            keys: (0..d.grid.key_count())
+                .map(|i| remote_spec(d, i, &note))
+                .collect(),
+        };
+        d.sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
+        d.frames_sent.clear();
+        self.outbox.send(device_id, Message::Layout(layout.clone()));
+        let Some(px) = d.image_px else { return };
+        for spec in layout.keys {
+            let key = d.remote_keys.get(&spec.index).cloned().unwrap_or_default();
+            if key.png.is_none() && spec.title.is_empty() && spec.bg_color == EMPTY_BG {
+                continue;
+            }
+            self.outbox.send(
+                device_id,
+                Message::SetImage(SetImage {
+                    key_index: spec.index,
+                    image: Some(remote_image(&key, &spec, px)),
+                }),
+            );
+        }
+    }
+
     fn send_images(&self, st: &mut State, device_id: &str) {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
+        if st.slot(&d.profile).profile.companion {
+            return; // drawn by show_remote_page
+        }
         let (profile, page, grid, px, sliders) = (
             d.profile.clone(),
             d.page,
@@ -885,7 +1131,7 @@ impl Deck {
         let ids: Vec<String> = st
             .devices
             .iter()
-            .filter(|(_, d)| d.image_px.is_some())
+            .filter(|(_, d)| d.image_px.is_some() && !st.slot(&d.profile).profile.companion)
             .map(|(id, _)| id.clone())
             .collect();
         for id in ids {
@@ -1002,6 +1248,67 @@ impl Deck {
             );
         }
     }
+}
+
+/// What the remote profile placeholder says before Companion is set up.
+const NO_COMPANION: &str = "Set up\nCompanion";
+
+fn note_layout(grid: Grid, note: &str) -> Layout {
+    Layout {
+        cols: grid.cols,
+        rows: grid.rows,
+        keys: (0..grid.key_count())
+            .map(|index| KeySpec {
+                index,
+                title: if index == 0 {
+                    note.to_owned()
+                } else {
+                    String::new()
+                },
+                bg_color: EMPTY_BG.to_owned(),
+                text_color: DEFAULT_FG.to_owned(),
+                control: None,
+                value: None,
+            })
+            .collect(),
+    }
+}
+
+/// A key of a Companion profile: as Companion drew it, or the note on the first key
+/// while it has drawn nothing.
+fn remote_spec(d: &DeviceView, index: u32, note: &str) -> KeySpec {
+    let key = d.remote_keys.get(&index);
+    let title = match key {
+        Some(k) => k.title.clone(),
+        None if index == 0 && d.remote_keys.is_empty() => note.to_owned(),
+        None => String::new(),
+    };
+    KeySpec {
+        index,
+        title,
+        bg_color: key
+            .and_then(|k| k.bg.clone())
+            .unwrap_or_else(|| EMPTY_BG.to_owned()),
+        text_color: key
+            .and_then(|k| k.fg.clone())
+            .unwrap_or_else(|| DEFAULT_FG.to_owned()),
+        control: None,
+        value: None,
+    }
+}
+
+/// Companion's image, or one drawn from its text and colours.
+fn remote_image(key: &RemoteKey, spec: &KeySpec, px: u32) -> String {
+    if let Some(png) = &key.png {
+        return perritodeck_render::data_url(png);
+    }
+    let style = perritodeck_render::KeyStyle {
+        title: spec.title.clone(),
+        background: perritodeck_render::parse_hex(&spec.bg_color).unwrap_or([0x1E, 0x1E, 0x2E]),
+        text: perritodeck_render::parse_hex(&spec.text_color).unwrap_or([0xCD, 0xD6, 0xF4]),
+        icon_png: None,
+    };
+    perritodeck_render::data_url(&perritodeck_render::render_png(&style, px))
 }
 
 fn in_grid(key: &KeyDef, grid: Grid) -> bool {

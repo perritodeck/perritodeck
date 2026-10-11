@@ -617,3 +617,144 @@ async fn installs_plugins_from_the_online_catalogue() {
         .unwrap();
     assert!(other.unwrap_err().contains("not dev.example.other"));
 }
+
+/// A tablet showing a Companion profile appears in (a fake) Companion, shows what it
+/// draws, and sends presses and releases back.
+#[tokio::test(flavor = "multi_thread")]
+async fn tablets_become_companion_surfaces() {
+    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let companion = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = companion.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("integrations.toml"),
+        format!("[companion]\nhost = \"127.0.0.1\"\nport = {port}\n"),
+    )
+    .unwrap();
+    let profile = dir.path().join("profiles").join("default.toml");
+    std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+    std::fs::write(
+        &profile,
+        "schema_version = 1\nname = \"Companion\"\ncompanion = true\n",
+    )
+    .unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.insecure = true;
+    opts.profile = Some(profile);
+    let host = Host::start(opts).await.unwrap();
+    assert!(host
+        .status()
+        .integrations
+        .contains(&"Companion".to_string()));
+
+    let (sock, _) = companion.accept().await.unwrap();
+    let (r, mut w) = sock.into_split();
+    let mut lines = BufReader::new(r).lines();
+    w.write_all(b"BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0\nCAPS BITMAP_FORMATS=rgb,png\n")
+        .await
+        .unwrap();
+    let mut hear = async move || loop {
+        let l = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if !l.starts_with("PING") {
+            return perritodeck_companion::line::parse(&l);
+        }
+    };
+
+    let ep = Endpoint {
+        addr: host.addr.to_string(),
+        security: ClientSecurity::Insecure,
+    };
+    let mut hello = fake_hello(
+        "tab-1",
+        None,
+        Some(perritodeck_protocol::Grid { cols: 4, rows: 2 }),
+    );
+    hello.capabilities.push("images".into());
+    let (mut tablet, _, layout) = Client::handshake(&ep, hello).await.unwrap();
+    assert_eq!(layout.keys.len(), 8);
+    assert!(
+        layout.keys.iter().all(|k| k.title.is_empty()),
+        "blank until Companion draws"
+    );
+
+    let add = hear().await;
+    assert_eq!(add.command, "ADD-DEVICE");
+    assert_eq!(add.get("DEVICEID"), Some("perritodeck-tab-1"));
+    assert_eq!(add.get("KEYS_TOTAL"), Some("8"));
+    assert_eq!(add.get("BITMAP_FORMAT"), Some("png"));
+    w.write_all(b"ADD-DEVICE OK DEVICEID=perritodeck-tab-1\n")
+        .await
+        .unwrap();
+    let text = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "Go live");
+    w.write_all(
+        format!("KEY-STATE DEVICEID=perritodeck-tab-1 KEY=2 COLOR=#00ff00 TEXTCOLOR=#000000 TEXT={text}\n")
+            .as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    // The tablet gets the page again with Companion's key, then its image.
+    let mut got_layout = false;
+    let mut got_image = false;
+    for _ in 0..20 {
+        let Ok(env) = tablet.recv_msg(Duration::from_secs(5)).await else {
+            break;
+        };
+        match env.msg {
+            perritodeck_protocol::Message::Layout(l) if l.keys[2].title == "Go live" => {
+                assert_eq!(l.keys[2].bg_color, "#00ff00");
+                got_layout = true;
+            }
+            perritodeck_protocol::Message::SetImage(i) if i.key_index == 2 => got_image = true,
+            _ => {}
+        }
+        if got_layout && got_image {
+            break;
+        }
+    }
+    assert!(got_layout && got_image);
+
+    tablet.key_down(2).await.unwrap();
+    tablet.key_up(2).await.unwrap();
+    let down = hear().await;
+    assert_eq!(
+        (down.command.as_str(), down.get("KEY"), down.get("PRESSED")),
+        ("KEY-PRESS", Some("2"), Some("true"))
+    );
+    assert_eq!(hear().await.get("PRESSED"), Some("false"));
+
+    tablet.close().await;
+    let rm = hear().await;
+    assert_eq!(rm.command, "REMOVE-DEVICE");
+}
+
+#[tokio::test]
+async fn companion_profiles_can_be_made() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    let host = Host::start(opts).await.unwrap();
+    let c = host.create_companion_profile("Show control").unwrap();
+    let v = host.profile_view(Some(&c)).unwrap();
+    assert!(v.companion && v.pages.is_empty());
+    assert!(
+        std::fs::read_to_string(host.profiles_dir.join(format!("{c}.toml")))
+            .unwrap()
+            .contains("[companion]")
+    );
+}

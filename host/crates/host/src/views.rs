@@ -27,6 +27,8 @@ pub struct ProfileView {
     pub rows: u32,
     /// True when the profile fixes the grid size; otherwise it follows each tablet.
     pub fixed_grid: bool,
+    /// Shows Bitfocus Companion's buttons; `pages` is then unused.
+    pub companion: bool,
     pub pages: Vec<PageView>,
     pub reload_error: Option<String>,
     pub can_undo: bool,
@@ -168,6 +170,7 @@ pub fn view_with_icons(
         cols,
         rows,
         fixed_grid: profile.grid.is_some(),
+        companion: profile.companion,
         pages,
         reload_error,
         can_undo: false,

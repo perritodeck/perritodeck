@@ -85,8 +85,18 @@ fn edit_profile(app: State<'_, App>, id: String, edits: Vec<Edit>) -> Res<Profil
 }
 
 #[tauri::command]
-fn create_profile(app: State<'_, App>, name: String, copy_of: Option<String>) -> Res<String> {
-    app.host()?.create_profile(&name, copy_of.as_deref())
+fn create_profile(
+    app: State<'_, App>,
+    name: String,
+    copy_of: Option<String>,
+    companion: Option<bool>,
+) -> Res<String> {
+    let host = app.host()?;
+    if companion == Some(true) {
+        host.create_companion_profile(&name)
+    } else {
+        host.create_profile(&name, copy_of.as_deref())
+    }
 }
 
 #[tauri::command]

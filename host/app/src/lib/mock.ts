@@ -20,6 +20,7 @@ const status: HostStatus = {
   autoSwitchSupported: true,
   usbDevices: [],
   usbAvailable: true,
+  companion: null,
 };
 
 let devices: DeviceInfo[] = [
@@ -74,6 +75,7 @@ const starter: ProfileView = {
   cols: 5,
   rows: 3,
   fixedGrid: true,
+  companion: false,
   reloadError: null,
   canUndo: false,
   canRedo: false,
@@ -130,6 +132,7 @@ const streaming: ProfileView = {
   cols: 5,
   rows: 3,
   fixedGrid: true,
+  companion: false,
   reloadError: null,
   canUndo: false,
   canRedo: false,
@@ -392,9 +395,21 @@ export const mock = {
         let id = slug(name);
         for (let n = 2; profiles[id]; n++) id = `${slug(name)}-${n}`;
         const from = args?.copyOf as string | null;
+        const companion = !!args?.companion;
         profiles[id] = from
           ? { ...structuredClone(profiles[from]), id, name }
-          : { id, name, cols: 5, rows: 3, fixedGrid: false, reloadError: null, canUndo: false, canRedo: false, pages: [{ name: "Main", keys: [] }] };
+          : {
+              id,
+              name,
+              cols: 5,
+              rows: 3,
+              fixedGrid: false,
+              companion,
+              reloadError: null,
+              canUndo: false,
+              canRedo: false,
+              pages: companion ? [] : [{ name: "Main", keys: [] }],
+            };
         return out(id);
       }
       case "delete_profile": {
@@ -542,6 +557,8 @@ export const mock = {
     this.emit("host-event", e);
   },
   autostart: false,
+  /** The status the host reports; tests may change it. */
+  hostStatus: status,
   network: { port: 46710, lan: true },
   // Tests can set these before the page loads, through window.__perritoMockInit.
   checkUpdates: !!init().checkUpdates,

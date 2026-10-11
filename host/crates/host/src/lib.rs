@@ -44,6 +44,7 @@ pub use perritodeck_plugins::{
 };
 pub use perritodeck_profile::edit::{Edit, KeyFields};
 pub use settings::{AppSettings, AutoSwitch, Network, SwitchRule};
+pub mod companion;
 pub mod online;
 pub mod updates;
 pub use views::{view_of, view_with_icons, KeyView, PageView, ProfileSummary, ProfileView};
@@ -195,6 +196,8 @@ pub struct HostStatus {
     pub usb_devices: Vec<String>,
     /// Whether `adb` was found, so USB tablets work.
     pub usb_available: bool,
+    /// How the connection to Bitfocus Companion is doing, if it's set up.
+    pub companion: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -319,6 +322,7 @@ pub struct Host {
     plugins: Arc<perritodeck_plugins::PluginHost>,
     plugin_catalog: Option<PathBuf>,
     plugin_index: String,
+    companion: companion::CompanionState,
     usb: usb::UsbDevices,
     usb_available: bool,
     history: Mutex<History>,
@@ -397,12 +401,16 @@ impl Host {
                 warn!("ignoring integrations.toml: {e}");
                 Default::default()
             });
+        let companion_config = integrations_config.companion.clone();
         let builtins = perritodeck_integrations::Builtins::new(integrations_config);
-        let integrations: Vec<String> = builtins
+        let mut integrations: Vec<String> = builtins
             .configured()
             .into_iter()
             .map(str::to_owned)
             .collect();
+        if companion_config.is_some() {
+            integrations.push("Companion".into());
+        }
         if !integrations.is_empty() {
             info!("integrations: {}", integrations.join(", "));
         }
@@ -434,6 +442,24 @@ impl Host {
         );
         watch::load_all(&profiles_dir, &deck);
         let _ = live_sink.set(deck.clone());
+        let companion_state = companion::CompanionState::default();
+        if let Some(c) = companion_config {
+            info!("Companion: connecting to {}:{}", c.host, c.port);
+            let names = store.clone();
+            let bridge = companion::Bridge::start(
+                c.host,
+                c.port,
+                Arc::downgrade(&deck),
+                Box::new(move |id| {
+                    names
+                        .as_ref()
+                        .and_then(|s| s.devices().into_iter().find(|(d, _)| d == id))
+                        .map(|(_, d)| d.name)
+                }),
+                companion_state.clone(),
+            );
+            deck.set_remote(bridge);
+        }
 
         let settings_file = settings_path(&dir);
         let settings = AppSettings::load(&settings_file);
@@ -499,6 +525,7 @@ impl Host {
             plugins,
             plugin_catalog: opts.plugin_catalog.clone(),
             plugin_index: opts.plugin_index.clone(),
+            companion: companion_state,
             usb: usb_devices,
             usb_available,
             host_name,
@@ -564,6 +591,12 @@ impl Host {
                 .cloned()
                 .collect(),
             usb_available: self.usb_available,
+            companion: self
+                .companion
+                .lock()
+                .ok()
+                .map(|s| s.clone())
+                .filter(|_| self.integrations.iter().any(|i| i == "Companion")),
         }
     }
 
@@ -1018,6 +1051,25 @@ impl Host {
         Ok(id)
     }
 
+    /// A new profile that shows Bitfocus Companion's buttons.
+    pub fn create_companion_profile(&self, name: &str) -> Result<String, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("A profile needs a name.".into());
+        }
+        let mut doc = toml_edit::DocumentMut::new();
+        doc["schema_version"] = toml_edit::value(i64::from(perritodeck_profile::SCHEMA_VERSION));
+        doc["name"] = toml_edit::value(name);
+        doc["companion"] = toml_edit::value(true);
+        let text = format!(
+            "# Shows the buttons from Bitfocus Companion. Tell PerritoDeck where Companion runs in\n\
+             # integrations.toml:\n#   [companion]\n#   host = \"127.0.0.1\"\n{doc}"
+        );
+        let id = unique_id(&slug(name), |id| self.path_of(id).exists());
+        self.write_profile(&self.path_of(&id), &text)?;
+        Ok(id)
+    }
+
     /// Copy an image into the profiles folder for use as a key icon: PNG or JPEG,
     /// scaled down to at most 288 px. Returns its path relative to the folder.
     pub fn import_icon(&self, source: &Path) -> Result<String, String> {
@@ -1391,6 +1443,13 @@ fn spawn_event_loop(
                         device_id,
                         key_index,
                     })
+                }
+                ServerEvent::KeyUp {
+                    device_id,
+                    key_index,
+                } => {
+                    deck.key_up(&device_id, key_index);
+                    None
                 }
                 ServerEvent::SliderChange {
                     device_id,

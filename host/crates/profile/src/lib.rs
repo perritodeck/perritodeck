@@ -28,6 +28,11 @@ pub struct Profile {
     /// Fixed grid for every tablet. Omit to size the grid to each tablet's screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid: Option<GridSpec>,
+    /// Show Bitfocus Companion's buttons instead of this profile's own pages (needs
+    /// `[companion]` in `integrations.toml`). Pages are then optional and unused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub companion: bool,
+    #[serde(default)]
     pub pages: Vec<Page>,
 }
 
@@ -188,7 +193,7 @@ impl Profile {
                 self.schema_version
             ));
         }
-        if self.pages.is_empty() {
+        if self.pages.is_empty() && !self.companion {
             out.push("a profile needs at least one [[pages]] entry".into());
         }
         if let Some(g) = self.grid {
