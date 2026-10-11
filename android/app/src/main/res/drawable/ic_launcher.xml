@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placeholder icon: a paw print on a rounded square. Replace with real artwork before release. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF1E1E2E"
+        android:pathData="M10,2h28a8,8 0,0 1,8 8v28a8,8 0,0 1,-8 8h-28a8,8 0,0 1,-8 -8v-28a8,8 0,0 1,8 -8z" />
+    <!-- main pad -->
+    <path
+        android:fillColor="#FFFAB387"
+        android:pathData="M24,24c-5.5,0 -10,4.5 -10,8.5c0,3 2.5,4.5 5,4.5c2,0 3.2,-1 5,-1s3,1 5,1c2.5,0 5,-1.5 5,-4.5c0,-4 -4.5,-8.5 -10,-8.5z" />
+    <!-- toes -->
+    <path android:fillColor="#FFFAB387" android:pathData="M14,22m-3.2,0a3.2,3.6 0,1 1,6.4 0a3.2,3.6 0,1 1,-6.4 0" />
+    <path android:fillColor="#FFFAB387" android:pathData="M20,15m-3.2,0a3.2,3.8 0,1 1,6.4 0a3.2,3.8 0,1 1,-6.4 0" />
+    <path android:fillColor="#FFFAB387" android:pathData="M28,15m-3.2,0a3.2,3.8 0,1 1,6.4 0a3.2,3.8 0,1 1,-6.4 0" />
+    <path android:fillColor="#FFFAB387" android:pathData="M34,22m-3.2,0a3.2,3.6 0,1 1,6.4 0a3.2,3.6 0,1 1,-6.4 0" />
+</vector>

@@ -1,0 +1,34 @@
+name: Host
+
+on:
+  push:
+    branches: [main]
+    paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
+  pull_request:
+    paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: host
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: host
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked

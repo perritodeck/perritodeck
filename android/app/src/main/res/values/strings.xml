@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Perrito</string>
+    <string name="connect_title">Connect to your computer</string>
+    <string name="connect_subtitle">Run PerritoDeck Host on your computer, then enter its address.</string>
+    <string name="host_label">Host address</string>
+    <string name="port_label">Port</string>
+    <string name="token_label">Session token (LAN only)</string>
+    <string name="preset_emulator">Emulator</string>
+    <string name="preset_usb">USB (adb reverse)</string>
+    <string name="connect_button">Connect</string>
+    <string name="connecting">Connecting to %1$s…</string>
+    <string name="reconnecting">Reconnecting… (%1$s)</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="error_invalid_port">Port must be 1–65535</string>
+    <string name="error_empty_host">Enter the host\'s address</string>
+    <string name="latency">%1$s · %2$.1f ms</string>
+    <string name="key_description">Key %1$d: %2$s</string>
+</resources>
