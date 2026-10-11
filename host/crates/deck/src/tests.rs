@@ -923,3 +923,181 @@ fn stream_deck_plugin_keys_are_run_by_agents() {
     deck.reload(Profile::parse(SD_PROFILE).unwrap());
     assert!(log(&agents).is_empty(), "tab is on page Two");
 }
+
+/// The test profile with profile-switching keys on Main's bottom row and More's top row.
+fn switching_profile() -> Profile {
+    let keys = r##"
+[[pages.keys]]
+at = [1, 1]
+title = "Stream"
+nav = { profile = "streaming" }
+[[pages.keys]]
+at = [1, 2]
+title = "Stream more"
+nav = { profile = "streaming", page = "More" }
+
+[[pages]]
+name = "More"
+[[pages.keys]]
+at = [0, 1]
+title = "Nowhere"
+nav = { profile = "nope" }
+[[pages.keys]]
+at = [0, 2]
+title = "No page"
+nav = { profile = "streaming", page = "Nowhere" }
+[[pages.keys]]
+at = [1, 0]
+title = "Here"
+nav = { profile = "default", page = "Main" }
+"##;
+    Profile::parse(&PROFILE.replacen("\n[[pages]]\nname = \"More\"", keys, 1)).unwrap()
+}
+
+/// `(device, profile)` for each switch a key made.
+type Switches = Arc<Mutex<Vec<(String, String)>>>;
+
+fn switching_setup() -> (Arc<Deck>, Arc<Sent>, Switches) {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        switching_profile(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys),
+    );
+    let streaming = PROFILE
+        .replace("Copy", "Other copy")
+        .replacen("\n[[pages]]\nname = \"More\"", "\n[[pages.keys]]\nat = [1, 1]\ntitle = \"Home\"\nnav = { profile = \"default\" }\n\n[[pages]]\nname = \"More\"", 1);
+    deck.load_profile("streaming", Profile::parse(&streaming).unwrap(), None);
+    let switched = Arc::new(Mutex::new(Vec::new()));
+    let log = switched.clone();
+    deck.on_profile_switch(Arc::new(move |d: &str, p: &str| {
+        log.lock().unwrap().push((d.to_owned(), p.to_owned()));
+    }));
+    connect(&deck, false);
+    sent.take();
+    (deck, sent, switched)
+}
+
+fn layout_titles(sent: &Sent) -> Vec<String> {
+    match sent.take().as_slice() {
+        [Message::Layout(l)] => l.keys.iter().map(|k| k.title.clone()).collect(),
+        other => panic!("expected a redraw, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_key_switches_its_tablet_to_another_profile() {
+    let (deck, sent, switched) = switching_setup();
+    let rev = deck.revision();
+
+    deck.key_down("tab", 4); // [1, 1]: streaming
+    assert!(layout_titles(&sent).contains(&"Other copy".to_owned()));
+    assert_eq!(deck.device_profile("tab"), "streaming");
+    assert!(deck.revision() > rev, "UIs hear about it");
+    assert_eq!(
+        *switched.lock().unwrap(),
+        [("tab".to_owned(), "streaming".to_owned())]
+    );
+    // Remembered like a manual choice: it's what the tablet gets when it reconnects.
+    deck.disconnected("tab");
+    assert!(titles(&deck.initial_layout(&hello())).contains(&"Other copy"));
+    connect(&deck, false);
+    sent.take();
+
+    // And back to the default, which forgets the assignment.
+    deck.key_down("tab", 4); // streaming's [1, 1]: default
+    assert!(layout_titles(&sent).contains(&"Copy".to_owned()));
+    assert_eq!(deck.device_profile("tab"), "default");
+    assert_eq!(switched.lock().unwrap().len(), 2);
+    assert_eq!(switched.lock().unwrap()[1].1, "default");
+    deck.disconnected("tab");
+    assert!(titles(&deck.initial_layout(&hello())).contains(&"Copy"));
+}
+
+#[tokio::test]
+async fn a_profile_switch_can_open_a_page() {
+    let (deck, sent, _) = switching_setup();
+    deck.key_down("tab", 5); // [1, 2]: streaming, page More
+    assert_eq!(deck.device_profile("tab"), "streaming");
+    assert!(layout_titles(&sent).contains(&"Back".to_owned()));
+    // Back history starts afresh in the new profile: Back goes to its first page.
+    deck.key_down("tab", 0);
+    assert!(layout_titles(&sent).contains(&"Other copy".to_owned()));
+
+    // Switching to the profile already showing, with a page, is a page change.
+    deck.key_down("tab", 4); // home to default
+    sent.take();
+    deck.key_down("tab", 2); // More
+    sent.take();
+    deck.key_down("tab", 3); // [1, 0]: default, page Main
+    assert!(layout_titles(&sent).contains(&"Copy".to_owned()));
+    assert_eq!(deck.device_profile("tab"), "default");
+}
+
+#[tokio::test]
+async fn switching_to_a_missing_profile_or_page_flashes_an_alert() {
+    let (deck, sent, switched) = switching_setup();
+    deck.key_down("tab", 2); // More
+    sent.take();
+
+    deck.key_down("tab", 1); // nowhere
+    match sent.take().as_slice() {
+        [Message::ShowAlert(f)] => {
+            assert_eq!(f.key_index, 1);
+            assert!(f.message.as_deref().unwrap().contains("\"nope\""), "{f:?}");
+        }
+        other => panic!("expected an alert, got {other:?}"),
+    }
+    deck.key_down("tab", 2); // streaming, page Nowhere
+    match sent.take().as_slice() {
+        [Message::ShowAlert(f)] => {
+            assert_eq!(f.key_index, 2);
+            assert!(f.message.as_deref().unwrap().contains("Nowhere"), "{f:?}");
+        }
+        other => panic!("expected an alert, got {other:?}"),
+    }
+    assert_eq!(deck.device_profile("tab"), "default");
+    assert!(switched.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn profile_keys_wait_while_paused() {
+    let (deck, sent, switched) = switching_setup();
+    deck.set_paused(true);
+    sent.take();
+    deck.key_down("tab", 4);
+    assert!(matches!(sent.take().as_slice(), [Message::ShowAlert(_)]));
+    assert_eq!(deck.device_profile("tab"), "default");
+    assert!(switched.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn random_keys_run_one_action() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let profile = PROFILE.replace(
+        r#"action = { type = "hotkey", keys = "Ctrl+C" }"#,
+        r#"action = { type = "random", actions = [{ type = "text", text = "a" }, { type = "text", text = "b" }] }"#,
+    );
+    let deck = Deck::new(
+        Profile::parse(&profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    connect(&deck, false);
+    for _ in 0..5 {
+        deck.key_down("tab", 0);
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let ran = keys.0.lock().unwrap().clone();
+    assert_eq!(ran.len(), 5, "{ran:?}");
+    assert!(
+        ran.iter().all(|r| r == "text a" || r == "text b"),
+        "{ran:?}"
+    );
+    // Instant actions don't get a ✓.
+    assert!(!sent.take().iter().any(|m| matches!(m, Message::ShowOk(_))));
+}

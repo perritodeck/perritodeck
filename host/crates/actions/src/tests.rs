@@ -120,6 +120,118 @@ async fn multi_runs_in_order_and_validates_up_front() {
     assert!(r.take().is_empty());
 }
 
+#[tokio::test]
+async fn random_runs_exactly_one_of_its_actions() {
+    let (ex, r) = setup();
+    let pick = spec(
+        r#"{"type":"random","actions":[
+            {"type":"text","text":"a"},
+            {"type":"text","text":"b"},
+            {"type":"text","text":"c"}
+        ]}"#,
+    );
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..200 {
+        ex.run(&pick).await.unwrap();
+        let log = r.take();
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(["text a", "text b", "text c"].contains(&log[0].as_str()));
+        seen.insert(log[0].clone());
+    }
+    // 200 picks from 3 all miss one with odds of about 3 × (2/3)^200: never.
+    assert_eq!(seen.len(), 3);
+
+    // One choice is always that one.
+    let one = spec(r#"{"type":"random","actions":[{"type":"hotkey","keys":"Ctrl+C"}]}"#);
+    ex.run(&one).await.unwrap();
+    assert_eq!(r.take(), vec!["chord Ctrl+C"]);
+}
+
+#[tokio::test]
+async fn random_validates_every_choice_up_front() {
+    let (ex, r) = setup();
+    let bad = spec(
+        r#"{"type":"random","actions":[
+            {"type":"text","text":"fine"},
+            {"type":"hotkey","keys":"Ctrl+Nope"}
+        ]}"#,
+    );
+    for _ in 0..20 {
+        assert!(matches!(ex.run(&bad).await, Err(ActionError::Hotkey(_))));
+    }
+    assert!(r.take().is_empty());
+
+    let empty = spec(r#"{"type":"random","actions":[]}"#);
+    assert!(matches!(
+        Executor::validate(&empty),
+        Err(ActionError::NothingToPick)
+    ));
+    // Missing list is a parse error, not an empty pick.
+    assert!(serde_json::from_str::<ActionSpec>(r#"{"type":"random"}"#).is_err());
+
+    // Inside a multi too.
+    let nested = ActionSpec::Multi {
+        steps: vec![Step {
+            action: empty,
+            delay_ms: 0,
+        }],
+    };
+    assert!(matches!(
+        Executor::validate(&nested),
+        Err(ActionError::NothingToPick)
+    ));
+}
+
+#[test]
+fn random_nesting_counts_like_multi() {
+    // Exactly MAX_NESTING levels is fine, one more isn't, mixing both kinds.
+    let wrap = |inner: ActionSpec, i: usize| {
+        if i % 2 == 0 {
+            ActionSpec::Random {
+                actions: vec![inner],
+            }
+        } else {
+            ActionSpec::Multi {
+                steps: vec![Step {
+                    action: inner,
+                    delay_ms: 0,
+                }],
+            }
+        }
+    };
+    let mut ok = ActionSpec::None;
+    for i in 0..MAX_NESTING {
+        ok = wrap(ok, i);
+    }
+    assert!(Executor::validate(&ok).is_ok());
+    let deep = wrap(ok, MAX_NESTING);
+    assert!(matches!(
+        Executor::validate(&deep),
+        Err(ActionError::TooDeep)
+    ));
+
+    let mut only_random = ActionSpec::None;
+    for _ in 0..=MAX_NESTING {
+        only_random = ActionSpec::Random {
+            actions: vec![only_random],
+        };
+    }
+    assert!(matches!(
+        Executor::validate(&only_random),
+        Err(ActionError::TooDeep)
+    ));
+}
+
+#[test]
+fn random_round_trips_through_json() {
+    let s = spec(r#"{"type":"random","actions":[{"type":"media","key":"next"},{"type":"none"}]}"#);
+    let json = serde_json::to_value(&s).unwrap();
+    assert_eq!(json["type"], "random");
+    assert_eq!(json["actions"].as_array().unwrap().len(), 2);
+    let back: ActionSpec = serde_json::from_value(json).unwrap();
+    assert_eq!(s, back);
+}
+
 #[test]
 fn limits() {
     let long_delay = ActionSpec::Multi {

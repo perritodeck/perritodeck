@@ -7,7 +7,7 @@
   import { mediaKeys, obsOps } from "../lib/describe";
   import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
-  import type { ActionSpec, MediaKey, NavSpec, PluginField, PluginManifest, SdPlugin, SliderSpec } from "../lib/types";
+  import type { ActionSpec, MediaKey, NavSpec, PluginField, PluginManifest, ProfileSummary, SdPlugin, SliderSpec } from "../lib/types";
 
   export type Picked = { action: ActionSpec | null; nav: NavSpec | null; slider: SliderSpec | null };
 
@@ -16,6 +16,7 @@
     page = "",
     pageNames = [],
     plugins = [],
+    profiles = [],
     allowNav = true,
     allowSlider = true,
     allowSd = true,
@@ -28,6 +29,8 @@
     page?: string;
     pageNames?: string[];
     plugins?: PluginManifest[];
+    /** Every profile, for "Switch profile". */
+    profiles?: ProfileSummary[];
     allowNav?: boolean;
     allowSlider?: boolean;
     /** Offer Stream Deck plugin actions (not on toggle states). */
@@ -44,6 +47,7 @@
   type Choice =
     | "none"
     | "page"
+    | "profile"
     | "back"
     | "next"
     | "previous"
@@ -57,6 +61,7 @@
     | "obs"
     | "homeAssistant"
     | "multi"
+    | "random"
     | "slider"
     | `plugin:${string}`
     | `sd:${string}`;
@@ -70,7 +75,9 @@
     ? "slider"
     : nav
       ? typeof nav === "object"
-        ? "page"
+        ? "profile" in nav
+          ? "profile"
+          : "page"
         : nav
       : a?.type === "plugin"
         ? `plugin:${a.plugin}/${a.action}`
@@ -128,8 +135,32 @@
   let sliderProgram = $state(sl?.type === "command" ? sl.program : "");
   let sliderArgs = $state(sl?.type === "command" ? (sl.args ?? []).join("\n") : "{value}");
   let targetPage = $state(
-    nav && typeof nav === "object" ? nav.page : (initial.pageNames.find((p) => p !== initial.page) ?? ""),
+    nav && typeof nav === "object" && !("profile" in nav)
+      ? nav.page
+      : (initial.pageNames.find((p) => p !== initial.page) ?? ""),
   );
+  // "Switch profile": which one, and optionally which of its pages ("" = its first).
+  const navProfile = nav && typeof nav === "object" && "profile" in nav ? nav : null;
+  let targetProfile = $state(
+    navProfile?.profile ??
+      untrack(() => profiles.find((p) => p.id !== location?.profile)?.id ?? profiles[0]?.id ?? ""),
+  );
+  let targetProfilePage = $state(navProfile?.page ?? "");
+  // The chosen profile's pages, fetched when it's picked.
+  let profilePages = $state<string[] | null>(null);
+  async function loadProfilePages(id: string) {
+    profilePages = null;
+    if (!id) return;
+    try {
+      const view = await api.profile(id);
+      if (id === targetProfile) profilePages = view.companion ? [] : view.pages.map((p) => p.name);
+    } catch {
+      if (id === targetProfile) profilePages = [];
+    }
+  }
+  $effect(() => {
+    if (choice === "profile") loadProfilePages(targetProfile);
+  });
   let keys = $state(a?.type === "hotkey" ? a.keys : "");
   let text = $state(a?.type === "text" ? a.text : "");
   let media = $state<MediaKey>(a?.type === "media" ? a.key : "playPause");
@@ -143,6 +174,11 @@
   let haService = $state(a?.type === "homeAssistant" ? a.service : "");
   let haEntity = $state(a?.type === "homeAssistant" ? (a.entity ?? "") : "");
   let haData = $state(a?.type === "homeAssistant" && a.data != null ? JSON.stringify(a.data) : "");
+  let randomJson = $state(
+    a?.type === "random"
+      ? JSON.stringify(a.actions, null, 2)
+      : '[\n  { "type": "text", "text": "Good game!" },\n  { "type": "text", "text": "Well played!" }\n]',
+  );
   let stepsJson = $state(
     a?.type === "multi"
       ? JSON.stringify(a.steps, null, 2)
@@ -164,6 +200,10 @@
       case "page":
         if (!targetPage) return "Pick the page to open.";
         navOut = { page: targetPage };
+        break;
+      case "profile":
+        if (!targetProfile) return "Pick the profile to switch to.";
+        navOut = { profile: targetProfile, ...(targetProfilePage ? { page: targetProfilePage } : {}) };
         break;
       case "back":
       case "next":
@@ -247,6 +287,19 @@
           if (st.delayMs !== undefined && typeof st.delayMs !== "number") return '"delayMs" is a number of milliseconds.';
         }
         action = { type: "multi", steps: steps as { action: ActionSpec; delayMs?: number }[] };
+        break;
+      }
+      case "random": {
+        let actions: unknown;
+        try {
+          actions = JSON.parse(randomJson);
+        } catch {
+          return "The actions aren't valid JSON.";
+        }
+        if (!Array.isArray(actions) || actions.length === 0) return "Add at least one action to pick from.";
+        for (const x of actions as { type?: unknown }[])
+          if (!x || typeof x !== "object" || typeof x.type !== "string") return 'Each action needs a "type".';
+        action = { type: "random", actions: actions as ActionSpec[] };
         break;
       }
       case "slider":
@@ -337,7 +390,9 @@
   // "Try it": run the action now. Keyboard actions wait a moment so the person can switch
   // to the window that should receive them.
   let trying = $state<null | { countdown: number } | { result: string; ok: boolean }>(null);
-  const tryable = $derived(!["none", "page", "back", "next", "previous", "slider"].includes(choice) && !choice.startsWith("sd:"));
+  const tryable = $derived(
+    !["none", "page", "profile", "back", "next", "previous", "slider"].includes(choice) && !choice.startsWith("sd:"),
+  );
   async function tryIt() {
     const out = build();
     if (typeof out === "string" || !out.action) {
@@ -345,7 +400,7 @@
       return;
     }
     const action = out.action;
-    if (["hotkey", "text", "media", "multi"].includes(action.type)) {
+    if (["hotkey", "text", "media", "multi", "random"].includes(action.type)) {
       for (let n = 3; n > 0; n--) {
         trying = { countdown: n };
         await new Promise((r) => setTimeout(r, 1000));
@@ -414,11 +469,12 @@
     <label for="{uid}-f2">When pressed</label>
     <select id="{uid}-f2" bind:value={choice} onchange={() => changed(0)} disabled={disabled}>
       <option value="none">Nothing (a label)</option>
-      {#if allowNav}<optgroup label="Pages">
+      {#if allowNav}<optgroup label="Pages and profiles">
         <option value="page" disabled={pageNames.length < 2}>Open a page</option>
         <option value="back">Go back</option>
         <option value="next">Next page</option>
         <option value="previous">Previous page</option>
+        <option value="profile" disabled={profiles.length < 2 && choice !== "profile"}>Switch profile</option>
       </optgroup>{/if}
       <optgroup label="Keyboard">
         <option value="hotkey">Press a hotkey</option>
@@ -462,6 +518,7 @@
       {/if}
       <optgroup label="Advanced">
         <option value="multi">Several steps</option>
+        <option value="random">Random action</option>
       </optgroup>
     </select>
   </div>
@@ -583,6 +640,49 @@
         Each step is <code>{'{"action": {…}, "delayMs": 100}'}</code>, with an action as in the profile file, e.g.
         <code>{'{"type": "hotkey", "keys": "Ctrl+C"}'}</code>.
       </small>
+    </div>
+  {:else if choice === "random"}
+    <div class="field">
+      <label for="{uid}-random">Actions to pick from, as JSON</label>
+      <textarea id="{uid}-random" rows="7" bind:value={randomJson} oninput={() => changed()} spellcheck="false" class="mono"></textarea>
+      <small>
+        Each press runs one of these, picked at random. Each is an action as in the profile file, e.g.
+        <code>{'{"type": "text", "text": "GG"}'}</code>.
+      </small>
+    </div>
+  {:else if choice === "profile"}
+    <div class="field">
+      <label for="{uid}-profile">Switch to profile</label>
+      <select
+        id="{uid}-profile"
+        bind:value={targetProfile}
+        onchange={() => {
+          targetProfilePage = "";
+          changed(0);
+        }}
+      >
+        {#each profiles as p (p.id)}
+          <option value={p.id}>{p.name}{p.id === location?.profile ? " (this one)" : ""}</option>
+        {/each}
+        {#if targetProfile && !profiles.some((p) => p.id === targetProfile)}
+          <option value={targetProfile}>{targetProfile} (not there)</option>
+        {/if}
+      </select>
+    </div>
+    <div class="field">
+      <label for="{uid}-profile-page">Page in it</label>
+      <select id="{uid}-profile-page" bind:value={targetProfilePage} onchange={() => changed(0)}>
+        <option value="">Its first page</option>
+        {#each profilePages ?? [] as p (p)}
+          <option value={p}>{p}</option>
+        {/each}
+        {#if targetProfilePage && profilePages && !profilePages.includes(targetProfilePage)}
+          <option value={targetProfilePage}>{targetProfilePage} (not there)</option>
+        {:else if targetProfilePage && !profilePages}
+          <option value={targetProfilePage}>{targetProfilePage}</option>
+        {/if}
+      </select>
+      <small>Switches the tablet it’s pressed on, like choosing the profile for it on the Tablets page.</small>
     </div>
   {:else if choice === "page"}
     <div class="field">

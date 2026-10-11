@@ -97,12 +97,22 @@ pub struct StateDef {
     pub action: Option<ActionSpec>,
 }
 
-/// `nav = "back"`, `"next"`, `"previous"`, or `nav = { page = "Media" }`.
+/// `nav = "back"`, `"next"`, `"previous"`, `nav = { page = "Media" }`, or
+/// `nav = { profile = "streaming" }` (optionally with a `page` in that profile).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum NavSpec {
     Simple(SimpleNav),
-    Page { page: String },
+    /// Switch the tablet it's pressed on to another profile (by id), like choosing it
+    /// in the app. Listed before `Page` so `{ profile, page }` isn't read as a page.
+    Profile {
+        profile: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
+    },
+    Page {
+        page: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,10 +262,21 @@ impl Profile {
                 if key.states.len() == 1 {
                     out.push(format!("{here}: a toggle needs at least two states"));
                 }
-                if let Some(NavSpec::Page { page: target }) = &key.nav {
-                    if self.page_index(target).is_none() {
+                match &key.nav {
+                    Some(NavSpec::Page { page: target }) if self.page_index(target).is_none() => {
                         out.push(format!("{here}: there is no page called {target:?}"));
                     }
+                    // Other profiles load on their own, so only the shape is checked here;
+                    // a missing profile or page shows an alert when the key is pressed.
+                    Some(NavSpec::Profile { profile, page }) => {
+                        if profile.trim().is_empty() {
+                            out.push(format!("{here}: say which profile to switch to"));
+                        }
+                        if page.as_deref().is_some_and(|p| p.trim().is_empty()) {
+                            out.push(format!("{here}: the page to open is empty"));
+                        }
+                    }
+                    _ => {}
                 }
                 for c in [&key.bg, &key.fg].into_iter().flatten() {
                     if !is_color(c) {

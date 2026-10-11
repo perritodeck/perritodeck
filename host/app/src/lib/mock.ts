@@ -142,6 +142,11 @@ const streaming: ProfileView = {
       keys: [
         key(0, 0, { title: "Rec", bg: "#F38BA8", fg: dark, action: { type: "obs", op: "toggleRecord" } }),
         key(0, 1, { title: "Live", bg: "#F38BA8", fg: dark, action: { type: "obs", op: "toggleStream" } }),
+        key(0, 2, {
+          title: "Any\nemote",
+          action: { type: "random", actions: [{ type: "text", text: "GG" }, { type: "text", text: "Nice!" }] },
+        }),
+        key(2, 0, { title: "‹ Home", bg: "#CBA6F7", fg: dark, nav: { profile: "default" } }),
       ],
     },
   ],
@@ -311,7 +316,7 @@ function applyEdit(p: ProfileView, e: Edit) {
       page(p, e.from).name = e.to;
       for (const pg of p.pages)
         pg.keys = pg.keys.map((k) =>
-          k.fields.nav && typeof k.fields.nav === "object" && k.fields.nav.page === e.from
+          k.fields.nav && typeof k.fields.nav === "object" && !("profile" in k.fields.nav) && k.fields.nav.page === e.from
             ? key(k.row, k.col, { ...k.fields, nav: { page: e.to } }, k.states)
             : k,
         );

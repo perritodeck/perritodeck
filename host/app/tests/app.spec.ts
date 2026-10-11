@@ -290,6 +290,42 @@ test.describe("editing", () => {
     await page.getByLabel("Steps, as JSON").fill("[nope");
     await expect(page.getByText("The steps aren't valid JSON.")).toBeVisible();
   });
+
+  test("random action as JSON", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("random");
+    // Starts from an example that's ready to use.
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.action?.actions?.length).toBe(2);
+    await page.getByLabel("Actions to pick from, as JSON").fill('[{"type": "media", "key": "next"}, {"type": "text", "text": "hi"}]');
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
+      .toEqual({ type: "random", actions: [{ type: "media", key: "next" }, { type: "text", text: "hi" }] });
+    await expect(key(page, /one of 2 at random/)).toBeVisible();
+    await page.getByLabel("Actions to pick from, as JSON").fill("[]");
+    await expect(page.getByText("Add at least one action to pick from.")).toBeVisible();
+    await page.getByLabel("Actions to pick from, as JSON").fill('[{"text": "no type"}]');
+    await expect(page.getByText('Each action needs a "type".')).toBeVisible();
+  });
+
+  test("switch profile key", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("profile");
+    // Another profile is picked to start with, at its first page.
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.nav).toEqual({ profile: "streaming" });
+    await expect(page.getByLabel("Switch to profile")).toHaveValue("streaming");
+    const pageIn = page.getByLabel("Page in it");
+    await expect(pageIn.locator("option", { hasText: "Main" })).toHaveCount(1);
+    await pageIn.selectOption("Main");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.nav).toEqual({ profile: "streaming", page: "Main" });
+    await pageIn.selectOption("");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.nav).toEqual({ profile: "streaming" });
+
+    // Following the key shows that profile, and its Home key comes back.
+    await key(page, /switches to streaming/).dblclick();
+    await expect(key(page, /^Rec:/)).toBeVisible();
+    await key(page, /‹ Home: switches to default/).dblclick();
+    await expect(key(page, /^Copy:/)).toBeVisible();
+  });
 });
 
 test.describe("profiles, tablets and switching", () => {

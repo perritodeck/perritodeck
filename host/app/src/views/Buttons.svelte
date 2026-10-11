@@ -267,7 +267,14 @@
   function follow(k: KeyView) {
     if (!profile) return;
     const nav = k.fields.nav;
-    if (nav && typeof nav === "object") {
+    if (nav && typeof nav === "object" && "profile" in nav) {
+      // Show the profile the key switches to (at its page), as the tablet would.
+      const page = nav.page;
+      openProfile(nav.profile).then(() => {
+        const i = page && profile ? profile.pages.findIndex((p) => p.name === page) : -1;
+        if (i >= 0) goToPage(i);
+      });
+    } else if (nav && typeof nav === "object") {
       const i = profile.pages.findIndex((p) => p.name === nav.page);
       if (i >= 0) goToPage(i);
     } else if (nav === "back" || nav === "previous") goToPage(Math.max(0, pageIndex - 1));
@@ -606,6 +613,7 @@ port = 16622         # Companion's Satellite port</pre>
             page={page.name}
             profileId={profile.id}
             pageNames={profile.pages.map((p) => p.name)}
+            {profiles}
             onsave={save}
             onclear={clear}
             {plugins}

@@ -44,6 +44,7 @@
               <li><a href="#toggles">Toggles</a></li>
               <li><a href="#sliders">Sliders</a></li>
               <li><a href="#several-steps">Several steps</a></li>
+              <li><a href="#random">Random action</a></li>
               <li><a href="#images">Images and animated GIFs</a></li>
               <li><a href="#live-values">Live values in titles</a></li>
               <li><a href="#profiles">Profiles</a></li>
@@ -86,6 +87,7 @@
   <tbody>
     <tr><td>Nothing (a label)</td><td>Just shows its title. Handy for a clock or a live value.</td></tr>
     <tr><td>Open a page, Go back, Next page, Previous page</td><td>Moves between pages of buttons (see <a href="#pages">Pages</a>).</td></tr>
+    <tr><td>Switch profile</td><td>Switches the tablet you press it on to another profile, optionally at one of its pages (see <a href="#switch-key">Switch profile buttons</a>).</td></tr>
     <tr><td>Press a hotkey</td><td>Presses a key combination, like <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>. Click <span class="ui">Record</span> and press the keys, or type them.</td></tr>
     <tr><td>Type text</td><td>Types the text exactly as written, into whichever window is in front.</td></tr>
     <tr><td>Media key</td><td>Play / pause, next or previous track, stop, volume up or down, mute. Works with whatever is playing.</td></tr>
@@ -97,6 +99,7 @@
     <tr><td>OBS Studio, Home Assistant</td><td>Built-in integrations (see <a href="integrations.html">Integrations</a>).</td></tr>
     <tr><td>Plugin actions</td><td>Each plugin you've added gets its own group in the list (see <a href="plugins.html">Plugins</a>).</td></tr>
     <tr><td>Several steps</td><td>Runs several actions in a row (see <a href="#several-steps">Several steps</a>).</td></tr>
+    <tr><td>Random action</td><td>Runs one of several actions, picked at random on each press (see <a href="#random">Random action</a>).</td></tr>
   </tbody>
 </table></div>
 <p>On a Mac, use <kbd>Meta</kbd> for the <kbd>Cmd</kbd> key: copy is <code>Meta+C</code>, not <code>Ctrl+C</code>. On Windows, <kbd>Meta</kbd> is the Windows key.</p>
@@ -148,6 +151,14 @@
 ]</code></pre>
 <p><code>delayMs</code> is the pause after a step, in thousandths of a second. Each action is written the same way as in the profile file (see <a href="#actions-reference">the action reference</a> below).</p>
 
+<h2 id="random">Random action</h2>
+<p>Choose <strong>Random action</strong> (under Advanced) for a button that does something different each time: one of a list of actions, picked at random on every press. Good for sound clips, chat replies or a random scene. Like <a href="#several-steps">Several steps</a>, the list is written as JSON, and each action is written as in the profile file:</p>
+<pre><code>[
+  { "type": "text", "text": "Good game!" },
+  { "type": "text", "text": "Well played!" }
+]</code></pre>
+<p>The list needs at least one action. An action in the list can itself be <strong>Several steps</strong> or another random action, up to four levels deep.</p>
+
 <h2 id="images">Images and animated GIFs</h2>
 <p>Under <strong>Image</strong>, click <span class="ui">Choose…</span>:</p>
 <ul>
@@ -196,6 +207,9 @@
 
 <h3 id="per-tablet">A different profile on each tablet</h3>
 <p>Once you have more than one profile, the <span class="ui">Tablets</span> page shows a <strong>Shows</strong> menu next to each tablet. Pick the profile that tablet should show.</p>
+<h3 id="switch-key">Switch profile buttons</h3>
+<p>A button can switch profiles too: choose <strong>Switch profile</strong> under <strong>When pressed</strong>, pick the profile, and optionally the page it opens at (<strong>Its first page</strong> otherwise). Pressing it switches only the tablet you pressed it on. Put a button back to the first profile on the other one, so you can find your way home.</p>
+<p>A switch from a button counts the same as picking the profile on the <span class="ui">Tablets</span> page: the tablet keeps it, even after restarting. If <a href="#switching">switching by app</a> is on, a button press wins until a different app comes to the front; then the rules apply again. If the profile (or its page) has since been deleted or renamed, the button flashes ⚠ and nothing changes.</p>
 <p>New profiles fit their grid to each tablet's screen. The starter profile is the exception: it uses a 5 × 3 grid on every tablet. To change that, remove its <code>[grid]</code> lines in the file (see <a href="#grid">the file reference</a>).</p>
 
 <h3 id="switching">Switch profiles by app</h3>
@@ -269,9 +283,19 @@ steps = [
   { action = { type = "hotkey", keys = "Ctrl+C" } },
 ]</code></pre>
 
-  <h3 id="file-pages">Pages</h3>
+  <h3 id="file-random">Random action</h3>
+<pre><code>action = { type = "random", actions = [
+  { type = "text", text = "Good game!" },
+  { type = "text", text = "Well played!" },
+] }</code></pre>
+  <p>One of <code>actions</code> runs on each press. The list can't be empty.</p>
+
+  <h3 id="file-pages">Pages and profiles</h3>
 <pre><code>nav = { page = "More" }   # open the page called More
-nav = "back"              # also "next" and "previous"</code></pre>
+nav = "back"              # also "next" and "previous"
+nav = { profile = "streaming" }                  # switch this tablet to a profile
+nav = { profile = "streaming", page = "Scenes" } # ... at one of its pages</code></pre>
+  <p>A profile is named by its file name without <code>.toml</code>; the default profile is <code>default</code>.</p>
 
   <h3 id="file-toggles">Toggles</h3>
 <pre><code>[[pages.keys]]

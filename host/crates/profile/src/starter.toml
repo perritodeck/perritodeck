@@ -102,6 +102,10 @@ title = "More ›"
 bg = "#CBA6F7"
 fg = "#11111B"
 nav = { page = "More" }
+# A key can also switch this tablet to another profile (named by its file name,
+# without .toml), optionally at one of its pages:
+#   nav = { profile = "streaming" }
+#   nav = { profile = "streaming", page = "Scenes" }
 
 [[pages.keys]]
 at = [2, 4]
@@ -141,6 +145,10 @@ steps = [
   { action = { type = "hotkey", keys = "Ctrl+A" }, delayMs = 100 },
   { action = { type = "hotkey", keys = "Ctrl+C" } },
 ]
+
+# Or one of several actions, picked at random on each press:
+#   action = { type = "random", actions = [
+#     { type = "text", text = "Good game!" }, { type = "text", text = "Well played!" } ] }
 
 # OBS Studio and Home Assistant: put their addresses and passwords in
 # integrations.toml next to this file (run `perritodeck-host paths` to find it):

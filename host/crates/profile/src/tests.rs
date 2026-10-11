@@ -245,3 +245,61 @@ action = { type = "text", text = "x" }
     .unwrap();
     assert!(bad.problems().iter().any(|p| p.contains("slider")));
 }
+
+#[test]
+fn profile_navigation_parses_and_round_trips() {
+    let p = Profile::parse(
+        r##"
+schema_version = 1
+name = "x"
+[[pages]]
+name = "A"
+[[pages.keys]]
+at = [0, 0]
+nav = { profile = "streaming" }
+[[pages.keys]]
+at = [0, 1]
+nav = { profile = "streaming", page = "Scenes" }
+[[pages.keys]]
+at = [0, 2]
+nav = { page = "A" }
+"##,
+    )
+    .unwrap();
+    assert!(p.problems().is_empty(), "{:?}", p.problems());
+    let navs: Vec<_> = p.pages[0].keys.iter().map(|k| k.nav.clone()).collect();
+    assert_eq!(
+        navs,
+        [
+            Some(NavSpec::Profile {
+                profile: "streaming".into(),
+                page: None
+            }),
+            Some(NavSpec::Profile {
+                profile: "streaming".into(),
+                page: Some("Scenes".into())
+            }),
+            Some(NavSpec::Page { page: "A".into() }),
+        ]
+    );
+    // A page in another profile isn't checked against this one's pages.
+    let back = Profile::parse(&toml::to_string(&p).unwrap()).unwrap();
+    assert_eq!(p, back);
+    assert_eq!(
+        serde_json::to_value(&navs[0]).unwrap(),
+        serde_json::json!({ "profile": "streaming" })
+    );
+
+    let bad = problems(
+        r##"
+schema_version = 1
+name = "x"
+[[pages]]
+name = "A"
+[[pages.keys]]
+at = [0, 0]
+nav = { profile = "" }
+"##,
+    );
+    assert!(bad[0].contains("which profile"), "{bad:?}");
+}

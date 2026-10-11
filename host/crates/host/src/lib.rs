@@ -13,7 +13,7 @@ pub mod usb;
 pub mod views;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -277,6 +277,10 @@ struct Shared {
     foreground: Mutex<Option<String>>,
     recent_apps: Mutex<VecDeque<String>>,
     events: broadcast::Sender<HostEvent>,
+    /// Tablets switched by a "switch profile" key since the app in front last changed.
+    /// Auto-switch rules leave them be until it changes again, or the key would undo
+    /// itself while the rule's app is in front.
+    key_switched: Mutex<HashSet<String>>,
 }
 
 impl Shared {
@@ -287,10 +291,12 @@ impl Shared {
         let app = self.foreground.lock().expect("focus poisoned").clone();
         let loaded = self.deck.profile_ids();
         let default = self.deck.default_profile_id();
+        let key_switched = self.key_switched.lock().expect("switches poisoned").clone();
         for (device, showing) in self.deck.connected_devices() {
             let wanted = settings
                 .auto_switch
                 .profile_for(app.as_deref(), &device)
+                .filter(|_| !key_switched.contains(&device))
                 .filter(|p| loaded.iter().any(|l| l == p))
                 .map(str::to_owned)
                 .or_else(|| {
@@ -305,6 +311,30 @@ impl Shared {
                 self.deck.show_profile(&device, &wanted);
             }
         }
+    }
+
+    /// A key switched `device` to `profile`: remember it like a choice made in the app.
+    fn remember_key_switch(&self, device: &str, profile: &str) {
+        let is_default = profile == self.deck.default_profile_id();
+        let mut settings = self.settings.lock().expect("settings poisoned");
+        let mut next = settings.clone();
+        if is_default {
+            next.device_profiles.remove(device);
+        } else {
+            next.device_profiles
+                .insert(device.to_owned(), profile.to_owned());
+        }
+        if next != *settings {
+            if let Err(e) = self.save_settings(&next) {
+                warn!("{e}");
+            }
+            *settings = next;
+        }
+        drop(settings);
+        self.key_switched
+            .lock()
+            .expect("switches poisoned")
+            .insert(device.to_owned());
     }
 
     fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
@@ -531,7 +561,14 @@ impl Host {
             foreground: Mutex::new(None),
             recent_apps: Mutex::new(VecDeque::new()),
             events: events.clone(),
+            key_switched: Mutex::new(HashSet::new()),
         });
+        let remember = Arc::downgrade(&shared);
+        deck.on_profile_switch(Arc::new(move |device: &str, profile: &str| {
+            if let Some(shared) = remember.upgrade() {
+                shared.remember_key_switch(device, profile);
+            }
+        }));
         spawn_event_loop(shared.clone(), server_events);
         live::spawn(deck.clone(), test_executor.integrations_handle());
         {
@@ -761,6 +798,12 @@ impl Host {
         }
         self.shared.save_settings(&settings)?;
         *self.shared.settings.lock().expect("settings poisoned") = settings;
+        // A choice made here lets the rules apply again, as before any key switched it.
+        self.shared
+            .key_switched
+            .lock()
+            .expect("switches poisoned")
+            .remove(device_id);
         self.shared.apply_auto_switch();
         Ok(())
     }
@@ -1600,6 +1643,12 @@ fn spawn_focus_watch(shared: Arc<Shared>) {
                 recent.truncate(RECENT_APPS);
             }
             *shared.foreground.lock().expect("focus poisoned") = app.clone();
+            // A new app in front: the rules apply again to tablets a key switched.
+            shared
+                .key_switched
+                .lock()
+                .expect("switches poisoned")
+                .clear();
             shared.apply_auto_switch();
             let _ = shared.events.send(HostEvent::ForegroundApp { app });
         }

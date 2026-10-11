@@ -274,14 +274,18 @@ fn apply_one(doc: &mut DocumentMut, edit: &Edit) -> Result<(), EditError> {
 }
 
 fn rename_nav(key: &mut Table, from: &str, to: &str) {
+    let field = |n: &Item, name: &str| -> Option<Value> {
+        n.as_inline_table()
+            .and_then(|t| t.get(name))
+            .or_else(|| n.get(name).and_then(Item::as_value))
+            .cloned()
+    };
     let opens_from = |nav: Option<&Item>| {
-        nav.and_then(|n| {
-            n.as_inline_table()
-                .and_then(|t| t.get("page"))
-                .or_else(|| n.get("page").and_then(Item::as_value))
+        nav.is_some_and(|n| {
+            // `{ profile, page }` names a page in another profile: not this one's.
+            field(n, "profile").is_none()
+                && field(n, "page").as_ref().and_then(Value::as_str) == Some(from)
         })
-        .and_then(Value::as_str)
-            == Some(from)
     };
     if opens_from(key.get("nav")) {
         let mut nav = toml_edit::InlineTable::new();
@@ -627,6 +631,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed(&out).pages.len(), 2);
+    }
+
+    #[test]
+    fn profile_switch_keys_are_set_and_survive_page_renames() {
+        let to_streaming = NavSpec::Profile {
+            profile: "streaming".into(),
+            page: Some("More".into()),
+        };
+        // As the app sends it.
+        let edit: Edit = serde_json::from_value(serde_json::json!({
+            "op": "setKey", "page": "Main", "at": [2, 1],
+            "key": { "title": "Stream", "nav": { "profile": "streaming", "page": "More" } }
+        }))
+        .unwrap();
+        let out = apply(
+            STARTER_PROFILE,
+            &[
+                edit,
+                // "More" here is this profile's page; the key above means streaming's.
+                Edit::RenamePage {
+                    from: "More".into(),
+                    to: "Extras".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let p = parsed(&out);
+        assert_eq!(key(&p, "Main", [2, 1]).unwrap().nav, Some(to_streaming));
+        assert_eq!(
+            key(&p, "Main", [2, 0]).unwrap().nav,
+            Some(NavSpec::Page {
+                page: "Extras".into()
+            })
+        );
+        // And this profile's "More" can go even though another profile's is named.
+        let out = apply(
+            STARTER_PROFILE,
+            &[
+                set(
+                    "Main",
+                    [2, 1],
+                    KeyFields {
+                        nav: Some(NavSpec::Profile {
+                            profile: "streaming".into(),
+                            page: Some("More".into()),
+                        }),
+                        ..Default::default()
+                    },
+                ),
+                Edit::ClearKey {
+                    page: "Main".into(),
+                    at: [2, 0],
+                },
+                Edit::RemovePage {
+                    name: "More".into(),
+                },
+            ],
+        );
+        assert!(out.is_ok(), "{out:?}");
     }
 
     #[test]

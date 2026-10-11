@@ -270,6 +270,74 @@ async fn tablets_get_assigned_profiles_and_auto_switch() {
     host.set_paused(false);
 }
 
+#[tokio::test]
+async fn a_switch_profile_key_is_a_manual_choice() {
+    use perritodeck_profile::NavSpec;
+    use perritodeck_protocol::{Grid, Screen};
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let stream = host.create_profile("Stream", None).unwrap();
+    let switch_to = |profile: &str| Edit::SetKey {
+        page: "Main".into(),
+        at: [2, 2],
+        key: KeyFields {
+            nav: Some(NavSpec::Profile {
+                profile: profile.into(),
+                page: None,
+            }),
+            ..Default::default()
+        },
+    };
+    host.edit_profile("default", &[switch_to(&stream)]).unwrap();
+    let screen = Screen {
+        width_px: 1920,
+        height_px: 1200,
+        density_dpi: 224,
+    };
+    host.deck
+        .connected("tab", Grid { cols: 5, rows: 3 }, screen, &["keys".into()]);
+    let press = || host.deck.key_down("tab", 2 * 5 + 2);
+
+    // An auto-switch rule shows the default while "editor" is in front.
+    host.set_auto_switch(AutoSwitch {
+        enabled: true,
+        rules: vec![SwitchRule {
+            app: "editor".into(),
+            profile: "default".into(),
+            device: None,
+        }],
+    })
+    .unwrap();
+    *host.shared.foreground.lock().unwrap() = Some("editor".into());
+    host.shared.apply_auto_switch();
+    assert_eq!(host.deck.device_profile("tab"), "default");
+
+    // The key switches, and the rule doesn't take it straight back.
+    press();
+    assert_eq!(host.deck.device_profile("tab"), stream);
+    host.shared.apply_auto_switch();
+    assert_eq!(host.deck.device_profile("tab"), stream);
+    // Remembered like choosing it in the app.
+    let saved = AppSettings::load(&settings_path(dir.path()));
+    assert_eq!(saved.device_profiles.get("tab"), Some(&stream));
+
+    // Once another app comes to the front and back, the rule applies again.
+    host.shared.key_switched.lock().unwrap().clear();
+    host.shared.apply_auto_switch();
+    assert_eq!(host.deck.device_profile("tab"), "default");
+
+    // Without a matching rule the tablet keeps its chosen profile; a key back to the
+    // default forgets the choice.
+    *host.shared.foreground.lock().unwrap() = Some("browser".into());
+    host.shared.apply_auto_switch();
+    assert_eq!(host.deck.device_profile("tab"), stream);
+    host.edit_profile(&stream, &[switch_to("default")]).unwrap();
+    press();
+    assert_eq!(host.deck.device_profile("tab"), "default");
+    let saved = AppSettings::load(&settings_path(dir.path()));
+    assert_eq!(saved.device_profiles.get("tab"), None);
+}
+
 #[test]
 fn slugs_and_unique_ids() {
     assert_eq!(slug("Streaming (OBS)"), "streaming-obs");

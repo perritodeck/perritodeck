@@ -24,7 +24,7 @@ pub const MAX_DELAY_MS: u64 = 60_000;
 /// Default and maximum run time for `command` actions.
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 10_000;
 pub const MAX_COMMAND_TIMEOUT_MS: u64 = 10 * 60_000;
-/// Multi-actions may nest, but not without limit.
+/// Multi- and random actions may nest, but not without limit.
 pub const MAX_NESTING: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,6 +69,10 @@ pub enum ActionSpec {
     /// Runs steps in order, with an optional delay after each.
     Multi {
         steps: Vec<Step>,
+    },
+    /// Runs one of its actions, picked at random on each press.
+    Random {
+        actions: Vec<ActionSpec>,
     },
     /// Controls OBS Studio through obs-websocket (configured in `integrations.toml`).
     Obs(ObsAction),
@@ -163,6 +167,8 @@ pub enum ActionError {
     UrlScheme(String),
     #[error("multi-actions are nested more than {MAX_NESTING} deep")]
     TooDeep,
+    #[error("a random action needs at least one action to pick from")]
+    NothingToPick,
     #[error("delay of {0} ms exceeds the {MAX_DELAY_MS} ms limit")]
     DelayTooLong(u64),
     #[error("timeout of {0} ms exceeds the {MAX_COMMAND_TIMEOUT_MS} ms limit")]
@@ -358,6 +364,11 @@ impl Executor {
                     }
                     Ok(outcome)
                 }
+                ActionSpec::Random { actions } => {
+                    // Validation guarantees at least one.
+                    let pick = &actions[rand::random_range(0..actions.len())];
+                    self.run_at(pick).await
+                }
                 ActionSpec::Obs(action) => self.integrations("OBS")?.obs(action).await,
                 ActionSpec::HomeAssistant {
                     service,
@@ -439,6 +450,17 @@ fn validate_at(spec: &ActionSpec, depth: usize) -> Result<(), ActionError> {
                     return Err(ActionError::DelayTooLong(s.delay_ms));
                 }
                 validate_at(&s.action, depth + 1)?;
+            }
+        }
+        ActionSpec::Random { actions } => {
+            if depth >= MAX_NESTING {
+                return Err(ActionError::TooDeep);
+            }
+            if actions.is_empty() {
+                return Err(ActionError::NothingToPick);
+            }
+            for a in actions {
+                validate_at(a, depth + 1)?;
             }
         }
         _ => {}

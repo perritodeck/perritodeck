@@ -86,6 +86,7 @@ export type ActionSpec =
   | { type: "launch"; program: string; args?: string[] }
   | { type: "command"; program: string; args?: string[]; cwd?: string; timeoutMs?: number }
   | { type: "multi"; steps: { action: ActionSpec; delayMs?: number }[] }
+  | { type: "random"; actions: ActionSpec[] }
   | ({ type: "obs" } & ObsAction)
   | { type: "homeAssistant"; service: string; entity?: string; data?: unknown }
   | { type: "plugin"; plugin: string; action: string; settings?: Record<string, unknown> }
@@ -100,7 +101,8 @@ export type SliderSpec =
   | { type: "command"; program: string; args?: string[] }
   | { type: "plugin"; plugin: string; action: string; settings?: Record<string, unknown>; follow?: string };
 
-export type NavSpec = "back" | "next" | "previous" | { page: string };
+// Mirrors perritodeck_profile::NavSpec. `{ profile }` switches the tablet it's pressed on.
+export type NavSpec = "back" | "next" | "previous" | { page: string } | { profile: string; page?: string };
 
 /** What the editor changes on a key. `null` means "not set" (defaults apply). */
 export interface KeyFields {
@@ -142,7 +144,7 @@ export type Edit =
   | { op: "removePage"; name: string }
   | { op: "movePage"; name: string; index: number };
 
-export type KeyKind = "action" | "page" | "back" | "next" | "previous" | "toggle" | "slider" | "label";
+export type KeyKind = "action" | "page" | "profile" | "back" | "next" | "previous" | "toggle" | "slider" | "label";
 
 export interface KeyView {
   row: number;

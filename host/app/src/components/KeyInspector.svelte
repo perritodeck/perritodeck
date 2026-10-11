@@ -6,7 +6,7 @@
   import { iconPngBase64, iconSvg } from "../lib/icons";
   import ActionPicker, { type Picked } from "./ActionPicker.svelte";
   import IconPicker from "./IconPicker.svelte";
-  import type { KeyFields, KeyView, PluginManifest, Pos, StateFields } from "../lib/types";
+  import type { KeyFields, KeyView, PluginManifest, Pos, ProfileSummary, StateFields } from "../lib/types";
 
   let {
     key,
@@ -17,6 +17,7 @@
     onclear,
     plugins = [],
     profileId = "",
+    profiles = [],
   }: {
     key: KeyView | null;
     at: Pos;
@@ -28,11 +29,13 @@
     onclear: () => void;
     /** Installed plugins, whose actions keys can run. */
     plugins?: PluginManifest[];
+    /** Every profile, for keys that switch to one. */
+    profiles?: ProfileSummary[];
   } = $props();
 
   // The draft starts from the key once; the inspector is re-created when the selection
   // (or the key underneath it) changes from outside.
-  const initial = untrack(() => ({ key, page, pageNames, plugins }));
+  const initial = untrack(() => ({ key, page, pageNames, plugins, profiles }));
   // A plain copy: the key comes from the page's reactive state.
   const f: KeyFields = (initial.key ? ($state.snapshot(initial.key.fields) as KeyFields) : null) ?? {
     title: null,
@@ -242,6 +245,7 @@
       {page}
       pageNames={initial.pageNames}
       plugins={initial.plugins}
+      profiles={initial.profiles}
       location={{ profile: profileId, page, at }}
       onchange={(r, delay) => {
         picked = r;

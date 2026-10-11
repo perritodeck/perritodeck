@@ -109,6 +109,13 @@ pub fn view_with_icons(
                             ),
                         ),
                         (Some(NavSpec::Page { page }), _, _) => ("page", format!("opens {page}")),
+                        (Some(NavSpec::Profile { profile, page }), _, _) => (
+                            "profile",
+                            match page {
+                                Some(page) => format!("switches to {profile}, page {page}"),
+                                None => format!("switches to {profile}"),
+                            },
+                        ),
                         (Some(NavSpec::Simple(SimpleNav::Back)), _, _) => {
                             ("back", "back".to_owned())
                         }
@@ -189,6 +196,7 @@ pub fn describe(a: &perritodeck_actions::ActionSpec) -> String {
         A::Launch { program, .. } => format!("starts {program}"),
         A::Command { program, .. } => format!("runs {program}"),
         A::Multi { steps } => format!("{} steps", steps.len()),
+        A::Random { actions } => format!("one of {} at random", actions.len()),
         A::Obs(o) => format!("OBS {o:?}"),
         A::HomeAssistant {
             service, entity, ..

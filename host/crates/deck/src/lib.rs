@@ -92,6 +92,9 @@ pub trait KeyAgents: Send + Sync {
     fn press(&self, key: &AgentKey, down: bool);
 }
 
+/// Told when a key switches the tablet it's on to a profile: `(device id, profile id)`.
+pub type ProfileSwitched = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 /// What an agent drew on its key; `None` keeps the profile's own.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AgentLook {
@@ -238,6 +241,7 @@ pub struct Deck {
     started: std::time::Instant,
     remote: Mutex<Option<Arc<dyn RemoteSurfaces>>>,
     agents: Mutex<Option<Arc<dyn KeyAgents>>>,
+    on_switch: Mutex<Option<ProfileSwitched>>,
     /// Shown on Companion profiles while Companion has drawn nothing (e.g. it's offline).
     remote_note: Mutex<String>,
     /// Tests: a fixed time in ms since `started` instead of the clock (`u64::MAX` = clock).
@@ -297,6 +301,7 @@ impl Deck {
             started: std::time::Instant::now(),
             remote: Mutex::new(None),
             agents: Mutex::new(None),
+            on_switch: Mutex::new(None),
             remote_note: Mutex::new(NO_COMPANION.to_owned()),
             fake_ms: std::sync::atomic::AtomicU64::new(u64::MAX),
         })
@@ -632,6 +637,12 @@ impl Deck {
         }
     }
 
+    /// Be told when a key switches its tablet to a profile, to remember the choice like
+    /// one made in the app.
+    pub fn on_profile_switch(&self, f: ProfileSwitched) {
+        *self.on_switch.lock().expect("listener poisoned") = Some(f);
+    }
+
     fn remote(&self) -> Option<Arc<dyn RemoteSurfaces>> {
         self.remote.lock().expect("remote poisoned").clone()
     }
@@ -933,6 +944,11 @@ impl Deck {
     }
 
     fn switch_device(&self, st: &mut State, device_id: &str, profile_id: &str) {
+        self.switch_device_to(st, device_id, profile_id, 0);
+    }
+
+    /// Show `profile_id` on a device, starting at page `page`.
+    fn switch_device_to(&self, st: &mut State, device_id: &str, profile_id: &str, page: usize) {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
@@ -942,7 +958,7 @@ impl Deck {
         let fixed = st.slot(profile_id).profile.grid;
         if let Some(d) = st.devices.get_mut(device_id) {
             d.profile = profile_id.to_owned();
-            d.page = 0;
+            d.page = page;
             d.back.clear();
             if let Some(g) = fixed {
                 d.grid = Grid {
@@ -1272,6 +1288,59 @@ impl Deck {
             return;
         }
 
+        if let Some(NavSpec::Profile {
+            profile: target,
+            page: target_page,
+        }) = &key.nav
+        {
+            let found = st.slots.get(target).map(|slot| match target_page {
+                Some(name) => slot.profile.page_index(name),
+                None => Some(0),
+            });
+            let to_page = match found {
+                Some(Some(i)) => i,
+                missing => {
+                    let message = match (missing, target_page) {
+                        (Some(None), Some(name)) => {
+                            format!("Profile {target:?} has no page called {name:?}")
+                        }
+                        _ => format!("There's no profile called {target:?}"),
+                    };
+                    warn!(device = device_id, key = key_index + 1, "{message}");
+                    self.outbox.send(
+                        device_id,
+                        Message::ShowAlert(KeyFeedback {
+                            key_index,
+                            message: Some(message),
+                        }),
+                    );
+                    return;
+                }
+            };
+            // Remembered like a choice made in the app.
+            if *target == st.default {
+                st.assignments.remove(device_id);
+            } else {
+                st.assignments.insert(device_id.to_owned(), target.clone());
+            }
+            if *target != profile {
+                self.switch_device_to(&mut st, device_id, target, to_page);
+            } else if target_page.is_some() && to_page != page {
+                if let Some(d) = st.devices.get_mut(device_id) {
+                    d.back.push(page);
+                    d.page = to_page;
+                }
+                self.show_page(&mut st, device_id);
+            }
+            drop(st);
+            self.bump();
+            let listener = self.on_switch.lock().expect("listener poisoned").clone();
+            if let Some(f) = listener {
+                f(device_id, target);
+            }
+            return;
+        }
+
         if let Some(nav) = &key.nav {
             let mut d = st.devices.remove(device_id).expect("checked above");
             d.page = navigate(&st.slot(&profile).profile, &mut d, page, nav);
@@ -1321,10 +1390,7 @@ impl Deck {
         match result {
             Ok(Outcome::Ok) => {
                 // Commands can take a while, so confirm they finished; instant actions don't need it.
-                if matches!(
-                    action,
-                    ActionSpec::Command { .. } | ActionSpec::Multi { .. }
-                ) {
+                if confirms(action) {
                     self.outbox.send(device_id, Message::ShowOk(feedback(None)));
                 }
             }
@@ -1652,6 +1718,15 @@ fn has_template(key: &KeyDef) -> bool {
             .any(|s| s.title.as_deref().is_some_and(|t| t.contains('{')))
 }
 
+/// Whether finishing `action` is worth a ✓ on the key (it may have taken a while).
+fn confirms(action: &ActionSpec) -> bool {
+    match action {
+        ActionSpec::Command { .. } | ActionSpec::Multi { .. } => true,
+        ActionSpec::Random { actions } => actions.iter().any(confirms),
+        _ => false,
+    }
+}
+
 fn navigate(profile: &Profile, d: &mut DeviceView, page: usize, nav: &NavSpec) -> usize {
     let n = profile.pages.len();
     match nav {
@@ -1665,6 +1740,8 @@ fn navigate(profile: &Profile, d: &mut DeviceView, page: usize, nav: &NavSpec) -
             }
             _ => page,
         },
+        // Handled before getting here: it changes the profile, not just the page.
+        NavSpec::Profile { .. } => page,
     }
 }
 

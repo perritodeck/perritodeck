@@ -61,6 +61,8 @@ export function describeAction(a: ActionSpec): string {
       return `runs ${a.program}`;
     case "multi":
       return `${a.steps.length} steps`;
+    case "random":
+      return `one of ${a.actions.length} at random`;
     case "obs":
       return `OBS: ${obsOps[a.op].toLowerCase()}${"scene" in a ? ` “${a.scene}”` : ""}${"input" in a ? ` “${a.input}”` : ""}`;
     case "homeAssistant":
@@ -77,6 +79,8 @@ export function describeAction(a: ActionSpec): string {
 export function kindOf(f: KeyFields, states: number): { kind: KeyKind; detail: string } {
   if (f.slider) return { kind: "slider", detail: `slider: ${describeSlider(f.slider)}` };
   const nav: NavSpec | null = f.nav;
+  if (nav && typeof nav === "object" && "profile" in nav)
+    return { kind: "profile", detail: `switches to ${nav.profile}${nav.page ? `, page ${nav.page}` : ""}` };
   if (nav && typeof nav === "object") return { kind: "page", detail: `opens ${nav.page}` };
   if (nav === "back") return { kind: "back", detail: "back" };
   if (nav === "next") return { kind: "next", detail: "next page" };
