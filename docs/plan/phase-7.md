@@ -71,7 +71,7 @@ plugins, so their actions can go on a tablet key.
   (`registerPropertyInspector`, `setSettings` → the plugin gets `didReceiveSettings`,
   `sendToPlugin` / `sendToPropertyInspector`, global settings, `propertyInspectorDidAppear`
   and `…Disappear`). The socket accepts the settings server's origin and no other.
-  Tested with a fixture page driven over WebSocket; not yet in a real webview.
+  Tested with a fixture page, over WebSocket and in the real app on Linux (WebKitGTK).
 - **Supervision:** a plugin that exits is restarted with backoff and given up after five
   crashes; the Plugins page shows the state ("Needs Node.js", "Can't run here: …").
 - **Tests:** `host/crates/sdcompat/tests` runs a small Node.js fixture plugin against a

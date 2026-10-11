@@ -6,7 +6,7 @@
 //   APP=src-tauri/target/debug/perritodeck-app FAKEDECK=../target/debug/perritodeck-fakedeck node e2e/real-app.mjs
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, cpSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -16,6 +16,9 @@ const dataDir = mkdtempSync(join(tmpdir(), "perritodeck-e2e-"));
 const profilePath = join(dataDir, "profiles", "default.toml");
 const fdState = join(dataDir, "fakedeck.json");
 const W = "http://127.0.0.1:4444";
+// A Stream Deck plugin with a settings page, preinstalled.
+const sdFixture = resolve("../crates/sdcompat/tests/fixtures/com.perritodeck.test-counter.sdPlugin");
+cpSync(sdFixture, join(dataDir, "sdplugins", "com.perritodeck.test-counter.sdPlugin"), { recursive: true });
 
 const children = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -128,6 +131,37 @@ try {
   log("bundled HTTP plugin installed and running");
   await waitFor("Stream Deck plugin host", async () => (await text("main")).includes("Stream Deck plugins"));
   log("Stream Deck plugin host is up");
+
+  // A Stream Deck plugin's own settings page opens in the editor and talks to the host.
+  mkdirSync(join(dataDir, "profiles"), { recursive: true });
+  writeFileSync(
+    join(dataDir, "profiles", "sd.toml"),
+    `schema_version = 1\nname = "SD"\n[[pages]]\nname = "Main"\n[[pages.keys]]\nat = [0, 0]\ntitle = "Count"\n` +
+      `action = { type = "sdPlugin", plugin = "com.perritodeck.test-counter", action = "com.perritodeck.test-counter.up" }\n`,
+  );
+  await click("nav li:first-child button"); // Buttons
+  await waitFor("the SD profile to load", () => js("return [...document.querySelectorAll('#profile-select option')].some(o => o.value === 'sd')"));
+  await js("const s = document.querySelector('#profile-select'); s.value = 'sd'; s.dispatchEvent(new Event('change', { bubbles: true }));");
+  await waitFor("the SD profile's key", () => js("return [...document.querySelectorAll('[aria-label]')].some(e => e.getAttribute('aria-label').startsWith('Count'))"), 10000).catch(async (e) => {
+    console.error(await js("return document.querySelector('#profile-select')?.value + ' | ' + [...document.querySelectorAll('[aria-label]')].map(e => e.getAttribute('aria-label')).slice(0, 12).join(' / ')"));
+    throw e;
+  });
+  await click('[aria-label^="Count"]');
+  await waitFor("settings button", () => js("return [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Open its settings')"));
+  await js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Open its settings').click()");
+  const frame = await waitFor("settings frame", () => el("iframe.sd-page"));
+  void frame;
+  await wd("POST", `/session/${session}/frame`, { id: 0 }); // the only frame on the page
+  await waitFor("the page's field", () => el("#step"));
+  // Give the page a moment to connect, then change its field as a person would.
+  await sleep(1000);
+  await js("const i = document.getElementById('step'); i.value = '7'; i.dispatchEvent(new Event('change', { bubbles: true }));");
+  await wd("POST", `/session/${session}/frame/parent`, {});
+  await waitFor("the plugin's settings to be saved", () => {
+    const f = join(dataDir, "sdplugins", "settings.json");
+    return existsSync(f) && readFileSync(f, "utf8").includes('"step": 7');
+  });
+  log("Stream Deck settings page works in the real app");
   log("PASS");
 } catch (e) {
   failed = true;
