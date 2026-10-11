@@ -42,6 +42,11 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../../../plugins/http/": "plugins/http/",
+      "../../../plugins/mqtt/": "plugins/mqtt/",
+      "../../../plugins/media/": "plugins/media/"
+    }
   }
 }

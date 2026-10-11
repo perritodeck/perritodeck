@@ -3,11 +3,12 @@
   import { api } from "../lib/api";
   import { canon } from "../lib/canon";
   import KeyInspector from "../components/KeyInspector.svelte";
-  import type { Edit, HostStatus, KeyFields, KeyView, Pos, ProfileSummary, ProfileView } from "../lib/types";
+  import type { Edit, HostStatus, KeyFields, KeyView, PluginManifest, Pos, ProfileSummary, ProfileView } from "../lib/types";
 
   let { status: _status }: { status: HostStatus } = $props();
 
   let profiles = $state<ProfileSummary[]>([]);
+  let plugins = $state<PluginManifest[]>([]);
   let profileId = $state<string | undefined>(undefined);
   let profile = $state<ProfileView | null>(null);
   let profileMenu = $state(false);
@@ -338,6 +339,10 @@
 
   onMount(() => {
     load();
+    api
+      .plugins()
+      .then((v) => (plugins = v.installed.map((p) => p.manifest)))
+      .catch(() => {});
     const off = api.onHostEvent((e) => {
       if (e.kind === "profileChanged") load();
     });
@@ -545,6 +550,7 @@
             pageNames={profile.pages.map((p) => p.name)}
             onsave={save}
             onclear={clear}
+            {plugins}
           />
         {/key}
       {:else}

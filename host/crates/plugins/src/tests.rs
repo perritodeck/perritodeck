@@ -186,7 +186,13 @@ async fn install_and_remove() {
         host.install_from(src.path()).is_err(),
         "a folder without a manifest"
     );
-    assert_eq!(host.install_from(&folder).unwrap(), "test.copy");
+    // Installs can come from threads outside the runtime (UI commands).
+    let h = host.clone();
+    let f = folder.clone();
+    let id = std::thread::spawn(move || h.install_from(&f))
+        .join()
+        .unwrap();
+    assert_eq!(id.unwrap(), "test.copy");
     assert!(root
         .path()
         .join("plugins/test.copy")

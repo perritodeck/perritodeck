@@ -359,3 +359,47 @@ test.describe("profiles, tablets and switching", () => {
     await expect.poll(() => page.evaluate(() => (window as any).__perritoMock.autostart)).toBe(true);
   });
 });
+
+test.describe("plugins", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Buttons" })).toBeVisible();
+  });
+
+  test("add and remove plugins", async ({ page }) => {
+    await page.getByRole("button", { name: "Plugins" }).click();
+    await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+    const installed = page.locator("section", { has: page.getByRole("heading", { name: "Installed" }) });
+    await expect(installed.getByText("HTTP requests")).toBeVisible();
+    await expect(installed.getByText("Running")).toBeVisible();
+
+    const catalog = page.locator("section", { has: page.getByRole("heading", { name: "Comes with PerritoDeck" }) });
+    await catalog.getByRole("listitem").filter({ hasText: "MQTT" }).getByRole("button", { name: "Add" }).click();
+    await expect(installed.getByText("MQTT", { exact: true })).toBeVisible();
+
+    const row = installed.getByRole("listitem").filter({ hasText: "HTTP requests" });
+    await row.getByRole("button", { name: "Remove…" }).click();
+    await row.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(installed.getByText("HTTP requests")).toHaveCount(0);
+  });
+
+  test("a key runs a plugin action with its settings", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("Title").fill("Hook");
+    await page.getByLabel("When pressed").selectOption("plugin:dev.perritodeck.http/request");
+    await page.getByLabel("Web address").fill("https://example.com/hook");
+    await page.getByLabel("Method").selectOption("PUT");
+    await page.getByLabel("Skip the check").check();
+    await expect
+      .poll(async () => (await lastEdits(page))[0].key.action)
+      .toEqual({
+        type: "plugin",
+        plugin: "dev.perritodeck.http",
+        action: "request",
+        settings: { url: "https://example.com/hook", method: "PUT", insecure: true },
+      });
+    await expect(key(page, /^Hook: dev.perritodeck.http: request/)).toBeVisible();
+    await page.getByRole("button", { name: "Try it" }).click();
+    await expect(page.getByText("Done.")).toBeVisible();
+  });
+});

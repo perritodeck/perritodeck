@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, PluginsView, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -42,6 +42,13 @@ export const api = {
   setAutostart: (enabled: boolean) => call<void>("set_autostart", { enabled }),
   openProfileFile: (id?: string) => call<void>("open_profile_file", { id: id ?? null }),
   openDataFolder: () => call<void>("open_data_folder"),
+  plugins: () => call<PluginsView>("list_plugins"),
+  installCatalogPlugin: (id: string) => call<string>("install_catalog_plugin", { id }),
+  /** Pick a plugin folder; resolves to the plugin's id, or null if cancelled. */
+  installPluginFolder: () => call<string | null>("install_plugin_folder"),
+  removePlugin: (id: string) => call<void>("remove_plugin", { id }),
+  restartPlugin: (id: string) => call<void>("restart_plugin", { id }),
+  openPluginsFolder: () => call<void>("open_plugins_folder"),
   /** Pick an image file; resolves to its path for the key, or null if cancelled. */
   chooseIcon: () => call<string | null>("choose_icon"),
   /** Save a profile to a file the person picks; false if they cancelled. */

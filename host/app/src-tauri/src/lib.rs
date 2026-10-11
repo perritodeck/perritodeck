@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
     ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
-    PairingOffer, ProfileSummary, ProfileView,
+    PairingOffer, PluginsView, ProfileSummary, ProfileView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -214,6 +214,59 @@ async fn import_profile(handle: AppHandle, app: State<'_, App>) -> Res<Option<St
     host.import_profile(&path).map(Some)
 }
 
+#[tauri::command]
+fn list_plugins(app: State<'_, App>) -> Res<PluginsView> {
+    Ok(app.host()?.plugins())
+}
+
+#[tauri::command]
+fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
+    app.host()?.install_from_catalog(&id)
+}
+
+/// Install a plugin from a folder the person picks. `None` if they cancelled.
+#[tauri::command]
+async fn install_plugin_folder(handle: AppHandle, app: State<'_, App>) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let host = app.host()?.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .file()
+            .set_title("Choose the plugin's folder")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(folder) = picked else {
+        return Ok(None);
+    };
+    let path = folder.into_path().map_err(|e| e.to_string())?;
+    host.install_plugin(&path).map(Some)
+}
+
+#[tauri::command]
+fn remove_plugin(app: State<'_, App>, id: String) -> Res<()> {
+    app.host()?.remove_plugin(&id)
+}
+
+#[tauri::command]
+fn restart_plugin(app: State<'_, App>, id: String) -> Res<()> {
+    app.host()?.restart_plugin(&id)
+}
+
+#[tauri::command]
+fn open_plugins_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
+    let host = app.host()?;
+    host.rescan_plugins();
+    let dir = std::path::PathBuf::from(host.plugins().folder);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    handle
+        .opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Couldn't open {}: {e}", dir.display()))
+}
+
 /// macOS only: whether PerritoDeck may send key presses (System Settings → Privacy &
 /// Security → Accessibility). `None` elsewhere.
 #[tauri::command]
@@ -274,13 +327,20 @@ fn show_window(app: &AppHandle) {
     }
 }
 
-fn start_host() -> Result<Host, String> {
+fn start_host(app: &tauri::App) -> Result<Host, String> {
     let data_dir = match std::env::var_os("PERRITODECK_DATA_DIR") {
         Some(d) => d.into(),
         None => perritodeck_host::default_data_dir().map_err(|e| e.to_string())?,
     };
     let mut opts = HostOptions::new(data_dir);
     opts.profile = std::env::var_os("PERRITODECK_PROFILE").map(Into::into);
+    // First-party plugins ship inside the app, ready to add from the Plugins page.
+    opts.plugin_catalog = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("plugins"))
+        .filter(|d| d.is_dir());
     tauri::async_runtime::block_on(Host::start(opts)).map_err(|e| format!("{e:#}"))
 }
 
@@ -385,7 +445,7 @@ pub fn run() {
             Some(vec![HIDDEN_ARG]),
         ))
         .setup(|app| {
-            let host = start_host().map(Arc::new);
+            let host = start_host(app).map(Arc::new);
             match &host {
                 Ok(h) => {
                     info!("host running on {}", h.addr);
@@ -438,6 +498,12 @@ pub fn run() {
             open_profile_file,
             open_data_folder,
             choose_icon,
+            list_plugins,
+            install_catalog_plugin,
+            install_plugin_folder,
+            remove_plugin,
+            restart_plugin,
+            open_plugins_folder,
             export_profile,
             import_profile,
             accessibility_allowed,

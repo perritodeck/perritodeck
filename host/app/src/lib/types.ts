@@ -86,6 +86,7 @@ export type ActionSpec =
   | { type: "multi"; steps: { action: ActionSpec; delayMs?: number }[] }
   | ({ type: "obs" } & ObsAction)
   | { type: "homeAssistant"; service: string; entity?: string; data?: unknown }
+  | { type: "plugin"; plugin: string; action: string; settings?: Record<string, unknown> }
   | { type: "none" };
 
 // Mirrors perritodeck_actions::SliderSpec.
@@ -167,4 +168,40 @@ export type HostEvent =
   | { kind: "profileChanged" }
   | { kind: "foregroundApp"; app: string | null };
 
-export type View = "buttons" | "tablets" | "pair" | "switching" | "settings";
+export type View = "buttons" | "tablets" | "pair" | "switching" | "plugins" | "settings";
+
+// Mirrors perritodeck_plugins::manifest.
+export interface PluginField {
+  id: string;
+  label: string;
+  type: "text" | "number" | "checkbox" | "select";
+  placeholder?: string;
+  options?: { value: string; label: string }[];
+  default?: unknown;
+}
+
+export interface PluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  runtime: "node" | "python" | "exec";
+  main: string;
+  actions: { id: string; name: string; description: string; fields: PluginField[] }[];
+  values: { id: string; name: string }[];
+}
+
+export type PluginStatus =
+  | { state: "starting" }
+  | { state: "running" }
+  | { state: "missingRuntime"; runtime: string }
+  | { state: "crashed"; reason: string }
+  | { state: "stopped" };
+
+export interface PluginsView {
+  installed: { manifest: PluginManifest; status: PluginStatus; folder: string }[];
+  broken: { folder: string; problem: string }[];
+  folder: string;
+  catalog: { manifest: PluginManifest; installed: boolean }[];
+}

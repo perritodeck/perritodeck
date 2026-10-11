@@ -7,6 +7,7 @@
   import Pair from "./views/Pair.svelte";
   import Settings from "./views/Settings.svelte";
   import Switching from "./views/Switching.svelte";
+  import Plugins from "./views/Plugins.svelte";
 
   let view = $state<View>("buttons");
   let status = $state<HostStatus | null>(null);
@@ -71,6 +72,7 @@
     { id: "tablets", label: "Tablets" },
     { id: "pair", label: "Pair a tablet" },
     { id: "switching", label: "Switching" },
+    { id: "plugins", label: "Plugins" },
     { id: "settings", label: "Settings" },
   ];
 </script>
@@ -145,6 +147,8 @@
         <Tablets {devices} onchange={refreshDevices} onpair={() => (view = "pair")} />
       {:else if view === "pair"}
         <Pair {status} ondone={() => (view = "tablets")} />
+      {:else if view === "plugins"}
+        <Plugins />
       {:else if view === "switching"}
         <Switching {status} {devices} />
       {:else}

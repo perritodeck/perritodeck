@@ -105,6 +105,9 @@ fn plugin_err(name: &str, reason: impl Into<String>) -> ActionError {
 }
 
 pub struct PluginHost {
+    /// The runtime plugins are supervised on, so installs from any thread (a UI
+    /// command, say) can start them.
+    runtime: tokio::runtime::Handle,
     dir: PathBuf,
     host_version: String,
     values: ValueSink,
@@ -113,9 +116,11 @@ pub struct PluginHost {
 }
 
 impl PluginHost {
-    /// Start every plugin installed in `dir` (one folder per plugin).
+    /// Start every plugin installed in `dir` (one folder per plugin). Call from
+    /// inside a Tokio runtime.
     pub fn start(dir: PathBuf, host_version: &str, values: ValueSink) -> Arc<Self> {
         let host = Arc::new(Self {
+            runtime: tokio::runtime::Handle::current(),
             dir,
             host_version: host_version.to_owned(),
             values,
@@ -183,7 +188,7 @@ impl PluginHost {
                 stop: AtomicBool::new(false),
             });
             plugins.insert(id, running.clone());
-            tokio::spawn(supervise(
+            self.runtime.spawn(supervise(
                 running,
                 self.host_version.clone(),
                 self.values.clone(),

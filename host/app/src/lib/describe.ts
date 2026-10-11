@@ -63,6 +63,8 @@ export function describeAction(a: ActionSpec): string {
       return `OBS: ${obsOps[a.op].toLowerCase()}${"scene" in a ? ` “${a.scene}”` : ""}${"input" in a ? ` “${a.input}”` : ""}`;
     case "homeAssistant":
       return `Home Assistant ${a.service}${a.entity ? ` ${a.entity}` : ""}`;
+    case "plugin":
+      return `${a.plugin}: ${a.action}`;
     case "none":
       return "nothing";
   }

@@ -3,7 +3,7 @@
   import { DEFAULT_BG, DEFAULT_FG, mediaKeys, obsOps } from "../lib/describe";
   import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
-  import type { ActionSpec, KeyFields, KeyView, MediaKey, NavSpec, Pos, SliderSpec } from "../lib/types";
+  import type { ActionSpec, KeyFields, KeyView, MediaKey, NavSpec, PluginManifest, Pos, SliderSpec } from "../lib/types";
 
   let {
     key,
@@ -12,6 +12,7 @@
     pageNames,
     onsave,
     onclear,
+    plugins = [],
   }: {
     key: KeyView | null;
     at: Pos;
@@ -19,6 +20,8 @@
     pageNames: string[];
     onsave: (fields: KeyFields) => void;
     onclear: () => void;
+    /** Installed plugins, whose actions keys can run. */
+    plugins?: PluginManifest[];
   } = $props();
 
   type Choice =
@@ -37,11 +40,12 @@
     | "obs"
     | "homeAssistant"
     | "multi"
-    | "slider";
+    | "slider"
+    | `plugin:${string}`;
 
   // The draft starts from the key once; the inspector is re-created when the selection
   // (or the key underneath it) changes from outside.
-  const initial = untrack(() => ({ key, page, pageNames }));
+  const initial = untrack(() => ({ key, page, pageNames, plugins }));
   const f = initial.key?.fields ?? { title: null, bg: null, fg: null, action: null, nav: null, icon: null, slider: null };
   const sl = f.slider;
   const a = f.action;
@@ -52,7 +56,25 @@
   let iconPreview = $state(initial.key?.iconData ?? null);
   let bg = $state(f.bg);
   let fg = $state(f.fg);
-  const initialChoice: Choice = sl ? "slider" : nav ? (typeof nav === "object" ? "page" : nav) : a ? a.type : "none";
+  const initialChoice: Choice = sl
+    ? "slider"
+    : nav
+      ? typeof nav === "object"
+        ? "page"
+        : nav
+      : a?.type === "plugin"
+        ? `plugin:${a.plugin}/${a.action}`
+        : a
+          ? a.type
+          : "none";
+  // Plugin settings by field id.
+  let pluginSettings = $state<Record<string, unknown>>(a?.type === "plugin" ? { ...(a.settings ?? {}) } : {});
+  const pluginPick = $derived.by(() => {
+    if (!choice.startsWith("plugin:")) return null;
+    const [pid, aid] = choice.slice(7).split("/");
+    const manifest = initial.plugins.find((p) => p.id === pid);
+    return { pid, aid, manifest, action: manifest?.actions.find((x) => x.id === aid) };
+  });
   let sliderKind = $state<SliderSpec["type"]>(sl?.type ?? "volume");
   let sliderTarget = $state(sl?.type === "homeAssistant" ? sl.entity : sl?.type === "obs" ? sl.input : "");
   let sliderProgram = $state(sl?.type === "command" ? sl.program : "");
@@ -158,6 +180,16 @@
       }
       case "multi":
         action = key?.fields.action ?? null;
+        break;
+      default:
+        if (choice.startsWith("plugin:") && pluginPick) {
+          const settings: Record<string, unknown> = {};
+          for (const field of pluginPick.action?.fields ?? []) {
+            const v = pluginSettings[field.id] ?? field.default;
+            if (v !== undefined && v !== "") settings[field.id] = v;
+          }
+          action = { type: "plugin", plugin: pluginPick.pid, action: pluginPick.aid, ...(Object.keys(settings).length ? { settings } : {}) };
+        }
         break;
       case "slider":
         if (sliderKind === "volume") slider = { type: "volume" };
@@ -362,13 +394,71 @@
         <option value="obs">OBS Studio</option>
         <option value="homeAssistant">Home Assistant</option>
       </optgroup>
+      {#each initial.plugins.filter((p) => p.actions.length) as p (p.id)}
+        <optgroup label={p.name}>
+          {#each p.actions as act (act.id)}
+            <option value={`plugin:${p.id}/${act.id}`}>{act.name}</option>
+          {/each}
+        </optgroup>
+      {/each}
+      {#if initialChoice.startsWith("plugin:") && !initial.plugins.some((p) => initialChoice === `plugin:${p.id}/${initialChoice.split("/")[1]}`)}
+        <option value={initialChoice}>{initialChoice.slice(7)} (plugin not installed)</option>
+      {/if}
       {#if choice === "multi"}
         <option value="multi">Several steps (edit in the profile file)</option>
       {/if}
     </select>
   </div>
 
-  {#if choice === "slider"}
+  {#if pluginPick}
+    {#if !pluginPick.manifest}
+      <p class="note">This key uses a plugin that isn’t installed. Add it on the Plugins page.</p>
+    {/if}
+    {#each pluginPick.action?.fields ?? [] as field (field.id)}
+      <div class="field">
+        {#if field.type === "checkbox"}
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={!!(pluginSettings[field.id] ?? field.default)}
+              onchange={(e) => {
+                pluginSettings[field.id] = e.currentTarget.checked;
+                changed(0);
+              }}
+            />
+            {field.label}
+          </label>
+        {:else}
+          <label for="pf-{field.id}">{field.label}</label>
+          {#if field.type === "select"}
+            <select
+              id="pf-{field.id}"
+              value={String(pluginSettings[field.id] ?? field.default ?? field.options?.[0]?.value ?? "")}
+              onchange={(e) => {
+                pluginSettings[field.id] = e.currentTarget.value;
+                changed(0);
+              }}
+            >
+              {#each field.options ?? [] as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+            </select>
+          {:else}
+            <input
+              id="pf-{field.id}"
+              inputmode={field.type === "number" ? "decimal" : undefined}
+              value={String(pluginSettings[field.id] ?? field.default ?? "")}
+              placeholder={field.placeholder ?? ""}
+              spellcheck="false"
+              oninput={(e) => {
+                const v = e.currentTarget.value;
+                pluginSettings[field.id] = field.type === "number" && v !== "" && !isNaN(Number(v)) ? Number(v) : v;
+                changed();
+              }}
+            />
+          {/if}
+        {/if}
+      </div>
+    {/each}
+  {:else if choice === "slider"}
     <div class="field">
       <label for="slider-kind">Slider sets</label>
       <select id="slider-kind" bind:value={sliderKind} onchange={() => changed(0)}>
@@ -622,6 +712,7 @@
   .record-row input.recording { border-color: var(--apricot); }
   .btn.small { padding: 5px 12px; font-size: 0.85rem; }
   .problem { color: var(--danger); font-size: 0.9rem; }
+  .check { display: flex; align-items: center; gap: 8px; font-weight: 400 !important; }
   .try {
     display: flex;
     align-items: center;

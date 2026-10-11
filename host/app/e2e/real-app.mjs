@@ -119,11 +119,18 @@ try {
   await click("nav li:nth-child(2) button");
   await waitFor("tablet listed", async () => (await text("main")).includes("Connected now"));
   log("tablet listed as connected");
+
+  // The plugins that ship with the app are offered, and one can be added and used.
+  await click("nav li:nth-child(5) button"); // Plugins
+  await waitFor("plugin catalog", async () => (await text("main")).includes("HTTP requests"));
+  await js("[...document.querySelectorAll('li')].find(l => l.textContent.includes('HTTP requests'))?.querySelector('button')?.click()");
+  await waitFor("plugin running", async () => (await text("main")).includes("Running"), 30000);
+  log("bundled HTTP plugin installed and running");
   log("PASS");
 } catch (e) {
   failed = true;
   console.error("[e2e] FAIL:", e.message);
-  for (const c of children) console.error(`--- ${c.spawnargs.slice(0, 2).join(" ")} output ---\n${c.out.slice(-4000)}`);
+  for (const c of children) console.error(`--- ${c.spawnargs.slice(0, 2).join(" ")} output ---\n${(c.out.match(/thread .* panicked at[^\n]*\n[^\n]*/)?.[0] ?? "") + "\n" + c.out.slice(-3000)}`);
   if (existsSync(profilePath)) console.error("--- profile ---\n" + readFileSync(profilePath, "utf8").slice(0, 3000));
 } finally {
   if (session) await wd("DELETE", `/session/${session}`).catch(() => {});

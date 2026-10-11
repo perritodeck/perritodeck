@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { PluginManifest, PluginsView, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -124,6 +124,54 @@ const streaming: ProfileView = {
 
 let profiles: Record<string, ProfileView> = { default: starter, streaming };
 let autoSwitch: AutoSwitch = { enabled: false, rules: [] };
+
+const httpPlugin: PluginManifest = {
+  id: "dev.perritodeck.http",
+  name: "HTTP requests",
+  version: "1.0.0",
+  description: "Call a web address when a key is pressed.",
+  author: "PerritoDeck contributors",
+  runtime: "python",
+  main: "plugin.py",
+  actions: [
+    {
+      id: "request",
+      name: "Send a request",
+      description: "",
+      fields: [
+        { id: "url", label: "Web address", type: "text", placeholder: "https://example.com/hook" },
+        {
+          id: "method",
+          label: "Method",
+          type: "select",
+          default: "POST",
+          options: ["GET", "POST", "PUT"].map((m) => ({ value: m, label: m })),
+        },
+        { id: "insecure", label: "Skip the check", type: "checkbox" },
+      ],
+    },
+  ],
+  values: [{ id: "last-status", name: "Status of the last request" }],
+};
+const mqttPlugin: PluginManifest = {
+  ...httpPlugin,
+  id: "dev.perritodeck.mqtt",
+  name: "MQTT",
+  description: "Publish an MQTT message.",
+  actions: [{ id: "publish", name: "Publish a message", description: "", fields: [{ id: "topic", label: "Topic", type: "text" }] }],
+  values: [],
+};
+let installedPlugins: PluginsView["installed"] = [
+  { manifest: httpPlugin, status: { state: "running" }, folder: "/home/me/.config/PerritoDeck/plugins/dev.perritodeck.http" },
+];
+function pluginsView(): PluginsView {
+  return {
+    installed: installedPlugins,
+    broken: [],
+    folder: "/home/me/.config/PerritoDeck/plugins",
+    catalog: [httpPlugin, mqttPlugin].map((m) => ({ manifest: m, installed: installedPlugins.some((p) => p.manifest.id === m.id) })),
+  };
+}
 
 type Snapshot = { id: string; before: ProfileView | null; after: ProfileView | null };
 const undoStack: Snapshot[] = [];
@@ -361,6 +409,22 @@ export const mock = {
         profiles[id] = { ...structuredClone(streaming), id, name: "Imported" };
         return out(id);
       }
+      case "list_plugins":
+        return out(pluginsView());
+      case "install_catalog_plugin": {
+        const m = [httpPlugin, mqttPlugin].find((p) => p.id === args?.id);
+        if (!m) throw "That plugin doesn't ship with this version.";
+        installedPlugins = [...installedPlugins.filter((p) => p.manifest.id !== m.id), { manifest: m, status: { state: "running" }, folder: "/x" }];
+        return out(m.id);
+      }
+      case "install_plugin_folder":
+        return out(null);
+      case "remove_plugin":
+        installedPlugins = installedPlugins.filter((p) => p.manifest.id !== args?.id);
+        return out(undefined);
+      case "restart_plugin":
+      case "open_plugins_folder":
+        return out(undefined);
       case "choose_icon":
         return out("icons/mock.png");
       case "accessibility_allowed":
