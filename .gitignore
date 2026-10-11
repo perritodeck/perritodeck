@@ -30,3 +30,4 @@ Thumbs.db
 /host/app/test-results/
 /host/app/playwright-report/
 __pycache__/
+website/plugins/

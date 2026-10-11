@@ -473,6 +473,20 @@ test.describe("plugins", () => {
     await expect(installed.getByText("HTTP requests")).toHaveCount(0);
   });
 
+  test("adds and updates plugins from the online catalogue", async ({ page }) => {
+    await page.getByRole("button", { name: "Plugins" }).click();
+    const online = page.locator("section", { has: page.getByRole("heading", { name: "More plugins online" }) });
+    await expect(online.getByText("Weather", { exact: true })).toHaveCount(0);
+    await online.getByRole("button", { name: "Look online" }).click();
+    await expect(online.getByText("Weather", { exact: true })).toBeVisible();
+    await online.getByRole("button", { name: "Update from 1.0.0" }).click();
+    await expect(online.getByRole("button", { name: /^Update/ })).toHaveCount(0);
+    await online.getByRole("button", { name: "Add Weather" }).click();
+    await expect(online.getByText("Added")).toHaveCount(2);
+    const installed = page.locator("section", { has: page.getByRole("heading", { name: "Installed" }) });
+    await expect(installed.getByText("Weather", { exact: true })).toBeVisible();
+  });
+
   test("a slider sends its value to a plugin", async ({ page }) => {
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("Title").fill("Dim");

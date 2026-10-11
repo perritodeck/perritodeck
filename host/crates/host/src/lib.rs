@@ -13,7 +13,7 @@ pub mod usb;
 pub mod views;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -44,6 +44,7 @@ pub use perritodeck_plugins::{
 };
 pub use perritodeck_profile::edit::{Edit, KeyFields};
 pub use settings::{AppSettings, AutoSwitch, Network, SwitchRule};
+pub mod online;
 pub mod updates;
 pub use views::{view_of, view_with_icons, KeyView, PageView, ProfileSummary, ProfileView};
 
@@ -63,6 +64,8 @@ pub struct HostOptions {
     pub usb: bool,
     /// Folder of plugins that ship with the app (one folder each), offered for install.
     pub plugin_catalog: Option<PathBuf>,
+    /// The online plugin catalogue's `index.json`.
+    pub plugin_index: String,
     /// Fixed pairing codes (tests only).
     pub pair_codes: Vec<String>,
 }
@@ -92,6 +95,7 @@ impl HostOptions {
             watch_focus: true,
             usb: true,
             plugin_catalog: None,
+            plugin_index: online::DEFAULT_INDEX.to_owned(),
             pair_codes: Vec::new(),
         }
     }
@@ -212,6 +216,18 @@ pub struct CatalogEntry {
     pub installed: bool,
 }
 
+/// A plugin in the online catalogue, and whether this computer has it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineEntry {
+    #[serde(flatten)]
+    pub plugin: online::OnlinePlugin,
+    /// The installed version, if any.
+    pub installed: Option<String>,
+    /// The catalogue has a newer version than the installed one.
+    pub update: bool,
+}
+
 /// Outbox that forwards to the server handle once it exists.
 #[derive(Default)]
 struct LateOutbox(std::sync::OnceLock<ServerHandle>);
@@ -302,6 +318,7 @@ pub struct Host {
     shared: Arc<Shared>,
     plugins: Arc<perritodeck_plugins::PluginHost>,
     plugin_catalog: Option<PathBuf>,
+    plugin_index: String,
     usb: usb::UsbDevices,
     usb_available: bool,
     history: Mutex<History>,
@@ -481,6 +498,7 @@ impl Host {
         Ok(Self {
             plugins,
             plugin_catalog: opts.plugin_catalog.clone(),
+            plugin_index: opts.plugin_index.clone(),
             usb: usb_devices,
             usb_available,
             host_name,
@@ -824,6 +842,57 @@ impl Host {
             .into_iter()
             .find(|(m, _)| m.id == id)
             .ok_or_else(|| format!("{id} doesn't ship with this version."))?;
+        self.plugins.install_from(&folder)
+    }
+
+    /// What the online catalogue offers. Blocks on the network; call it off the UI thread.
+    pub fn online_plugins(&self) -> Result<Vec<OnlineEntry>, String> {
+        let installed: HashMap<String, String> = self
+            .plugins
+            .list()
+            .into_iter()
+            .map(|p| (p.manifest.id, p.manifest.version))
+            .collect();
+        let mut out: Vec<OnlineEntry> = online::fetch_index(&self.plugin_index)?
+            .into_iter()
+            .map(|plugin| {
+                let have = installed.get(&plugin.id).cloned();
+                let update = have
+                    .as_deref()
+                    .is_some_and(|v| updates::newer(&plugin.version, v));
+                OnlineEntry {
+                    plugin,
+                    installed: have,
+                    update,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.plugin.name.cmp(&b.plugin.name));
+        Ok(out)
+    }
+
+    /// Download a plugin from the online catalogue (checking its SHA-256), then install
+    /// or update it. Blocks on the network.
+    pub fn install_online_plugin(&self, id: &str) -> Result<String, String> {
+        let entry = online::fetch_index(&self.plugin_index)?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| format!("{id} isn't in the plugin catalogue."))?;
+        let zip = online::download(&self.plugin_index, &entry)?;
+        let tmp = tempfile::Builder::new()
+            .prefix("plugin-download-")
+            .tempdir_in(&self.data_dir)
+            .map_err(|e| format!("Couldn't unpack the plugin: {e}"))?;
+        let folder = online::unpack(&zip, &tmp.path().join("p"))?;
+        let text = std::fs::read_to_string(folder.join(perritodeck_plugins::MANIFEST))
+            .map_err(|e| e.to_string())?;
+        let manifest = PluginManifest::parse(&text)?;
+        if manifest.id != entry.id {
+            return Err(format!(
+                "The download is {}, not {}, so it wasn't installed.",
+                manifest.id, entry.id
+            ));
+        }
         self.plugins.install_from(&folder)
     }
 

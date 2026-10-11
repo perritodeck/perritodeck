@@ -1,11 +1,38 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../lib/api";
-  import type { PluginStatus, PluginsView } from "../lib/types";
+  import type { OnlineEntry, PluginStatus, PluginsView } from "../lib/types";
 
   let view = $state<PluginsView | null>(null);
   let error = $state<string | null>(null);
   let confirming = $state<string | null>(null);
+  // The online catalogue is fetched only when asked for.
+  let online = $state<OnlineEntry[] | null>(null);
+  let looking = $state(false);
+  let onlineError = $state<string | null>(null);
+  let installing = $state<string | null>(null);
+
+  async function lookOnline() {
+    looking = true;
+    onlineError = null;
+    try {
+      online = await api.onlinePlugins();
+    } catch (e) {
+      onlineError = String(e);
+    } finally {
+      looking = false;
+    }
+  }
+
+  async function installOnline(id: string) {
+    installing = id;
+    try {
+      await act(() => api.installOnlinePlugin(id));
+      if (online) online = await api.onlinePlugins().catch(() => online);
+    } finally {
+      installing = null;
+    }
+  }
 
   async function load() {
     view = await api.plugins();
@@ -118,6 +145,42 @@
     </section>
   {/if}
 
+  <section aria-labelledby="online">
+    <h2 id="online">More plugins online</h2>
+    {#if online === null}
+      <p class="empty">
+        PerritoDeck doesn’t look online until you ask.
+        <button class="btn small" onclick={lookOnline} disabled={looking}>{looking ? "Looking…" : "Look online"}</button>
+      </p>
+    {:else if online.length === 0}
+      <p class="empty">The catalogue is empty for now.</p>
+    {:else}
+      <ul>
+        {#each online as o (o.id)}
+          <li>
+            <div class="what">
+              <strong>{o.name}</strong> <span class="version">{o.version}</span>
+              <span class="desc">{o.description}</span>
+              {#if o.author}<span class="status">By {o.author}</span>{/if}
+            </div>
+            {#if installing === o.id}
+              <span class="added" role="status">Downloading…</span>
+            {:else if o.update}
+              <button class="btn small" onclick={() => installOnline(o.id)}>Update from {o.installed}</button>
+            {:else if o.installed}
+              <span class="added">Added</span>
+            {:else}
+              <button class="btn small" onclick={() => installOnline(o.id)} aria-label="Add {o.name}">Add</button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#if onlineError}
+      <p class="err" role="alert">{onlineError}</p>
+    {/if}
+  </section>
+
   <p class="hint">
     Plugins are programs that run on this computer with your permissions, so only install ones you trust. To write
     one, see <code>plugins/</code> in the PerritoDeck source (SDKs for Python and Node.js).
@@ -169,6 +232,7 @@
   .confirm span { color: var(--ink-soft); font-size: 0.9rem; }
   .btn.small { padding: 5px 12px; font-size: 0.85rem; }
   .empty, .hint { color: var(--ink-soft); }
+  .empty .btn { margin-left: 8px; }
   .hint { max-width: 70ch; font-size: 0.9rem; }
   .err { color: var(--danger); margin-bottom: 12px; }
 </style>

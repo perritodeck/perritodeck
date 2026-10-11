@@ -28,13 +28,16 @@ Done:
 - Plugin sliders: an action marked `"slider": true` gets the slider's position as
   `settings.value`, and the slider can follow one of the plugin's values. HTTP
   ("Send the slider's value") and MQTT ("Publish the slider's value") have one.
+- Online catalogue: Plugins → "Look online" reads `https://perritodeck.dev/plugins/index.json`
+  (only when asked), then adds or updates plugins from zips whose SHA-256 must match the
+  index. `plugins/build_catalog.py` builds the index and reproducible zips for the site.
+  Nothing is published there yet.
 - Desktop app: Plugins page (status, restart, remove, add bundled ones, install from a
   folder), and plugin actions with generated settings forms in the editor.
 - Tests: runtime tests with real plugin processes, SDK and plugin tests
   (`plugins/test_all.py`), and the real-app test installs the bundled HTTP plugin.
 
 Not done:
-- A plugin catalogue online (download and update plugins from the app).
 - Plugins drawing their own key images.
 - A Spotify plugin using its Web API.
 - Signing or sandboxing plugins. For now the app warns that plugins run with the

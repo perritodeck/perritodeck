@@ -485,6 +485,23 @@ export const mock = {
       case "check_for_updates":
         if (typeof this.latest === "string") throw this.latest;
         return out(this.latest);
+      case "list_online_plugins": {
+        if (typeof this.onlineIndex === "string") throw this.onlineIndex;
+        return out(
+          this.onlineIndex.map((o) => {
+            const have = installedPlugins.find((p) => p.manifest.id === o.id)?.manifest.version ?? null;
+            return { ...o, installed: have, update: !!have && have !== o.version };
+          }),
+        );
+      }
+      case "install_online_plugin": {
+        if (typeof this.onlineIndex === "string") throw this.onlineIndex;
+        const o = this.onlineIndex.find((x) => x.id === args?.id);
+        if (!o) throw `${args?.id} isn't in the plugin catalogue.`;
+        const m: PluginManifest = { ...httpPlugin, id: o.id, name: o.name, version: o.version, description: o.description, actions: [], values: [] };
+        installedPlugins = [...installedPlugins.filter((p) => p.manifest.id !== o.id), { manifest: m, status: { state: "running" }, folder: "/x" }];
+        return out(o.id);
+      }
       case "open_release_page":
         this.opened.push(String(args?.url));
         return out(undefined);
@@ -531,6 +548,11 @@ export const mock = {
   /** What check_for_updates answers; a string is an error. */
   latest: (init().latest ?? null) as { version: string; url: string } | string | null,
   restarted: false,
+  /** The online catalogue; a string is an error. */
+  onlineIndex: [
+    { id: "dev.example.weather", name: "Weather", version: "1.2.0", description: "Today's weather on a key.", author: "Example", url: "w.zip", sha256: "00" },
+    { id: "dev.perritodeck.http", name: "HTTP requests", version: "1.1.0", description: "Call a web address.", author: "PerritoDeck contributors", url: "h.zip", sha256: "00" },
+  ] as { id: string; name: string; version: string; description: string; author: string; url: string; sha256: string }[] | string,
   opened: [] as string[],
   exported: [] as string[],
   accessibility: null as boolean | null,

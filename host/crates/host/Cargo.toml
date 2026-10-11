@@ -44,6 +44,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 
+tempfile.workspace = true
+
 [lints]
 workspace = true
 
@@ -57,5 +59,3 @@ core-graphics = "0.25"
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = "0.13"
 
-[dev-dependencies]
-tempfile.workspace = true

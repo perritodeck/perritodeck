@@ -16,3 +16,10 @@ can use the SDKs under any license.
 
 Install a plugin from the desktop app (Plugins → Install from folder…), or copy its
 folder into the host's settings folder under `plugins/`.
+
+## Online catalogue
+
+`python3 plugins/build_catalog.py` writes `website/plugins/index.json` and one
+reproducible zip per plugin. Publishing that folder at `https://perritodeck.dev/plugins/`
+makes the plugins available from the app's Plugins page ("Look online"). The app
+refuses a zip whose SHA-256 doesn't match the index.

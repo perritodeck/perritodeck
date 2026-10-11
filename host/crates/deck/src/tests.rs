@@ -642,7 +642,12 @@ slider = { type = "plugin", plugin = "dev.x", action = "dim", settings = { lamp 
         Executor::new(keys.clone(), keys).with_plugins(plugins.clone()),
     );
     let grid = Grid { cols: 1, rows: 1 };
-    deck.connected("a", grid, hello().screen, &["keys".into(), "sliders".into()]);
+    deck.connected(
+        "a",
+        grid,
+        hello().screen,
+        &["keys".into(), "sliders".into()],
+    );
     sent.take();
 
     deck.slider_change("a", 0, 42);

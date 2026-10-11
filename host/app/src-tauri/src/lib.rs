@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
     updates, ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
-    Network, PairingOffer, PluginsView, ProfileSummary, ProfileView,
+    Network, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -278,6 +278,24 @@ fn list_plugins(app: State<'_, App>) -> Res<PluginsView> {
 #[tauri::command]
 fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
     app.host()?.install_from_catalog(&id)
+}
+
+/// What the online plugin catalogue offers (asks the network only when called).
+#[tauri::command]
+async fn list_online_plugins(app: State<'_, App>) -> Res<Vec<OnlineEntry>> {
+    let host = app.host()?.clone();
+    tauri::async_runtime::spawn_blocking(move || host.online_plugins())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Download (hash-checked) and install or update a plugin from the online catalogue.
+#[tauri::command]
+async fn install_online_plugin(app: State<'_, App>, id: String) -> Res<String> {
+    let host = app.host()?.clone();
+    tauri::async_runtime::spawn_blocking(move || host.install_online_plugin(&id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Install a plugin from a folder the person picks. `None` if they cancelled.
@@ -584,6 +602,8 @@ pub fn run() {
             check_for_updates,
             restart_app,
             open_release_page,
+            list_online_plugins,
+            install_online_plugin,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

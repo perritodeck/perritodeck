@@ -504,3 +504,116 @@ async fn animated_gifs_are_kept_as_gifs() {
     assert_eq!(std::fs::read(host.profiles_dir.join(&path)).unwrap(), gif);
     assert!(host.import_icon_bytes(b"nope").unwrap_err().contains("GIF"));
 }
+
+/// Serve fixed files over plain HTTP on 127.0.0.1, one request per connection.
+fn serve(files: Vec<(&'static str, Vec<u8>)>) -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            loop {
+                let mut h = String::new();
+                if reader.read_line(&mut h).unwrap() == 0 || h == "\r\n" {
+                    break;
+                }
+            }
+            let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+            let mut stream = stream;
+            match files.iter().find(|(p, _)| *p == path) {
+                Some((_, body)) => {
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .unwrap();
+                    stream.write_all(body).unwrap();
+                }
+                None => {
+                    write!(
+                        stream,
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    });
+    port
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn installs_plugins_from_the_online_catalogue() {
+    use sha2::{Digest, Sha256};
+    let zip = crate::online::tests::plugin_zip("weather/", "dev.example.weather");
+    let sha: String = Sha256::digest(&zip)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let index = format!(
+        r#"{{"version":1,"plugins":[
+            {{"id":"dev.example.weather","name":"Weather","version":"2.0.0","url":"w.zip","sha256":"{sha}"}},
+            {{"id":"dev.example.bad","name":"Bad","version":"1.0.0","url":"w.zip","sha256":"00"}},
+            {{"id":"dev.example.other","name":"Other","version":"1.0.0","url":"w.zip","sha256":"{sha}"}}
+        ]}}"#
+    );
+    let port = serve(vec![
+        ("/plugins/index.json", index.into_bytes()),
+        ("/plugins/w.zip", zip),
+    ]);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.plugin_index = format!("http://127.0.0.1:{port}/plugins/index.json");
+    let host = Arc::new(Host::start(opts).await.unwrap());
+
+    let h = host.clone();
+    let listed = tokio::task::spawn_blocking(move || h.online_plugins())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(listed.len(), 3);
+    assert!(listed.iter().all(|e| e.installed.is_none() && !e.update));
+
+    let h = host.clone();
+    let id = tokio::task::spawn_blocking(move || h.install_online_plugin("dev.example.weather"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(id, "dev.example.weather");
+    assert!(host
+        .plugins()
+        .installed
+        .iter()
+        .any(|p| p.manifest.id == id && p.manifest.version == "2.0.0"));
+    assert!(
+        std::fs::read_dir(&host.data_dir)
+            .unwrap()
+            .flatten()
+            .all(|e| !e
+                .file_name()
+                .to_string_lossy()
+                .starts_with("plugin-download-")),
+        "the download folder is cleaned up"
+    );
+
+    let h = host.clone();
+    let bad = tokio::task::spawn_blocking(move || h.install_online_plugin("dev.example.bad"))
+        .await
+        .unwrap();
+    assert!(bad.unwrap_err().contains("SHA-256"));
+    let h = host.clone();
+    let other = tokio::task::spawn_blocking(move || h.install_online_plugin("dev.example.other"))
+        .await
+        .unwrap();
+    assert!(other.unwrap_err().contains("not dev.example.other"));
+}

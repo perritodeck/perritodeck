@@ -232,3 +232,18 @@ export interface Update {
   version: string;
   url: string;
 }
+
+/** A plugin in the online catalogue. */
+export interface OnlineEntry {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  url: string;
+  sha256: string;
+  /** The installed version, if any. */
+  installed: string | null;
+  /** The catalogue has a newer version. */
+  update: boolean;
+}
