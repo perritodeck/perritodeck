@@ -1719,6 +1719,7 @@ version = "0.1.0"
 dependencies = [
  "enigo",
  "open",
+ "rand",
  "serde",
  "serde_json",
  "thiserror",
@@ -1856,6 +1857,21 @@ dependencies = [
  "toml",
  "tracing",
  "ureq",
+]
+
+[[package]]
+name = "perritodeck-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "perritodeck-actions",
+ "perritodeck-profile",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
