@@ -6,9 +6,17 @@ Rust workspace for the desktop host. During Phase 1 it's a headless command-line
 |---|---|
 | `crates/protocol` | Wire types (serde), tested against `protocol/fixtures` |
 | `crates/core` | WebSocket server, handshake, device registry, demo layout |
+| `crates/profile` | TOML profiles: pages, keys, toggles, validation, the starter profile |
+| `crates/deck` | Runs the profile on every tablet: pages, actions, toggles, live titles, reload on save |
+| `crates/render` | Draws key images (Inter font) at each tablet's pixel size |
 | `crates/actions` | What keys do: hotkeys, text, media keys, URLs, apps, commands, multi-actions (Phase 2 prototype) |
 | `crates/host` | `perritodeck-host` binary |
 | `crates/fakedeck` | `perritodeck-fakedeck` — a CLI "tablet" for testing without Android, plus end-to-end tests |
+
+## Build requirements
+
+- Rust (the pinned version in `rust-toolchain.toml` installs automatically via rustup)
+- Linux only: `libxkbcommon-dev` (Debian/Ubuntu) or `libxkbcommon-devel` (Fedora), used for Wayland input
 
 ## Run it
 
@@ -26,7 +34,11 @@ The first run creates the host's certificate and, since nothing is paired yet, s
 
 `perritodeck-host devices`, `revoke <id>` and `paths` work without starting the server. `--insecure` runs plain `ws://` with no pairing on loopback, for development.
 
-The demo layout makes key 1 a live clock and key 2 a press counter; every press is logged.
+## Your profile
+
+The first run creates `profiles/default.toml` in the host's settings folder (`perritodeck-host paths` shows where) with commented examples of every kind of key: hotkeys, media keys, typing, URLs, commands, a toggle and a second page. Edit and save it; the tablet updates within a second. If an edit has a mistake, the host says what and keeps showing the last good version. Use `--profile <file>` to run a different one.
+
+On Linux Wayland desktops, the host asks for permission to control the keyboard each time it starts (the desktop shows a prompt). X11, Windows and macOS don't ask, though macOS needs Accessibility permission once.
 
 ## Try an action
 

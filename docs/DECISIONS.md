@@ -30,3 +30,5 @@ One line per decision, newest last. Format: `YYYY-MM-DD — decision — reason`
 - 2026-10-11 — Wayland input via the RemoteDesktop portal / libei, accepting a permission prompt each time the host starts — no root, no udev rule, works on GNOME and KDE.
 - 2026-10-11 — Profiles are TOML files — human-editable with comments; the Phase 3 editor writes the same format.
 - 2026-10-11 — "Run command" actions are allowed by default (argv only, no shell) — it's the user's own machine and profile; the Phase 3 UI will make commands visible before saving.
+- 2026-10-11 — Vendor enigo 0.6.1 with a two-part patch (portal only on Wayland; errors instead of panics) — upstream would prompt X11 users and crash where no portal exists. To be upstreamed.
+- 2026-10-11 — Toggle states belong to the profile, not the device — a "Mic muted" key should look the same on every tablet.

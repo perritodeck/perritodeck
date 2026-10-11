@@ -22,5 +22,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+# Wayland: input through the desktop portal (asks permission once per host start).
+[target.'cfg(target_os = "linux")'.dependencies]
+enigo = { workspace = true, optional = true, features = ["x11rb", "libei_tokio"] }
+
 [lints]
 workspace = true

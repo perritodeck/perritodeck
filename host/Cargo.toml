@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor"]
 members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/profile", "crates/deck", "crates/host", "crates/fakedeck"]
 
 [workspace.package]
@@ -54,3 +55,7 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Wayland input fixes; see vendor/enigo/PERRITODECK.md
+[patch.crates-io]
+enigo = { path = "vendor/enigo" }

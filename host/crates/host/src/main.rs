@@ -236,7 +236,19 @@ async fn main() -> Result<()> {
     // The deck sends through the server's handle, which exists only once the server does;
     // a small shim lets it be wired up after.
     let outbox = Arc::new(LateOutbox::default());
-    let executor = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem));
+    let input = Arc::new(EnigoInput::new());
+    if cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        // Ask for keyboard access now, so the desktop's permission prompt appears at
+        // startup rather than on the first key press.
+        let input = input.clone();
+        tokio::task::spawn_blocking(move || {
+            match input.connect_now() {
+            Ok(()) => info!("keyboard access granted"),
+            Err(e) => warn!("hotkeys and typing won't work until the host is restarted and access is allowed: {e}"),
+        }
+        });
+    }
+    let executor = Executor::new(input, Arc::new(OpenSystem));
     let deck = Deck::new(profile, base_dir, outbox.clone(), executor);
     let layout_deck = deck.clone();
 

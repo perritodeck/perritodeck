@@ -19,6 +19,12 @@ impl EnigoInput {
         Self::default()
     }
 
+    /// Connect now instead of on the first key press. On Wayland this is when the
+    /// desktop asks for permission to control the keyboard, so do it at startup.
+    pub fn connect_now(&self) -> Result<(), ActionError> {
+        self.with(|_| Ok(()))
+    }
+
     fn with<T>(
         &self,
         f: impl FnOnce(&mut Enigo) -> Result<T, ActionError>,
@@ -28,7 +34,13 @@ impl EnigoInput {
             .lock()
             .map_err(|_| ActionError::Input("input backend poisoned".into()))?;
         if guard.is_none() {
-            let e = Enigo::new(&Settings::default())
+            // Connect on a plain thread: on Wayland enigo talks to the desktop portal with
+            // its own async runtime, which must not run inside one of tokio's workers.
+            let e = std::thread::spawn(|| Enigo::new(&Settings::default()))
+                .join()
+                .map_err(|_| {
+                    ActionError::Input("the keyboard backend crashed while starting".into())
+                })?
                 .map_err(|e| ActionError::Input(format!("cannot connect to the keyboard: {e}")))?;
             *guard = Some(e);
         }
