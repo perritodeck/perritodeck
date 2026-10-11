@@ -93,9 +93,19 @@ needed for the v0.1.0 release, which is on hold.
    - Stream Deck: needs Node.js (`winget install OpenJS.NodeJS.LTS`). Download a free
      Node-based plugin from the Elgato Marketplace (a `.streamDeckPlugin` file) and add it
      on the Plugins page; put one of its actions on a key.
-4. **Leftovers in the phase docs** ("Not done" lists): e.g. Stream Deck property
+4. **The new plugins with the real services.** Thirteen first-party plugins ship in the app
+   (Plugins → "Comes with PerritoDeck"); the new ones (OBS Studio, Timers, Counters, Is it
+   up?, Wake-on-LAN, Weather, Ollama, Proxmox VE, TrueNAS, GitLab) have only met fake
+   servers. Each needs its settings filled in on the Plugins page (Settings button), and
+   titles pick what to show with the key editor's "Insert a live value". Each plugin's
+   README lists what's untested.
+5. **First iOS build.** `ios/` has never been compiled. Cheapest way: rent a Scaleway
+   Mac mini M2 for a day (about €4; 24-hour minimum), open its desktop over VNC, install
+   Xcode and the Claude desktop app, open this conversation there and choose "Link to
+   this computer". Or run the `iOS` workflow by hand once Actions billing works.
+6. **Leftovers in the phase docs** ("Not done" lists): e.g. Stream Deck property
    inspectors, Wayland auto-switch, publishing the plugin catalogue on the website.
-5. **Phase 6 / v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
+7. **Phase 6 / v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
    the untested `release.yml`. See `docs/releasing.md`.
 
 ## 3. Open questions for the maintainer

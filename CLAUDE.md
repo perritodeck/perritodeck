@@ -36,7 +36,8 @@ Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and st
 | Plugin runtime (host side) | `host/crates/plugins` | `cargo test -p perritodeck-plugins` |
 | Bitfocus Companion client (Satellite API) | `host/crates/companion` | `cargo test -p perritodeck-companion` |
 | Stream Deck plugin host (`.sdPlugin`) | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
-| Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py` |
+| Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py`; `python3 plugins/build_catalog.py` builds the online catalogue |
+| iOS/iPadOS app (SwiftUI + `PerritoKit` package, needs a Mac) | `ios/` | `cd ios/PerritoKit && swift test`; `cd ios && xcodegen` then Xcode |
 | Website | `website/` | static; open `index.html` |
 
 The host keeps its data in the per-user config folder: `%APPDATA%\perritodeck\PerritoDeck\config`

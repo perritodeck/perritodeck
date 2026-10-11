@@ -25,6 +25,18 @@ Done:
 - First-party plugins, bundled with the desktop app: **HTTP requests**, **MQTT**
   (publish; MQTT 3.1.1 implemented directly), **Now playing** (Windows media session through PowerShell, Spotify or Music on macOS through osascript, playerctl on Linux; the Windows and macOS parts are untested on real machines).
   OBS and Home Assistant stay built in.
+- Plugin settings and value arguments: a manifest can declare `settings` (server
+  address, token; `password` fields are masked) that people fill in on the Plugins page,
+  and values that take an argument (`{plugin:<id>:up:<host>}`); the host tells plugins
+  which arguments profiles use (`watch`). The key editor has an "Insert a live value"
+  picker. Both SDKs gained `settings`, `on_settings`/`onSettings`, `watched()` and
+  `every()`.
+- Thirteen first-party plugins, all bundled with the app and in the online catalogue:
+  HTTP, MQTT, Now playing, OBS Studio (full obs-websocket 5), Timers, Counters, Is it
+  up?, Wake-on-LAN, Weather, Ollama, Proxmox VE, TrueNAS, GitLab. The new ones are
+  tested against fake servers only; none has run against the real service yet.
+- The website's plugin page (`website/plugins/index.html`) is generated with the
+  catalogue.
 - Plugin sliders: an action marked `"slider": true` gets the slider's position as
   `settings.value`, and the slider can follow one of the plugin's values. HTTP
   ("Send the slider's value") and MQTT ("Publish the slider's value") have one.
