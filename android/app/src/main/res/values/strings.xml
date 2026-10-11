@@ -1,19 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Perrito</string>
-    <string name="connect_title">Connect to your computer</string>
-    <string name="connect_subtitle">Run PerritoDeck Host on your computer, then enter its address.</string>
-    <string name="host_label">Host address</string>
-    <string name="port_label">Port</string>
-    <string name="token_label">Session token (LAN only)</string>
+    <string name="host_label">Computer\'s address</string>
     <string name="preset_emulator">Emulator</string>
     <string name="preset_usb">USB (adb reverse)</string>
     <string name="connect_button">Connect</string>
     <string name="connecting">Connecting to %1$s…</string>
     <string name="reconnecting">Reconnecting… (%1$s)</string>
     <string name="disconnect">Disconnect</string>
-    <string name="error_invalid_port">Port must be 1–65535</string>
-    <string name="error_empty_host">Enter the host\'s address</string>
     <string name="latency">%1$s · %2$.1f ms</string>
     <string name="key_description">Key %1$d: %2$s</string>
+    <string name="home_subtitle">Your tablet\'s button deck. Pair it with a computer running PerritoDeck Host.</string>
+    <string name="home_your_computers">Your computers</string>
+    <string name="home_found">Found on this network</string>
+    <string name="home_on_network">On this network</string>
+    <string name="home_empty">Start PerritoDeck Host on your computer. It shows a QR code you can scan with this tablet\'s camera, or a 6-digit code to enter here.</string>
+    <string name="forget">Forget</string>
+    <string name="pair_button">Pair</string>
+    <string name="pair_with_code">Pair with a code</string>
+    <string name="pair_title">Pair with your computer</string>
+    <string name="pair_subtitle">On the computer, PerritoDeck Host shows a 6-digit code. Type `pair` in its window if it isn\'t showing one.</string>
+    <string name="code_label">6-digit code</string>
+    <string name="continue_button">Continue</string>
+    <string name="cancel">Cancel</string>
+    <string name="pair_confirm_title">Is this your computer?</string>
+    <string name="pair_confirm_body">Check that the computer shows the same fingerprint. If it doesn\'t, something on your network may be pretending to be it.</string>
+    <string name="pair_matches">It matches</string>
+    <string name="pair_mismatch">It doesn\'t match</string>
 </resources>

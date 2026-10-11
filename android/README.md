@@ -22,22 +22,28 @@ If `gradlew` is missing, run the **Bootstrap Gradle wrapper** workflow in GitHub
 
 ## Connect to the host
 
-| Setup | Host field | Notes |
-|---|---|---|
-| Android emulator | `10.0.2.2` | Host runs with default settings |
-| USB cable | `127.0.0.1` | Run `adb reverse tcp:46710 tcp:46710` first |
-| Wi-Fi | your computer's IP | Start host with `--listen 0.0.0.0`; enter the printed token |
+Start `perritodeck-host`; it shows a QR code and a 6-digit code.
 
-Back button disconnects. The grid is full-screen and keeps the display awake while connected.
+- **Scan the QR code** with the tablet's camera app: it opens Perrito and pairs automatically.
+- **Or** tap **Pair with a code**, enter the computer's address and the code, then check the fingerprint matches the one the host prints.
+
+| Setup | Address |
+|---|---|
+| Wi-Fi | Found automatically under "Found on this network", or your computer's IP |
+| Android emulator | `10.0.2.2` |
+| USB cable | `127.0.0.1` after `adb reverse tcp:46710 tcp:46710` |
+
+After pairing, Perrito reconnects to the last computer whenever it starts. Back button disconnects. The grid is full-screen and keeps the display awake while connected.
 
 ## Layout
 
 ```
 app/src/main/java/dev/perritodeck/client/
   protocol/   wire types + codec (mirrors host/crates/protocol)
-  net/        DeckConnection: WebSocket, handshake, heartbeats, reconnect
-  data/       Settings (last host, device id)
-  ui/         ConnectScreen, DeckScreen, theme
+  net/        DeckConnection (WebSocket, heartbeats, reconnect), Tls (pinning),
+              Pairing, Discovery (mDNS via NsdManager)
+  data/       Settings (device id, paired hosts), PairingLink (QR link parser)
+  ui/         HomeScreen, PairScreen, DeckScreen, theme
   MainActivity, DeckViewModel
 ```
 

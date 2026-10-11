@@ -1,14 +1,16 @@
 //! PerritoDeck host core.
 //!
-//! [`Server`] accepts WebSocket connections from clients, performs the `hello`
-//! handshake, keeps a registry of connected devices, answers heartbeats and key
-//! presses, and reports everything that happens as [`ServerEvent`]s. It knows
-//! nothing about actions or profiles yet; a [`LayoutProvider`] decides what grid
-//! each device gets.
+//! [`Server`] accepts WebSocket connections from clients (over TLS with pairing by
+//! default), performs the `hello` / `pair` handshake, keeps a registry of connected
+//! devices, answers heartbeats and key presses, and reports everything as
+//! [`ServerEvent`]s. A [`LayoutProvider`] decides what grid each device gets.
 
-mod auth;
 pub mod demo;
+pub mod discovery;
+pub mod identity;
+pub mod pairing;
 mod server;
 
-pub use auth::{generate_token, tokens_match};
-pub use server::{LayoutProvider, Server, ServerConfig, ServerEvent, ServerHandle};
+pub use identity::{display_fingerprint, HostIdentity};
+pub use pairing::PairingStore;
+pub use server::{LayoutProvider, Security, Server, ServerConfig, ServerEvent, ServerHandle};

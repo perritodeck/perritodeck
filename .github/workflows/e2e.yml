@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # only to publish screenshots to the ci/e2e-* branches
 
 jobs:
   emulator:
@@ -39,10 +39,19 @@ jobs:
           rustup show active-toolchain || rustup toolchain install
           cargo build --release --locked -p perritodeck-host
 
-      - name: Start host
+      - name: Start host (TLS, fixed test pairing code)
         run: |
-          ./host/target/release/perritodeck-host > host.log 2>&1 &
-          for i in $(seq 1 20); do nc -z 127.0.0.1 46710 && exit 0; sleep 0.5; done
+          ./host/target/release/perritodeck-host --listen 127.0.0.1 --no-mdns \
+            --data-dir "$RUNNER_TEMP/perritodeck-host" --pair-code 424242 < /dev/null > host.log 2>&1 &
+          for i in $(seq 1 20); do
+            if nc -z 127.0.0.1 46710; then
+              fp=$(grep -oP 'fingerprint  \K[0-9A-F ]+' host.log | head -1 | xargs)
+              echo "HOST_FINGERPRINT=$fp" >> "$GITHUB_ENV"
+              echo "host fingerprint: $fp"
+              exit 0
+            fi
+            sleep 0.5
+          done
           echo "host did not start"; cat host.log; exit 1
 
       - uses: actions/setup-java@v4
@@ -68,6 +77,22 @@ jobs:
         run: |
           cat host.log
           grep -q "key 2 down" host.log && echo "host saw the presses"
+
+      - name: Publish screenshots to a branch (easy to browse on GitHub)
+        if: always() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d e2e-out ] || exit 0
+          cp host.log e2e-out/ 2>/dev/null || true
+          cd e2e-out
+          git init -q -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf '# E2E API ${{ matrix.api-level }}\n\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\nCommit: ${{ github.sha }}\n' > README.md
+          git add -A
+          git commit -qm "E2E screenshots, API ${{ matrix.api-level }}, ${{ github.sha }}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:refs/heads/ci/e2e-api${{ matrix.api-level }}
 
       - name: Upload screenshots and logs
         if: always()

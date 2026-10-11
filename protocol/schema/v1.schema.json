@@ -4,178 +4,521 @@
   "title": "PerritoDeck protocol v1 message",
   "description": "One JSON message per WebSocket text frame. See protocol/README.md.",
   "type": "object",
-  "required": ["v", "type", "payload"],
+  "required": [
+    "v",
+    "type",
+    "payload"
+  ],
   "properties": {
-    "v": { "const": 1 },
-    "type": { "type": "string" },
-    "id": { "$ref": "#/$defs/u32", "description": "Optional correlation id. Replies (e.g. keyAck) echo the id of the message they answer." },
-    "payload": { "type": "object" }
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "type": "string"
+    },
+    "id": {
+      "$ref": "#/$defs/u32",
+      "description": "Optional correlation id. Replies (e.g. keyAck) echo the id of the message they answer."
+    },
+    "payload": {
+      "type": "object"
+    }
   },
   "oneOf": [
-    { "properties": { "type": { "const": "hello" },        "payload": { "$ref": "#/$defs/hello" } } },
-    { "properties": { "type": { "const": "welcome" },      "payload": { "$ref": "#/$defs/welcome" } } },
-    { "properties": { "type": { "const": "layout" },       "payload": { "$ref": "#/$defs/layout" } } },
-    { "properties": { "type": { "const": "keyDown" },      "payload": { "$ref": "#/$defs/keyEvent" } } },
-    { "properties": { "type": { "const": "keyUp" },        "payload": { "$ref": "#/$defs/keyEvent" } } },
-    { "properties": { "type": { "const": "keyAck" },       "payload": { "$ref": "#/$defs/keyAck" } } },
-    { "properties": { "type": { "const": "heartbeat" },    "payload": { "$ref": "#/$defs/heartbeat" } } },
-    { "properties": { "type": { "const": "heartbeatAck" }, "payload": { "$ref": "#/$defs/heartbeat" } } },
-    { "properties": { "type": { "const": "setTitle" },     "payload": { "$ref": "#/$defs/setTitle" } } },
-    { "properties": { "type": { "const": "setImage" },     "payload": { "$ref": "#/$defs/setImage" } } },
-    { "properties": { "type": { "const": "error" },        "payload": { "$ref": "#/$defs/error" } } }
+    {
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "payload": {
+          "$ref": "#/$defs/hello"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "pair"
+        },
+        "payload": {
+          "$ref": "#/$defs/pair"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "paired"
+        },
+        "payload": {
+          "$ref": "#/$defs/paired"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "welcome"
+        },
+        "payload": {
+          "$ref": "#/$defs/welcome"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "layout"
+        },
+        "payload": {
+          "$ref": "#/$defs/layout"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "keyDown"
+        },
+        "payload": {
+          "$ref": "#/$defs/keyEvent"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "keyUp"
+        },
+        "payload": {
+          "$ref": "#/$defs/keyEvent"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "keyAck"
+        },
+        "payload": {
+          "$ref": "#/$defs/keyAck"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "heartbeat"
+        },
+        "payload": {
+          "$ref": "#/$defs/heartbeat"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "heartbeatAck"
+        },
+        "payload": {
+          "$ref": "#/$defs/heartbeat"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "setTitle"
+        },
+        "payload": {
+          "$ref": "#/$defs/setTitle"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "setImage"
+        },
+        "payload": {
+          "$ref": "#/$defs/setImage"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "payload": {
+          "$ref": "#/$defs/error"
+        }
+      }
+    }
   ],
   "$defs": {
-    "u32": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
-    "u64": { "type": "integer", "minimum": 0 },
-    "keyIndex": { "$ref": "#/$defs/u32", "description": "Row-major index into the current layout: row * cols + col." },
-    "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
-
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "u64": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "keyIndex": {
+      "$ref": "#/$defs/u32",
+      "description": "Row-major index into the current layout: row * cols + col."
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
     "hello": {
       "description": "Client → host. First message after the socket opens.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["deviceId", "deviceName", "appVersion", "platform", "osVersion", "screen", "capabilities"],
+      "required": [
+        "deviceId",
+        "deviceName",
+        "appVersion",
+        "platform",
+        "osVersion",
+        "screen",
+        "capabilities"
+      ],
       "properties": {
-        "deviceId": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Stable per-install id generated by the client." },
-        "deviceName": { "type": "string", "maxLength": 128 },
-        "appVersion": { "type": "string" },
-        "platform": { "enum": ["android", "web", "other"] },
-        "osVersion": { "type": "string" },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Stable per-install id generated by the client."
+        },
+        "deviceName": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "android",
+            "web",
+            "other"
+          ]
+        },
+        "osVersion": {
+          "type": "string"
+        },
         "screen": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["widthPx", "heightPx", "densityDpi"],
+          "required": [
+            "widthPx",
+            "heightPx",
+            "densityDpi"
+          ],
           "properties": {
-            "widthPx": { "$ref": "#/$defs/u32" },
-            "heightPx": { "$ref": "#/$defs/u32" },
-            "densityDpi": { "$ref": "#/$defs/u32" }
+            "widthPx": {
+              "$ref": "#/$defs/u32"
+            },
+            "heightPx": {
+              "$ref": "#/$defs/u32"
+            },
+            "densityDpi": {
+              "$ref": "#/$defs/u32"
+            }
           }
         },
         "capabilities": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "description": "Known: keys, haptics, multiTouch, images, dials, touchStrip. Unknown values are ignored." }
+          "items": {
+            "type": "string",
+            "description": "Known: keys, haptics, multiTouch, images, dials, touchStrip. Unknown values are ignored."
+          }
         },
-        "requestedGrid": { "$ref": "#/$defs/grid" },
-        "token": { "type": "string", "description": "Session token; required when the host listens beyond loopback (Phase 1 only — replaced by pairing in Phase 2)." }
+        "requestedGrid": {
+          "$ref": "#/$defs/grid"
+        },
+        "token": {
+          "type": "string",
+          "description": "Deprecated (Phase 1 LAN token). Ignored by Phase 2 hosts."
+        },
+        "deviceSecret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Secret issued by `paired`. Required by hosts that require pairing (the default from Phase 2)."
+        }
       }
     },
-
     "grid": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cols", "rows"],
+      "required": [
+        "cols",
+        "rows"
+      ],
       "properties": {
-        "cols": { "type": "integer", "minimum": 1, "maximum": 32 },
-        "rows": { "type": "integer", "minimum": 1, "maximum": 32 }
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
       }
     },
-
     "welcome": {
       "description": "Host → client. Sent after a valid hello.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["hostName", "hostVersion", "protocolVersion", "heartbeatIntervalMs"],
+      "required": [
+        "hostName",
+        "hostVersion",
+        "protocolVersion",
+        "heartbeatIntervalMs"
+      ],
       "properties": {
-        "hostName": { "type": "string" },
-        "hostVersion": { "type": "string" },
-        "protocolVersion": { "$ref": "#/$defs/u32" },
-        "heartbeatIntervalMs": { "$ref": "#/$defs/u32" }
+        "hostName": {
+          "type": "string"
+        },
+        "hostVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "$ref": "#/$defs/u32"
+        },
+        "heartbeatIntervalMs": {
+          "$ref": "#/$defs/u32"
+        }
       }
     },
-
     "layout": {
       "description": "Host → client. Replaces the whole grid.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["cols", "rows", "keys"],
+      "required": [
+        "cols",
+        "rows",
+        "keys"
+      ],
       "properties": {
-        "cols": { "type": "integer", "minimum": 1, "maximum": 32 },
-        "rows": { "type": "integer", "minimum": 1, "maximum": 32 },
-        "keys": { "type": "array", "items": { "$ref": "#/$defs/keySpec" } }
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keySpec"
+          }
+        }
       }
     },
-
     "keySpec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["index", "title", "bgColor", "textColor"],
+      "required": [
+        "index",
+        "title",
+        "bgColor",
+        "textColor"
+      ],
       "properties": {
-        "index": { "$ref": "#/$defs/keyIndex" },
-        "title": { "type": "string", "maxLength": 256 },
-        "bgColor": { "$ref": "#/$defs/color" },
-        "textColor": { "$ref": "#/$defs/color" }
+        "index": {
+          "$ref": "#/$defs/keyIndex"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "bgColor": {
+          "$ref": "#/$defs/color"
+        },
+        "textColor": {
+          "$ref": "#/$defs/color"
+        }
       }
     },
-
     "keyEvent": {
       "description": "Client → host (keyDown / keyUp).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["keyIndex", "clientTimestampMs"],
+      "required": [
+        "keyIndex",
+        "clientTimestampMs"
+      ],
       "properties": {
-        "keyIndex": { "$ref": "#/$defs/keyIndex" },
-        "clientTimestampMs": { "$ref": "#/$defs/u64", "description": "Client wall clock, Unix ms. Informational only — clocks are not synchronised." }
+        "keyIndex": {
+          "$ref": "#/$defs/keyIndex"
+        },
+        "clientTimestampMs": {
+          "$ref": "#/$defs/u64",
+          "description": "Client wall clock, Unix ms. Informational only — clocks are not synchronised."
+        }
       }
     },
-
     "keyAck": {
       "description": "Host → client. Echoes the id of the keyDown/keyUp it answers so the client can measure round-trip latency.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["keyIndex", "hostProcessingUs"],
+      "required": [
+        "keyIndex",
+        "hostProcessingUs"
+      ],
       "properties": {
-        "keyIndex": { "$ref": "#/$defs/keyIndex" },
-        "hostProcessingUs": { "$ref": "#/$defs/u64" }
+        "keyIndex": {
+          "$ref": "#/$defs/keyIndex"
+        },
+        "hostProcessingUs": {
+          "$ref": "#/$defs/u64"
+        }
       }
     },
-
     "heartbeat": {
       "description": "Client → host (heartbeat); host echoes it back unchanged as heartbeatAck.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["seq", "sentAtMs"],
+      "required": [
+        "seq",
+        "sentAtMs"
+      ],
       "properties": {
-        "seq": { "$ref": "#/$defs/u32" },
-        "sentAtMs": { "$ref": "#/$defs/u64" }
+        "seq": {
+          "$ref": "#/$defs/u32"
+        },
+        "sentAtMs": {
+          "$ref": "#/$defs/u64"
+        }
       }
     },
-
     "setTitle": {
       "description": "Host → client.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["keyIndex", "title"],
+      "required": [
+        "keyIndex",
+        "title"
+      ],
       "properties": {
-        "keyIndex": { "$ref": "#/$defs/keyIndex" },
-        "title": { "type": "string", "maxLength": 256 }
+        "keyIndex": {
+          "$ref": "#/$defs/keyIndex"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 256
+        }
       }
     },
-
     "setImage": {
       "description": "Host → client. A PNG or WebP data URL rendered for the key's full area, or null to clear. Implemented in Phase 2.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["keyIndex", "image"],
+      "required": [
+        "keyIndex",
+        "image"
+      ],
       "properties": {
-        "keyIndex": { "$ref": "#/$defs/keyIndex" },
+        "keyIndex": {
+          "$ref": "#/$defs/keyIndex"
+        },
         "image": {
           "oneOf": [
-            { "type": "string", "pattern": "^data:image/(png|webp);base64,[A-Za-z0-9+/=]+$" },
-            { "type": "null" }
+            {
+              "type": "string",
+              "pattern": "^data:image/(png|webp);base64,[A-Za-z0-9+/=]+$"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
     },
-
     "error": {
       "description": "Either direction. After unauthorized or unsupportedVersion the sender closes the socket.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "message"],
+      "required": [
+        "code",
+        "message"
+      ],
       "properties": {
-        "code": { "enum": ["unauthorized", "unsupportedVersion", "badMessage", "protocolViolation", "internal"] },
-        "message": { "type": "string" }
+        "code": {
+          "enum": [
+            "unauthorized",
+            "unsupportedVersion",
+            "badMessage",
+            "protocolViolation",
+            "internal",
+            "notPaired",
+            "pairingFailed"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "pair": {
+      "description": "Client → host, as the first message instead of hello, to pair with a one-time code. The host answers `paired` (then closes) or `error` pairingFailed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "deviceId",
+        "deviceName"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "deviceName": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "paired": {
+      "description": "Host → client. The client stores deviceSecret with the host's pinned certificate fingerprint and reconnects with hello.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deviceSecret",
+        "hostId",
+        "hostName"
+      ],
+      "properties": {
+        "deviceSecret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "hostId": {
+          "type": "string",
+          "description": "base64url SHA-256 of the host's TLS certificate (DER) — the fingerprint clients pin."
+        },
+        "hostName": {
+          "type": "string"
+        }
       }
     }
   }

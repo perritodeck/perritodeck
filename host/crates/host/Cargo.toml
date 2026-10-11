@@ -20,8 +20,10 @@ perritodeck-protocol.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
+directories.workspace = true
+qrcode.workspace = true
 gethostname.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

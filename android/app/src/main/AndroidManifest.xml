@@ -7,10 +7,6 @@
     <!-- Don't let store filters hide the app from devices that only report "faketouch". -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
-    <!--
-        usesCleartextTraffic: Phase 1 talks plain ws:// to a host on the user's own LAN at an
-        arbitrary IP. Phase 2 adds TLS with a pinned host certificate and turns this off.
-    -->
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -18,17 +14,25 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Perrito"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         tools:targetApi="36">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The QR code the host shows: any camera app can open it in Perrito. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="perritodeck" android:host="pair" />
             </intent-filter>
         </activity>
     </application>

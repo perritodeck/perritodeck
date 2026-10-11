@@ -14,6 +14,13 @@ path = "src/main.rs"
 
 [dependencies]
 perritodeck-protocol.workspace = true
+base64.workspace = true
+directories.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio-rustls.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures-util.workspace = true
@@ -22,6 +29,7 @@ tokio-tungstenite.workspace = true
 
 [dev-dependencies]
 perritodeck-core.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -14,15 +14,17 @@ Rust workspace for the desktop host. During Phase 1 it's a headless command-line
 
 ```sh
 cd host
-cargo run -p perritodeck-host                      # loopback: emulator + USB tablets
-cargo run -p perritodeck-host -- --listen 0.0.0.0  # LAN tablets (prints a session token)
+cargo run -p perritodeck-host                 # Wi-Fi, emulator and USB tablets (TLS + pairing)
+cargo run -p perritodeck-host -- --pair       # open a pairing window straight away
 ```
 
-Connecting a tablet:
+The first run creates the host's certificate and, since nothing is paired yet, shows a QR code and a 6-digit code. Scan the QR with the tablet's camera app (it opens Perrito), or tap **Pair with a code** in Perrito. Type `pair` in the host's window for a new code, `devices` to list paired tablets, `revoke <id>` to unpair one.
 
-- **Android emulator:** `ws://10.0.2.2:46710`
-- **USB:** `adb reverse tcp:46710 tcp:46710`, then `ws://127.0.0.1:46710` on the tablet
-- **Wi-Fi:** start with `--listen 0.0.0.0`, enter the printed address and token
+- **Wi-Fi:** the tablet finds the host automatically, or enter its IP
+- **Android emulator:** `10.0.2.2`
+- **USB:** `adb reverse tcp:46710 tcp:46710`, then `127.0.0.1` on the tablet
+
+`perritodeck-host devices`, `revoke <id>` and `paths` work without starting the server. `--insecure` runs plain `ws://` with no pairing on loopback, for development.
 
 The demo layout makes key 1 a live clock and key 2 a press counter; every press is logged.
 
@@ -42,6 +44,7 @@ On macOS the first hotkey or text action asks for Accessibility permission for y
 ## Test without a tablet
 
 ```sh
+cargo run -p perritodeck-fakedeck -- pair 123456   # pair using the code the host shows
 cargo run -p perritodeck-fakedeck                  # draw the grid, show live updates
 cargo run -p perritodeck-fakedeck -- press 1 1 1   # press the counter three times
 cargo run -p perritodeck-fakedeck -- bench -n 500  # round-trip latency stats

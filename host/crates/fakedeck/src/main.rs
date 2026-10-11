@@ -1,15 +1,21 @@
 //! `perritodeck-fakedeck` — pretend to be a tablet.
 //!
+//!   perritodeck-fakedeck pair 123456     # pair using the code the host shows
 //!   perritodeck-fakedeck                 # connect, draw the grid, print live updates
 //!   perritodeck-fakedeck press 1 1 1     # press key 1 three times, print round trips
 //!   perritodeck-fakedeck bench -n 500    # latency statistics
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use perritodeck_fakedeck::{fake_hello, now_ms, Client};
+use perritodeck_fakedeck::{fake_hello, now_ms, Client, ClientSecurity, Endpoint};
 use perritodeck_protocol::{Decoded, Grid, Heartbeat, Layout, Message, DEFAULT_PORT};
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[command(
@@ -17,12 +23,15 @@ use perritodeck_protocol::{Decoded, Grid, Heartbeat, Layout, Message, DEFAULT_PO
     about = "A command-line PerritoDeck client for testing the host without a tablet"
 )]
 struct Cli {
-    /// Host WebSocket URL.
-    #[arg(long, default_value_t = format!("ws://127.0.0.1:{DEFAULT_PORT}"))]
-    url: String,
-    /// Session token printed by the host (needed when it listens on the LAN).
-    #[arg(long, env = "PERRITODECK_TOKEN")]
-    token: Option<String>,
+    /// Host address as host:port.
+    #[arg(long, default_value_t = format!("127.0.0.1:{DEFAULT_PORT}"))]
+    host: String,
+    /// Plain ws:// with no pairing (host started with --insecure).
+    #[arg(long)]
+    insecure: bool,
+    /// Where pairing secrets are kept.
+    #[arg(long)]
+    state: Option<PathBuf>,
     /// Stable device id to present.
     #[arg(long, default_value = "fakedeck")]
     device_id: String,
@@ -35,6 +44,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Pair with the host using the 6-digit code it shows.
+    Pair { code: String },
+    /// Forget the pairing with this host.
+    Forget,
     /// Draw the grid and print every message the host sends (default).
     Watch,
     /// Press and release keys in order, printing each round trip.
@@ -64,11 +77,100 @@ fn parse_grid(s: &str) -> Result<Grid, String> {
     }
 }
 
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Pairing {
+    fingerprint: String,
+    device_secret: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct State {
+    #[serde(default)]
+    hosts: BTreeMap<String, Pairing>,
+}
+
+fn state_path(cli: &Cli) -> PathBuf {
+    cli.state.clone().unwrap_or_else(|| {
+        directories::ProjectDirs::from("dev", "perritodeck", "PerritoDeck")
+            .map(|d| d.config_dir().join("fakedeck.json"))
+            .unwrap_or_else(|| PathBuf::from("fakedeck.json"))
+    })
+}
+
+fn load_state(path: &Path) -> Result<State> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(
+            serde_json::from_slice(&b).with_context(|| format!("reading {}", path.display()))?
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn save_state(path: &Path, state: &State) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(state)?)?;
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let hello = fake_hello(&cli.device_id, cli.token.clone(), cli.grid);
-    let (mut client, welcome, layout) = Client::handshake(&cli.url, hello).await?;
+    let path = state_path(&cli);
+    let mut state = load_state(&path)?;
+
+    match &cli.command {
+        Some(Command::Pair { code }) => {
+            let ep = Endpoint {
+                addr: cli.host.clone(),
+                security: ClientSecurity::TrustOnFirstUse,
+            };
+            let paired = Client::pair(&ep, code.trim(), &cli.device_id, "fakedeck").await?;
+            println!(
+                "paired with {} — host fingerprint {}",
+                paired.host_name,
+                perritodeck_fakedeck_display(&paired.host_id)
+            );
+            state.hosts.insert(
+                cli.host.clone(),
+                Pairing {
+                    fingerprint: paired.host_id,
+                    device_secret: paired.device_secret,
+                },
+            );
+            save_state(&path, &state)?;
+            println!("saved to {}", path.display());
+            return Ok(());
+        }
+        Some(Command::Forget) => {
+            state.hosts.remove(&cli.host);
+            save_state(&path, &state)?;
+            println!("forgot {}", cli.host);
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    let (security, secret) = if cli.insecure {
+        (ClientSecurity::Insecure, None)
+    } else {
+        let p = state.hosts.get(&cli.host).with_context(|| {
+            format!("not paired with {} yet — run `perritodeck-fakedeck pair <code>` first (or --insecure)", cli.host)
+        })?;
+        (
+            ClientSecurity::Pinned(p.fingerprint.clone()),
+            Some(p.device_secret.clone()),
+        )
+    };
+    let ep = Endpoint {
+        addr: cli.host.clone(),
+        security,
+    };
+    let hello = fake_hello(&cli.device_id, secret, cli.grid);
+    let (mut client, welcome, layout) = Client::handshake(&ep, hello).await?;
     println!(
         "connected to {} (host v{}, protocol v{})",
         welcome.host_name, welcome.host_version, welcome.protocol_version
@@ -76,6 +178,7 @@ async fn main() -> Result<()> {
     let heartbeat = Duration::from_millis(welcome.heartbeat_interval_ms.max(250) as u64);
 
     match cli.command.unwrap_or(Command::Watch) {
+        Command::Pair { .. } | Command::Forget => unreachable!("handled above"),
         Command::Watch => watch(client, layout, heartbeat).await,
         Command::Press { keys } => {
             for k in keys {
@@ -178,4 +281,16 @@ fn draw(layout: &Layout) {
             .collect();
         println!("|{}|", cells.join("|"));
     }
+}
+
+/// Same short form the host prints: first 6 bytes of the fingerprint as hex.
+fn perritodeck_fakedeck_display(fp: &str) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let bytes = URL_SAFE_NO_PAD.decode(fp).unwrap_or_default();
+    let hex: String = bytes.iter().take(6).map(|b| format!("{b:02X}")).collect();
+    hex.as_bytes()
+        .chunks(4)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }

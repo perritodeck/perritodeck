@@ -1,6 +1,7 @@
 package dev.perritodeck.client
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -15,9 +16,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.perritodeck.client.net.ConnState
-import dev.perritodeck.client.ui.ConnectScreen
 import dev.perritodeck.client.ui.DeckScreen
+import dev.perritodeck.client.ui.HomeScreen
+import dev.perritodeck.client.ui.PairScreen
 import dev.perritodeck.client.ui.PerritoTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,32 +26,67 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) handleIntent(intent)
         setContent {
             PerritoTheme {
                 PerritoApp(vm)
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** A scanned pairing QR code opens the app with a perritodeck://pair link. */
+    private fun handleIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action == Intent.ACTION_VIEW && data.scheme == "perritodeck") vm.handleLink(data.toString())
+    }
 }
 
 @Composable
 private fun PerritoApp(vm: DeckViewModel) {
-    val state by vm.connection.state.collectAsStateWithLifecycle()
-    val layout by vm.connection.layout.collectAsStateWithLifecycle()
-    val rtt by vm.connection.rttMs.collectAsStateWithLifecycle()
-
-    when (val s = state) {
-        ConnState.Idle, is ConnState.Failed -> ConnectScreen(
-            initial = vm.settings.lastTarget,
-            error = (s as? ConnState.Failed)?.reason,
-            onConnect = vm::connect,
-        )
-        is ConnState.Connecting, is ConnState.Connected -> {
+    val route by vm.route.collectAsStateWithLifecycle()
+    when (route) {
+        Route.Home -> {
+            val paired by vm.paired.collectAsStateWithLifecycle()
+            val found by vm.discovery.hosts.collectAsStateWithLifecycle()
+            val notice by vm.notice.collectAsStateWithLifecycle()
+            DisposableEffect(Unit) {
+                vm.discovery.start()
+                onDispose { vm.discovery.stop() }
+            }
+            HomeScreen(
+                paired = paired,
+                found = found,
+                notice = notice,
+                onConnect = vm::connectTo,
+                onForget = vm::forget,
+                onPairFound = { vm.openPairing("${it.address}:${it.port}") },
+                onPairManually = { vm.openPairing() },
+            )
+        }
+        Route.Pair -> {
+            val pairState by vm.pairState.collectAsStateWithLifecycle()
+            BackHandler { vm.closePairing() }
+            PairScreen(
+                state = pairState,
+                onSubmit = vm::submitCode,
+                onConfirm = vm::confirmPairing,
+                onCancel = vm::closePairing,
+            )
+        }
+        Route.Deck -> {
+            val state by vm.connection.state.collectAsStateWithLifecycle()
+            val layout by vm.connection.layout.collectAsStateWithLifecycle()
+            val rtt by vm.connection.rttMs.collectAsStateWithLifecycle()
             DeckMode()
             BackHandler { vm.disconnect() }
             DeckScreen(
                 layout = layout,
-                state = s,
+                state = state,
                 rttMs = rtt,
                 onKeyDown = vm.connection::keyDown,
                 onKeyUp = vm.connection::keyUp,

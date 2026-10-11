@@ -2,10 +2,14 @@ package dev.perritodeck.client
 
 import android.graphics.Bitmap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
@@ -14,9 +18,13 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Runs the real app against a real `perritodeck-host` (started by CI on the machine
- * running the emulator, reachable as 10.0.2.2). Proves the whole loop: connect,
- * receive layout, press a key, see the host's setTitle come back.
+ * Runs the real app against a real `perritodeck-host` started by CI on the machine
+ * running the emulator (reachable as 10.0.2.2) with a fixed pairing code. Proves the
+ * whole loop: pair over TLS, compare fingerprints, connect, receive the layout, press a
+ * key and see the host's reply.
+ *
+ * Instrumentation args: `pairCode` (default 424242) and optionally `hostFingerprint`
+ * (the short form the host printed), which the on-screen fingerprint must equal.
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -24,16 +32,25 @@ class HostEndToEndTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
 
-    private val timeout = 20_000L
+    private val timeout = 30_000L
+    private val args = InstrumentationRegistry.getArguments()
 
     @Test
-    fun connectPressAndSeeHostFeedback() {
+    fun pairConnectPressAndSeeHostFeedback() {
+        compose.onNodeWithText("Pair with a code").performClick()
         compose.onNodeWithText("Emulator").performClick()
-        compose.onNodeWithText("Connect").performClick()
+        compose.onNodeWithTag("code").performTextInput(args.getString("pairCode") ?: "424242")
+        compose.onNodeWithText("Continue").performClick()
 
-        // Layout arrived: the host's demo counter key is on screen.
+        // The tablet shows the host's fingerprint; it must match what the host printed.
+        compose.waitUntilAtLeastOneExists(hasTestTag("fingerprint"), timeout)
+        args.getString("hostFingerprint")?.let { compose.onNodeWithTag("fingerprint").assertTextEquals(it) }
+        screenshot("1-confirm-fingerprint")
+        compose.onNodeWithText("It matches").performClick()
+
+        // Paired and connected over TLS: the host's demo counter key is on screen.
         compose.waitUntilAtLeastOneExists(hasText("0×", substring = true), timeout)
-        screenshot("1-connected")
+        screenshot("2-connected")
 
         // Live clock: the host pushes setTitle every second, replacing the placeholder.
         compose.waitUntilDoesNotExist(hasText("--:--:--"), timeout)
@@ -43,7 +60,7 @@ class HostEndToEndTest {
             compose.onNodeWithText("Pressed", substring = true).performClick()
             compose.waitUntilAtLeastOneExists(hasText("${n + 1}×", substring = true), timeout)
         }
-        screenshot("2-after-presses")
+        screenshot("3-after-presses")
     }
 
     /** Saves to the app's external files dir; CI pulls the folder with adb. */

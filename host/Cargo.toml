@@ -17,6 +17,16 @@ perritodeck-actions = { path = "crates/actions" }
 perritodeck-fakedeck = { path = "crates/fakedeck" }
 
 anyhow = "1"
+base64 = "0.23"
+directories = "6"
+if-addrs = "0.15"
+mdns-sd = "0.21"
+qrcode = { version = "0.14", default-features = false }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+sha2 = "0.11"
+tempfile = "3"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 enigo = "0.6"
 open = "5"

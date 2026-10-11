@@ -43,8 +43,17 @@ data class Hello(
     val screen: Screen,
     val capabilities: List<String>,
     val requestedGrid: Grid? = null,
+    /** Deprecated Phase 1 LAN token; ignored by current hosts. */
     val token: String? = null,
+    /** Secret issued by `paired`. */
+    val deviceSecret: String? = null,
 )
+
+@Serializable
+data class PairRequest(val code: String, val deviceId: String, val deviceName: String)
+
+@Serializable
+data class Paired(val deviceSecret: String, val hostId: String, val hostName: String)
 
 @Serializable
 data class Welcome(
@@ -83,6 +92,8 @@ enum class ErrorCode {
     @SerialName("badMessage") BAD_MESSAGE,
     @SerialName("protocolViolation") PROTOCOL_VIOLATION,
     @SerialName("internal") INTERNAL,
+    @SerialName("notPaired") NOT_PAIRED,
+    @SerialName("pairingFailed") PAIRING_FAILED,
 }
 
 @Serializable
@@ -93,6 +104,8 @@ sealed interface Message {
     val type: String
 
     data class HelloMsg(val payload: Hello) : Message { override val type = "hello" }
+    data class PairMsg(val payload: PairRequest) : Message { override val type = "pair" }
+    data class PairedMsg(val payload: Paired) : Message { override val type = "paired" }
     data class WelcomeMsg(val payload: Welcome) : Message { override val type = "welcome" }
     data class LayoutMsg(val payload: Layout) : Message { override val type = "layout" }
     data class KeyDown(val payload: KeyEvent) : Message { override val type = "keyDown" }
@@ -126,7 +139,7 @@ object Codec {
     }
 
     val knownTypes = setOf(
-        "hello", "welcome", "layout", "keyDown", "keyUp", "keyAck",
+        "hello", "pair", "paired", "welcome", "layout", "keyDown", "keyUp", "keyAck",
         "heartbeat", "heartbeatAck", "setTitle", "setImage", "error",
     )
 
@@ -141,6 +154,8 @@ object Codec {
 
     private fun payloadJson(m: Message): JsonElement = when (m) {
         is Message.HelloMsg -> json.encodeToJsonElement(Hello.serializer(), m.payload)
+        is Message.PairMsg -> json.encodeToJsonElement(PairRequest.serializer(), m.payload)
+        is Message.PairedMsg -> json.encodeToJsonElement(Paired.serializer(), m.payload)
         is Message.WelcomeMsg -> json.encodeToJsonElement(Welcome.serializer(), m.payload)
         is Message.LayoutMsg -> json.encodeToJsonElement(Layout.serializer(), m.payload)
         is Message.KeyDown -> json.encodeToJsonElement(KeyEvent.serializer(), m.payload)
@@ -176,6 +191,8 @@ object Codec {
         val msg = try {
             when (type) {
                 "hello" -> Message.HelloMsg(p(Hello.serializer(), payload))
+                "pair" -> Message.PairMsg(p(PairRequest.serializer(), payload))
+                "paired" -> Message.PairedMsg(p(Paired.serializer(), payload))
                 "welcome" -> Message.WelcomeMsg(p(Welcome.serializer(), payload))
                 "layout" -> Message.LayoutMsg(p(Layout.serializer(), payload))
                 "keyDown" -> Message.KeyDown(p(KeyEvent.serializer(), payload))

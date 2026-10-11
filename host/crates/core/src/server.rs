@@ -11,22 +11,29 @@ use std::{
 
 use futures_util::{SinkExt, StreamExt};
 use perritodeck_protocol::{
-    decode, DecodeError, Decoded, Envelope, ErrorCode, Grid, Hello, KeyAck, Layout, Message,
-    Welcome, PROTOCOL_VERSION,
+    decode, DecodeError, Decoded, Envelope, ErrorCode, Grid, Hello, KeyAck, Layout, Message, Pair,
+    Paired, Welcome, PROTOCOL_VERSION,
 };
 use tokio::{
+    io::{AsyncRead, AsyncWrite},
     net::{TcpListener, TcpStream},
     sync::mpsc,
     time::timeout,
 };
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
-    accept_async_with_config,
-    tungstenite::{self, protocol::WebSocketConfig},
+    accept_hdr_async_with_config,
+    tungstenite::{
+        self,
+        handshake::server::{ErrorResponse, Request, Response},
+        http,
+        protocol::WebSocketConfig,
+    },
     WebSocketStream,
 };
 use tracing::{debug, info, warn};
 
-use crate::auth::tokens_match;
+use crate::pairing::{PairError, PairingStore};
 
 /// Decides which layout a device gets when it connects.
 pub type LayoutProvider = Arc<dyn Fn(&Hello) -> Layout + Send + Sync>;
@@ -34,25 +41,38 @@ pub type LayoutProvider = Arc<dyn Fn(&Hello) -> Layout + Send + Sync>;
 /// Largest frame a client may send. Client messages are tiny; this stops abuse.
 const MAX_CLIENT_MESSAGE: usize = 64 * 1024;
 const MAX_DEVICE_ID_LEN: usize = 128;
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How connections are secured.
+#[derive(Clone)]
+pub enum Security {
+    /// TLS with the host's certificate; every device must be paired. The default.
+    Paired {
+        tls: TlsAcceptor,
+        store: Arc<PairingStore>,
+        /// Certificate fingerprint, sent to devices in `paired`.
+        host_id: String,
+    },
+    /// Plain `ws://`, no authentication. Only for development on loopback.
+    Insecure,
+}
 
 #[derive(Clone)]
 pub struct ServerConfig {
     pub host_name: String,
     pub host_version: String,
-    /// When set, every `hello` must carry this token. Required whenever the
-    /// server listens beyond loopback.
-    pub token: Option<String>,
+    pub security: Security,
     pub heartbeat_interval: Duration,
     pub handshake_timeout: Duration,
     pub layout: LayoutProvider,
 }
 
 impl ServerConfig {
-    pub fn new(host_name: impl Into<String>, layout: LayoutProvider) -> Self {
+    pub fn new(host_name: impl Into<String>, security: Security, layout: LayoutProvider) -> Self {
         Self {
             host_name: host_name.into(),
             host_version: env!("CARGO_PKG_VERSION").to_owned(),
-            token: None,
+            security,
             heartbeat_interval: Duration::from_secs(2),
             handshake_timeout: Duration::from_secs(10),
             layout,
@@ -72,6 +92,10 @@ pub enum ServerEvent {
         device_name: String,
         peer: SocketAddr,
         grid: Grid,
+    },
+    Paired {
+        device_id: String,
+        device_name: String,
     },
     KeyDown {
         device_id: String,
@@ -127,6 +151,15 @@ impl ServerHandle {
         for d in reg.devices.values() {
             let _ = d.tx.send(Outbound::Message(msg.clone()));
         }
+    }
+
+    /// Disconnect a device (e.g. after revoking it). Returns false if it isn't connected.
+    pub fn kick(&self, device_id: &str) -> bool {
+        let reg = self.registry.lock().expect("registry poisoned");
+        reg.devices.get(device_id).is_some_and(|d| {
+            d.tx.send(Outbound::Kick("disconnected by the host"))
+                .is_ok()
+        })
     }
 
     /// Ids of connected devices, sorted.
@@ -207,15 +240,13 @@ impl Server {
                 events: self.events.clone(),
             };
             tokio::spawn(async move {
-                if let Err(e) = conn.run(stream).await {
+                if let Err(e) = conn.start(stream).await {
                     debug!(%peer, "connection ended with error: {e}");
                 }
             });
         }
     }
 }
-
-type Ws = WebSocketStream<TcpStream>;
 
 struct Connection {
     id: u64,
@@ -225,12 +256,53 @@ struct Connection {
     events: mpsc::UnboundedSender<ServerEvent>,
 }
 
+/// Browsers always send `Origin`; our clients never do. Refusing it stops any web page
+/// from talking to the host, even on loopback.
+#[allow(clippy::result_large_err)] // signature fixed by tungstenite's callback trait
+fn reject_browsers(req: &Request, resp: Response) -> Result<Response, ErrorResponse> {
+    if req.headers().contains_key(http::header::ORIGIN) {
+        let mut err = ErrorResponse::new(Some("browser connections are not allowed".into()));
+        *err.status_mut() = http::StatusCode::FORBIDDEN;
+        return Err(err);
+    }
+    Ok(resp)
+}
+
 impl Connection {
-    async fn run(self, stream: TcpStream) -> Result<(), tungstenite::Error> {
+    async fn start(self, stream: TcpStream) -> Result<(), tungstenite::Error> {
+        match self.config.security.clone() {
+            Security::Insecure => self.serve(stream).await,
+            Security::Paired { tls, .. } => {
+                match timeout(TLS_HANDSHAKE_TIMEOUT, tls.accept(stream)).await {
+                    Ok(Ok(tls_stream)) => self.serve(tls_stream).await,
+                    Ok(Err(e)) => {
+                        debug!(peer = %self.peer, "TLS handshake failed: {e}");
+                        Ok(())
+                    }
+                    Err(_) => Ok(()),
+                }
+            }
+        }
+    }
+
+    async fn serve<S>(self, stream: S) -> Result<(), tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let ws_config = WebSocketConfig::default()
             .max_message_size(Some(MAX_CLIENT_MESSAGE))
             .max_frame_size(Some(MAX_CLIENT_MESSAGE));
-        let mut ws = accept_async_with_config(stream, Some(ws_config)).await?;
+        let mut ws =
+            match accept_hdr_async_with_config(stream, reject_browsers, Some(ws_config)).await {
+                Ok(ws) => ws,
+                Err(e) => {
+                    let _ = self.events.send(ServerEvent::Rejected {
+                        peer: self.peer,
+                        reason: format!("WebSocket handshake refused: {e}"),
+                    });
+                    return Ok(());
+                }
+            };
 
         let hello = match self.handshake(&mut ws).await? {
             Some(h) => h,
@@ -277,8 +349,14 @@ impl Connection {
         result.map(|_| ())
     }
 
-    /// Wait for a valid `hello`. Returns `None` (after telling the client why) if it isn't one.
-    async fn handshake(&self, ws: &mut Ws) -> Result<Option<Hello>, tungstenite::Error> {
+    /// Wait for the first message: `hello` (returned if valid) or `pair` (handled, then `None`).
+    async fn handshake<S>(
+        &self,
+        ws: &mut WebSocketStream<S>,
+    ) -> Result<Option<Hello>, tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let text = match timeout(self.config.handshake_timeout, next_text(ws)).await {
             Ok(Some(t)) => t,
             Ok(None) => return Ok(None),
@@ -297,6 +375,13 @@ impl Connection {
                 msg: Message::Hello(h),
                 ..
             })) => h,
+            Ok(Decoded::Message(Envelope {
+                msg: Message::Pair(p),
+                ..
+            })) => {
+                self.pair(ws, p).await?;
+                return Ok(None);
+            }
             Err(DecodeError::UnsupportedVersion(v)) => {
                 let msg =
                     format!("this host speaks protocol v{PROTOCOL_VERSION}, client sent v{v}");
@@ -310,7 +395,7 @@ impl Connection {
                     .reject(
                         ws,
                         ErrorCode::ProtocolViolation,
-                        "the first message must be hello",
+                        "the first message must be hello or pair",
                     )
                     .await
             }
@@ -324,17 +409,17 @@ impl Connection {
                 )
                 .await;
         }
-        if let Some(expected) = &self.config.token {
+        if let Security::Paired { store, .. } = &self.config.security {
             let ok = hello
-                .token
+                .device_secret
                 .as_deref()
-                .is_some_and(|t| tokens_match(expected, t));
+                .is_some_and(|s| store.verify(&hello.device_id, s));
             if !ok {
                 return self
                     .reject(
                         ws,
-                        ErrorCode::Unauthorized,
-                        "missing or wrong session token; copy it from the host's console",
+                        ErrorCode::NotPaired,
+                        "this device isn't paired with this computer; pair it again",
                     )
                     .await;
             }
@@ -342,12 +427,54 @@ impl Connection {
         Ok(Some(hello))
     }
 
-    async fn reject<T>(
+    async fn pair<S>(&self, ws: &mut WebSocketStream<S>, p: Pair) -> Result<(), tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let Security::Paired { store, host_id, .. } = &self.config.security else {
+            self.reject::<(), _>(
+                ws,
+                ErrorCode::ProtocolViolation,
+                "this host isn't accepting pairing",
+            )
+            .await?;
+            return Ok(());
+        };
+        match store.redeem(&p.code, &p.device_id, &p.device_name) {
+            Ok(device_secret) => {
+                info!(peer = %self.peer, device = %p.device_id, name = %p.device_name, "device paired");
+                let _ = self.events.send(ServerEvent::Paired {
+                    device_id: p.device_id.clone(),
+                    device_name: p.device_name.clone(),
+                });
+                let paired = Message::Paired(Paired {
+                    device_secret,
+                    host_id: host_id.clone(),
+                    host_name: self.config.host_name.clone(),
+                });
+                send(ws, Envelope::new(paired)).await?;
+                let _ = ws.close(None).await;
+            }
+            Err(e) => {
+                let code = match e {
+                    PairError::InvalidCode => ErrorCode::PairingFailed,
+                    PairError::BadDeviceId => ErrorCode::BadMessage,
+                };
+                self.reject::<(), _>(ws, code, &e.to_string()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn reject<T, S>(
         &self,
-        ws: &mut Ws,
+        ws: &mut WebSocketStream<S>,
         code: ErrorCode,
         reason: &str,
-    ) -> Result<Option<T>, tungstenite::Error> {
+    ) -> Result<Option<T>, tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         warn!(peer = %self.peer, ?code, "rejected connection: {reason}");
         let _ = self.events.send(ServerEvent::Rejected {
             peer: self.peer,
@@ -359,13 +486,16 @@ impl Connection {
     }
 
     /// Main loop after the handshake. Returns the reason the session ended.
-    async fn session(
+    async fn session<S>(
         &self,
-        ws: &mut Ws,
+        ws: &mut WebSocketStream<S>,
         device_id: &str,
         grid: Grid,
         outbound: &mut mpsc::UnboundedReceiver<Outbound>,
-    ) -> Result<String, tungstenite::Error> {
+    ) -> Result<String, tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let idle = self.config.idle_timeout();
         loop {
             tokio::select! {
@@ -397,14 +527,17 @@ impl Connection {
     }
 
     /// Handle one text frame. Returns `Some(reason)` if the session must end.
-    async fn on_text(
+    async fn on_text<S>(
         &self,
-        ws: &mut Ws,
+        ws: &mut WebSocketStream<S>,
         device_id: &str,
         grid: Grid,
         text: &str,
         received: Instant,
-    ) -> Result<Option<String>, tungstenite::Error> {
+    ) -> Result<Option<String>, tungstenite::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let env = match decode(text) {
             Ok(Decoded::Message(env)) => env,
             Ok(Decoded::UnknownType { type_name, .. }) => {
@@ -449,7 +582,7 @@ impl Connection {
                     device_id: device_id.to_owned(),
                     key_index: k.key_index,
                 });
-                self.ack(ws, env.id, k.key_index, received).await?;
+                ack(ws, env.id, k.key_index, received).await?;
             }
             Message::KeyUp(k) => {
                 debug!(device = %device_id, key = k.key_index, "keyUp");
@@ -457,7 +590,7 @@ impl Connection {
                     device_id: device_id.to_owned(),
                     key_index: k.key_index,
                 });
-                self.ack(ws, env.id, k.key_index, received).await?;
+                ack(ws, env.id, k.key_index, received).await?;
             }
             Message::Heartbeat(hb) => {
                 send(ws, Envelope::with_id(Message::HeartbeatAck(hb), env.id)).await?;
@@ -466,7 +599,7 @@ impl Connection {
                 warn!(device = %device_id, code = ?e.code, "client reported error: {}", e.message);
             }
             other => {
-                let msg = format!("`{}` is not a client-to-host message", other.type_name());
+                let msg = format!("`{}` is not allowed here", other.type_name());
                 send(
                     ws,
                     Envelope::with_id(Message::error(ErrorCode::ProtocolViolation, msg), env.id),
@@ -476,35 +609,43 @@ impl Connection {
         }
         Ok(None)
     }
-
-    async fn ack(
-        &self,
-        ws: &mut Ws,
-        id: Option<u32>,
-        key_index: u32,
-        received: Instant,
-    ) -> Result<(), tungstenite::Error> {
-        let host_processing_us = received.elapsed().as_micros() as u64;
-        send(
-            ws,
-            Envelope::with_id(
-                Message::KeyAck(KeyAck {
-                    key_index,
-                    host_processing_us,
-                }),
-                id,
-            ),
-        )
-        .await
-    }
 }
 
-async fn send(ws: &mut Ws, env: Envelope) -> Result<(), tungstenite::Error> {
+async fn ack<S>(
+    ws: &mut WebSocketStream<S>,
+    id: Option<u32>,
+    key_index: u32,
+    received: Instant,
+) -> Result<(), tungstenite::Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let host_processing_us = received.elapsed().as_micros() as u64;
+    send(
+        ws,
+        Envelope::with_id(
+            Message::KeyAck(KeyAck {
+                key_index,
+                host_processing_us,
+            }),
+            id,
+        ),
+    )
+    .await
+}
+
+async fn send<S>(ws: &mut WebSocketStream<S>, env: Envelope) -> Result<(), tungstenite::Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     ws.send(tungstenite::Message::text(env.encode())).await
 }
 
 /// Next text frame, skipping control frames. `None` on close or error.
-async fn next_text(ws: &mut Ws) -> Option<String> {
+async fn next_text<S>(ws: &mut WebSocketStream<S>) -> Option<String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     while let Some(frame) = ws.next().await {
         match frame.ok()? {
             tungstenite::Message::Text(t) => return Some(t.as_str().to_owned()),

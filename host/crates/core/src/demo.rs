@@ -94,6 +94,7 @@ mod tests {
             capabilities: vec![],
             requested_grid: req,
             token: None,
+            device_secret: None,
         }
     }
 

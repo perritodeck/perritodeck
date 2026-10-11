@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "error",
+  "payload": {
+    "code": "notPaired",
+    "message": "This device isn't paired with this computer. Pair it again."
+  }
+}

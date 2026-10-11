@@ -34,8 +34,8 @@ sealed interface ConnState {
     data object Idle : ConnState
     data class Connecting(val url: String, val attempt: Int, val lastError: String?) : ConnState
     data class Connected(val welcome: Welcome) : ConnState
-    /** The host refused us for a reason retrying won't fix (bad token, wrong version). */
-    data class Failed(val reason: String) : ConnState
+    /** The host refused us for a reason retrying won't fix (not paired, wrong version, wrong host). */
+    data class Failed(val reason: String, val notPaired: Boolean = false) : ConnState
 }
 
 /**
@@ -65,10 +65,11 @@ class DeckConnection(
     private val nextId = AtomicLong(1)
     private val pendingAcks = ConcurrentHashMap<Long, Long>()
 
-    fun connect(url: String, hello: Hello) {
+    /** [client] carries the TLS pin for this host; defaults to the constructor's client. */
+    fun connect(url: String, hello: Hello, client: OkHttpClient = http) {
         disconnect()
         _layout.value = null
-        job = scope.launch { runLoop(url, hello) }
+        job = scope.launch { runLoop(url, hello, client) }
     }
 
     fun disconnect() {
@@ -93,15 +94,15 @@ class DeckConnection(
         ws.send(Codec.encode(Envelope(msg, id)))
     }
 
-    private suspend fun runLoop(url: String, hello: Hello) {
+    private suspend fun runLoop(url: String, hello: Hello, client: OkHttpClient) {
         var attempt = 0
         var lastError: String? = null
         while (currentCoroutineContext().isActive) {
             attempt++
             _state.value = ConnState.Connecting(url, attempt, lastError)
-            when (val end = runSession(url, hello)) {
+            when (val end = runSession(url, hello, client)) {
                 is SessionEnd.Fatal -> {
-                    _state.value = ConnState.Failed(end.reason)
+                    _state.value = ConnState.Failed(end.reason, end.notPaired)
                     return
                 }
                 is SessionEnd.Retry -> {
@@ -115,7 +116,7 @@ class DeckConnection(
 
     private sealed interface SessionEnd {
         data class Retry(val reason: String, val wasConnected: Boolean) : SessionEnd
-        data class Fatal(val reason: String) : SessionEnd
+        data class Fatal(val reason: String, val notPaired: Boolean = false) : SessionEnd
     }
 
     private sealed interface WsEvent {
@@ -125,14 +126,14 @@ class DeckConnection(
         data class Failure(val reason: String) : WsEvent
     }
 
-    private suspend fun runSession(url: String, hello: Hello): SessionEnd {
+    private suspend fun runSession(url: String, hello: Hello, client: OkHttpClient): SessionEnd {
         val events = Channel<WsEvent>(Channel.UNLIMITED)
         val request = try {
             Request.Builder().url(url).build()
         } catch (e: IllegalArgumentException) {
             return SessionEnd.Fatal("Invalid address: $url")
         }
-        val ws = http.newWebSocket(request, object : WebSocketListener() {
+        val ws = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 events.trySend(WsEvent.Open)
             }
@@ -147,7 +148,8 @@ class DeckConnection(
                 events.trySend(WsEvent.Closed(reason.ifEmpty { "connection closed" }))
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                events.trySend(WsEvent.Failure(t.message ?: t.javaClass.simpleName))
+                val pinFailure = generateSequence(t) { it.cause }.any { it is java.security.cert.CertificateException }
+                events.trySend(WsEvent.Failure(if (pinFailure) PIN_MISMATCH else t.message ?: t.javaClass.simpleName))
             }
         })
         socket = ws
@@ -157,7 +159,11 @@ class DeckConnection(
         try {
             when (val first = events.receive()) {
                 WsEvent.Open -> ws.send(Codec.encode(Envelope(Message.HelloMsg(hello), nextId.getAndIncrement())))
-                is WsEvent.Failure -> return SessionEnd.Retry(first.reason, false)
+                is WsEvent.Failure -> return if (first.reason == PIN_MISMATCH) {
+                    SessionEnd.Fatal(first.reason)
+                } else {
+                    SessionEnd.Retry(first.reason, false)
+                }
                 is WsEvent.Closed -> return SessionEnd.Retry(first.reason, false)
                 is WsEvent.Text -> return SessionEnd.Retry("unexpected data before open", false)
             }
@@ -194,6 +200,10 @@ class DeckConnection(
                             }
                             is Message.Error -> when (m.payload.code) {
                                 ErrorCode.UNAUTHORIZED -> return SessionEnd.Fatal(m.payload.message)
+                                ErrorCode.NOT_PAIRED -> return SessionEnd.Fatal(
+                                    "This computer no longer recognises this tablet. Pair it again.",
+                                    notPaired = true,
+                                )
                                 ErrorCode.UNSUPPORTED_VERSION -> return SessionEnd.Fatal(m.payload.message)
                                 else -> Unit // non-fatal; Phase 2 surfaces these in a debug panel
                             }
@@ -228,6 +238,9 @@ class DeckConnection(
     }
 
     companion object {
+        const val PIN_MISMATCH =
+            "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
+
         /** 0.5s, 1s, 2s, 4s, then 8s between attempts. */
         fun backoffMs(attempt: Int): Long = (250L shl attempt.coerceIn(1, 5)).coerceAtMost(8_000)
     }

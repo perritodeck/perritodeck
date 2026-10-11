@@ -15,6 +15,8 @@ pub const DEFAULT_PORT: u16 = 46710;
 /// Message types this crate understands. Anything else decodes as [`Decoded::UnknownType`].
 pub const KNOWN_TYPES: &[&str] = &[
     "hello",
+    "pair",
+    "paired",
     "welcome",
     "layout",
     "keyDown",
@@ -64,6 +66,8 @@ impl Envelope {
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum Message {
     Hello(Hello),
+    Pair(Pair),
+    Paired(Paired),
     Welcome(Welcome),
     Layout(Layout),
     KeyDown(KeyEvent),
@@ -88,8 +92,28 @@ pub struct Hello {
     pub capabilities: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_grid: Option<Grid>,
+    /// Deprecated Phase 1 LAN token; ignored by Phase 2 hosts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Secret issued by `paired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_secret: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pair {
+    pub code: String,
+    pub device_id: String,
+    pub device_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Paired {
+    pub device_secret: String,
+    pub host_id: String,
+    pub host_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +236,8 @@ pub enum ErrorCode {
     BadMessage,
     ProtocolViolation,
     Internal,
+    NotPaired,
+    PairingFailed,
 }
 
 impl Message {
@@ -226,6 +252,8 @@ impl Message {
     pub fn type_name(&self) -> &'static str {
         match self {
             Message::Hello(_) => "hello",
+            Message::Pair(_) => "pair",
+            Message::Paired(_) => "paired",
             Message::Welcome(_) => "welcome",
             Message::Layout(_) => "layout",
             Message::KeyDown(_) => "keyDown",
