@@ -14,6 +14,8 @@ path = "src/main.rs"
 
 [dependencies]
 perritodeck-core.workspace = true
+perritodeck-actions.workspace = true
+serde_json.workspace = true
 perritodeck-protocol.workspace = true
 anyhow.workspace = true
 chrono.workspace = true

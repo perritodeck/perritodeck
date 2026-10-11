@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use perritodeck_core::{demo, generate_token, Server, ServerConfig, ServerEvent};
 use perritodeck_protocol::{Message, SetTitle, DEFAULT_PORT};
 use tokio::net::TcpListener;
@@ -32,6 +32,42 @@ struct Cli {
     token: Option<String>,
     #[arg(long, default_value_t = 2000, value_parser = clap::value_parser!(u64).range(250..=60_000))]
     heartbeat_ms: u64,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the server (the default).
+    Serve,
+    /// Run one action now, for testing, e.g.
+    /// `perritodeck-host action '{"type":"hotkey","keys":"Ctrl+Alt+T"}'`.
+    /// Waits 3 seconds first so you can focus the target window.
+    Action {
+        /// Action as JSON (see host/crates/actions).
+        json: String,
+        #[arg(long, default_value_t = 3)]
+        delay_secs: u64,
+    },
+}
+
+async fn run_action(json: &str, delay_secs: u64) -> Result<()> {
+    use perritodeck_actions::{
+        system::{EnigoInput, OpenSystem},
+        ActionSpec, Executor, Outcome,
+    };
+    let spec: ActionSpec = serde_json::from_str(json).context("not a valid action")?;
+    Executor::validate(&spec)?;
+    if delay_secs > 0 {
+        println!("running in {delay_secs}s — switch to the target window…");
+        tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+    }
+    let ex = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem));
+    match ex.run(&spec).await? {
+        Outcome::Ok => println!("ok"),
+        Outcome::Alert(a) => println!("alert: {a}"),
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -44,6 +80,9 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+    if let Some(Command::Action { json, delay_secs }) = &cli.command {
+        return run_action(json, *delay_secs).await;
+    }
     let token = match (&cli.token, cli.listen.is_loopback()) {
         (Some(t), _) => Some(t.clone()),
         (None, false) => Some(generate_token()),

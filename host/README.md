@@ -6,6 +6,7 @@ Rust workspace for the desktop host. During Phase 1 it's a headless command-line
 |---|---|
 | `crates/protocol` | Wire types (serde), tested against `protocol/fixtures` |
 | `crates/core` | WebSocket server, handshake, device registry, demo layout |
+| `crates/actions` | What keys do: hotkeys, text, media keys, URLs, apps, commands, multi-actions (Phase 2 prototype) |
 | `crates/host` | `perritodeck-host` binary |
 | `crates/fakedeck` | `perritodeck-fakedeck` — a CLI "tablet" for testing without Android, plus end-to-end tests |
 
@@ -24,6 +25,19 @@ Connecting a tablet:
 - **Wi-Fi:** start with `--listen 0.0.0.0`, enter the printed address and token
 
 The demo layout makes key 1 a live clock and key 2 a press counter; every press is logged.
+
+## Try an action
+
+Actions aren't wired to keys until Phase 2 profiles land, but you can fire one directly (it waits 3 s so you can focus a window):
+
+```sh
+cargo run -p perritodeck-host -- action '{"type":"hotkey","keys":"Ctrl+Shift+Esc"}'
+cargo run -p perritodeck-host -- action '{"type":"text","text":"hello from perrito"}'
+cargo run -p perritodeck-host -- action '{"type":"media","key":"playPause"}'
+cargo run -p perritodeck-host -- action '{"type":"openUrl","url":"https://perritodeck.dev"}'
+```
+
+On macOS the first hotkey or text action asks for Accessibility permission for your terminal.
 
 ## Test without a tablet
 
