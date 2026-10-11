@@ -7,6 +7,11 @@ on:
   pull_request:
     paths: ["protocol/**", ".github/workflows/protocol.yml"]
 
+# A newer push to the same branch makes older runs pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

@@ -8,6 +8,11 @@ on:
     paths: ["android/**", "protocol/**", "scripts/**", ".github/workflows/android.yml"]
   workflow_dispatch:
 
+# A newer push to the same branch makes older runs pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
