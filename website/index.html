@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PerritoDeck — turn an old tablet into a control deck</title>
+  <meta name="description" content="Free, open-source app that turns any Android tablet or phone into a Stream Deck–style grid of buttons for Windows, macOS and Linux.">
+  <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img src="paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="#how">How it works</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" style="border-top:0">
+      <div class="wrap">
+        <div>
+          <h1>Your old tablet is a control deck now.</h1>
+          <p class="lede">PerritoDeck turns any Android tablet or phone into a grid of buttons for your computer. Mute your mic, switch scenes, launch apps, fire hotkeys, control your smart home. Free and open source, with no account and no cloud.</p>
+          <div class="actions">
+            <a class="button" href="#download">Get PerritoDeck</a>
+            <a class="button secondary" href="https://github.com/perritodeck/perritodeck">View the source</a>
+          </div>
+        </div>
+
+        <div>
+          <div class="tablet">
+            <div class="tablet-screen" id="deck" role="group" aria-label="Demo deck — try pressing the keys"></div>
+          </div>
+          <p class="deck-caption" id="deck-caption" aria-live="polite">Go on, press a key.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <div class="wrap">
+        <h2>Set up in about two minutes</h2>
+        <ol class="steps">
+          <li>
+            <h3>Install the host</h3>
+            <p>Run PerritoDeck Host on your Windows, Mac or Linux computer. It sits in the background and does what your buttons ask.</p>
+          </li>
+          <li>
+            <h3>Install Perrito on the tablet</h3>
+            <p>Any Android tablet or phone from the last decade works, including Amazon Fire tablets. It will be on F-Droid, Google Play and GitHub.</p>
+          </li>
+          <li>
+            <h3>Pair and start pressing</h3>
+            <p>Scan the code on your computer's screen, or plug in a USB cable. Lay out your buttons on the computer and they appear on the tablet instantly.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Why it's different</h2>
+        <div class="reasons">
+          <div>
+            <h3>Hardware you already own</h3>
+            <p>That tablet in the drawer has a better screen than most macro pads. Give it a second job instead of sending it to a landfill.</p>
+          </div>
+          <div>
+            <h3>Nothing leaves your desk</h3>
+            <p>The tablet talks only to your computer, over your own Wi-Fi or a USB cable. No sign-up, no tracking, no subscription.</p>
+          </div>
+          <div>
+            <h3>Linux is a first-class citizen</h3>
+            <p>The host runs the same on Windows, macOS and Linux, including Wayland desktops.</p>
+          </div>
+          <div>
+            <h3>Open all the way down</h3>
+            <p>Apache-licensed app, MIT-licensed plugin SDK, and a documented protocol so anyone can build their own client or integration.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download">
+      <div class="wrap">
+        <h2>Download</h2>
+        <p>PerritoDeck is in early development. Builds will appear here as each store listing goes live.</p>
+        <table class="download-table">
+          <tr><th scope="row">Android</th><td>F-Droid, Google Play and direct APK downloads are coming soon.</td></tr>
+          <tr><th scope="row">Windows</th><td>Installer and <code>winget</code> package coming soon.</td></tr>
+          <tr><th scope="row">macOS</th><td>Signed app and Homebrew cask coming soon.</td></tr>
+          <tr><th scope="row">Linux</th><td>Flatpak, AppImage, .deb and .rpm coming soon.</td></tr>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="privacy.html">Privacy policy</a> &nbsp; <a href="https://github.com/perritodeck/perritodeck">GitHub</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // A tiny imitation of the real app's demo deck: a live clock, a press counter, and a few keys that react.
+    (() => {
+      const deck = document.getElementById("deck");
+      const caption = document.getElementById("deck-caption");
+      const keys = [
+        ["clock", "--:--", 0], ["counter", "Pressed\n0×", 1], ["Mic\nmuted", "Mic muted", 2, "Mic\nlive"],
+        ["Scene:\nGame", "Scene switched", 3, "Scene:\nCam"], ["Lights", "Lights toggled", 4, "Lights\noff"],
+        ["Play /\npause", "Music toggled", 5], ["Screen-\nshot", "Screenshot taken", 6], ["Open\nterminal", "Terminal opened", 7],
+        ["Go live", "You're live", 1, "End\nstream"], ["Clip it", "Clip saved", 2], ["Volume\nup", "Volume up", 3],
+        ["Volume\ndown", "Volume down", 4], ["BRB", "Be right back", 5], ["Copy", "Copied", 6], ["Paste", "Pasted", 7],
+        ["Coffee", "Coffee break", 0], ["Lock\nscreen", "Screen locked", 1], ["Timer\n5:00", "Timer started", 2],
+        ["Sound-\nboard", "Woof.", 3], ["Fetch", "Good dog.", 4],
+      ];
+      let presses = 0;
+      const els = keys.map(([label, message, tone, alt], i) => {
+        const b = document.createElement("button");
+        b.className = "key";
+        b.type = "button";
+        b.dataset.tone = String(tone);
+        b.textContent = label;
+        let toggled = false;
+        b.addEventListener("click", () => {
+          if (label === "counter") {
+            presses += 1;
+            b.textContent = `Pressed\n${presses}×`;
+            caption.textContent = `Counted ${presses} ${presses === 1 ? "press" : "presses"}.`;
+            return;
+          }
+          if (label === "clock") { caption.textContent = "That clock is live, pushed from the host every second."; return; }
+          if (alt) {
+            toggled = !toggled;
+            b.textContent = toggled ? alt : label;
+            caption.textContent = b.textContent.replace(/-?\n/g, (m) => (m.startsWith("-") ? "" : " "));
+            return;
+          }
+          caption.textContent = message;
+        });
+        deck.appendChild(b);
+        return b;
+      });
+      const clock = els[0];
+      const tick = () => {
+        clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      };
+      tick();
+      setInterval(tick, 1000);
+      els[1].textContent = "Pressed\n0×";
+    })();
+  </script>
+</body>
+</html>

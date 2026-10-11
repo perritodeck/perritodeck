@@ -1,0 +1,5 @@
+First preview release.
+
+• Connect to PerritoDeck Host over Wi-Fi, USB or from the Android emulator
+• Full-screen, multi-touch button grid with haptics
+• Live button titles and automatic reconnect
