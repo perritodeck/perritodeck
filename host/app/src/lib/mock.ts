@@ -1,12 +1,10 @@
 // Stand-in for the Rust host when the UI runs in a plain browser. Playwright drives it
 // through `window.__perritoMock`.
 
-import type { DeviceInfo, HostEvent, HostStatus, PairingOffer, ProfileView } from "./types";
+import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
+import type { DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
-
-const D = { bg: "#1E1E2E", fg: "#CDD6F4" };
-const dark = "#11111B";
 
 const status: HostStatus = {
   hostName: "studio-desktop",
@@ -24,39 +22,69 @@ let devices: DeviceInfo[] = [
   { id: "d4e5f6", name: "Pixel Tablet", lastSeen: Math.floor(Date.now() / 1000) - 3 * 86400, connected: false },
 ];
 
-const profile: ProfileView = {
+function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?: Partial<KeyView>): KeyView {
+  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, ...f };
+  return {
+    row,
+    col,
+    title: fields.title ?? "",
+    bg: fields.bg ?? DEFAULT_BG,
+    fg: fields.fg ?? DEFAULT_FG,
+    ...kindOf(fields, states),
+    fields,
+    states,
+    hasIcon: false,
+    ...shown,
+  };
+}
+
+const dark = "#11111B";
+
+let profile: ProfileView = {
   name: "Starter",
   cols: 5,
   rows: 3,
+  fixedGrid: true,
   reloadError: null,
+  canUndo: false,
+  canRedo: false,
   pages: [
     {
       name: "Main",
       keys: [
-        { row: 0, col: 0, title: "{time}", ...D, kind: "label", detail: "no action" },
-        { row: 0, col: 1, title: "Play /\nPause", bg: "#A6E3A1", fg: dark, kind: "action", detail: "media PlayPause" },
-        { row: 0, col: 2, title: "Vol +", bg: "#89B4FA", fg: dark, kind: "action", detail: "media VolumeUp" },
-        { row: 0, col: 3, title: "Vol −", bg: "#89B4FA", fg: dark, kind: "action", detail: "media VolumeDown" },
-        { row: 0, col: 4, title: "Mute", bg: "#89B4FA", fg: dark, kind: "action", detail: "media Mute" },
-        { row: 1, col: 0, title: "Mic\nlive", bg: "#A6E3A1", fg: dark, kind: "toggle", detail: "2 states, hotkey Ctrl+Shift+M" },
-        { row: 1, col: 1, title: "Copy", ...D, kind: "action", detail: "hotkey Ctrl+C" },
-        { row: 1, col: 2, title: "Paste", ...D, kind: "action", detail: "hotkey Ctrl+V" },
-        { row: 1, col: 3, title: "Type\nhello", ...D, kind: "action", detail: 'types "Hello from Perrito! "' },
-        { row: 1, col: 4, title: "Perrito\nwebsite", bg: "#FAB387", fg: dark, kind: "action", detail: "opens https://perritodeck.dev" },
-        { row: 2, col: 0, title: "More ›", bg: "#CBA6F7", fg: dark, kind: "page", detail: "opens More" },
-        { row: 2, col: 4, title: "{date}", bg: D.bg, fg: "#9399B2", kind: "label", detail: "no action" },
+        key(0, 0, { title: "{time}" }),
+        key(0, 1, { title: "Play /\nPause", bg: "#A6E3A1", fg: dark, action: { type: "media", key: "playPause" } }),
+        key(0, 2, { title: "Vol +", bg: "#89B4FA", fg: dark, action: { type: "media", key: "volumeUp" } }),
+        key(0, 3, { title: "Vol −", bg: "#89B4FA", fg: dark, action: { type: "media", key: "volumeDown" } }),
+        key(0, 4, { title: "Mute", bg: "#89B4FA", fg: dark, action: { type: "media", key: "mute" } }),
+        key(1, 0, {}, 2, { title: "Mic\nlive", bg: "#A6E3A1", fg: dark, detail: "2 states, hotkey Ctrl+Shift+M" }),
+        key(1, 1, { title: "Copy", action: { type: "hotkey", keys: "Ctrl+C" } }),
+        key(1, 2, { title: "Paste", action: { type: "hotkey", keys: "Ctrl+V" } }),
+        key(1, 3, { title: "Type\nhello", action: { type: "text", text: "Hello from Perrito! " } }),
+        key(1, 4, { title: "Perrito\nwebsite", bg: "#FAB387", fg: dark, action: { type: "openUrl", url: "https://perritodeck.dev" } }),
+        key(2, 0, { title: "More ›", bg: "#CBA6F7", fg: dark, nav: { page: "More" } }),
+        key(2, 4, { title: "{date}", fg: "#9399B2" }),
       ],
     },
     {
       name: "More",
       keys: [
-        { row: 0, col: 0, title: "‹ Back", bg: "#CBA6F7", fg: dark, kind: "back", detail: "back" },
-        { row: 0, col: 1, title: "Run a\ncommand", ...D, kind: "action", detail: "runs hostname" },
-        { row: 0, col: 2, title: "Select all\n+ copy", ...D, kind: "action", detail: "2 steps" },
+        key(0, 0, { title: "‹ Back", bg: "#CBA6F7", fg: dark, nav: "back" }),
+        key(0, 1, { title: "Run a\ncommand", action: { type: "command", program: "hostname" } }),
+        key(0, 2, {
+          title: "Select all\n+ copy",
+          action: {
+            type: "multi",
+            steps: [{ action: { type: "hotkey", keys: "Ctrl+A" }, delayMs: 100 }, { action: { type: "hotkey", keys: "Ctrl+C" } }],
+          },
+        }),
       ],
     },
   ],
 };
+
+const undoStack: ProfileView[] = [];
+const redoStack: ProfileView[] = [];
 
 const listeners = new Map<string, Set<Listener>>();
 let failStart: string | null = null;
@@ -75,7 +103,97 @@ function qr(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"><rect width="29" height="29" fill="#fff"/><g fill="#000">${cells.join("")}</g></svg>`;
 }
 
+function page(p: ProfileView, name: string) {
+  const pg = p.pages.find((x) => x.name === name);
+  if (!pg) throw `there's no page called “${name}”`;
+  return pg;
+}
+
+const same = (k: KeyView, at: [number, number]) => k.row === at[0] && k.col === at[1];
+
+/** The same rules as the Rust side, closely enough for UI work and tests. */
+function applyEdit(p: ProfileView, e: Edit) {
+  switch (e.op) {
+    case "setKey": {
+      if (e.key.bg && !/^#[0-9a-fA-F]{6}$/.test(e.key.bg)) throw "that change would break the profile:\n  - colours look like #1E1E2E";
+      const pg = page(p, e.page);
+      const old = pg.keys.find((k) => same(k, e.at));
+      const next = key(e.at[0], e.at[1], e.key, old?.states ?? 0);
+      pg.keys = old ? pg.keys.map((k) => (k === old ? next : k)) : [...pg.keys, next];
+      return;
+    }
+    case "clearKey": {
+      const pg = page(p, e.page);
+      if (!pg.keys.some((k) => same(k, e.at))) throw "there's no key there";
+      pg.keys = pg.keys.filter((k) => !same(k, e.at));
+      return;
+    }
+    case "moveKey": {
+      const pg = page(p, e.page);
+      const a = pg.keys.find((k) => same(k, e.from));
+      if (!a) throw "there's no key there";
+      const b = pg.keys.find((k) => same(k, e.to));
+      if (b) [b.row, b.col] = e.from;
+      [a.row, a.col] = e.to;
+      return;
+    }
+    case "moveKeyToPage": {
+      if (e.fromPage === e.toPage) return applyEdit(p, { op: "moveKey", page: e.fromPage, from: e.at, to: e.to });
+      const src = page(p, e.fromPage);
+      const dst = page(p, e.toPage);
+      const a = src.keys.find((k) => same(k, e.at));
+      if (!a) throw "there's no key there";
+      const b = dst.keys.find((k) => same(k, e.to));
+      src.keys = src.keys.filter((k) => k !== a);
+      dst.keys = dst.keys.filter((k) => k !== b);
+      [a.row, a.col] = e.to;
+      dst.keys.push(a);
+      if (b) {
+        [b.row, b.col] = e.at;
+        src.keys.push(b);
+      }
+      return;
+    }
+    case "addPage":
+      if (p.pages.some((x) => x.name === e.name)) throw `there's already a page called “${e.name}”`;
+      p.pages.push({ name: e.name, keys: [] });
+      return;
+    case "renamePage": {
+      if (e.from !== e.to && p.pages.some((x) => x.name === e.to)) throw `there's already a page called “${e.to}”`;
+      page(p, e.from).name = e.to;
+      for (const pg of p.pages)
+        pg.keys = pg.keys.map((k) =>
+          k.fields.nav && typeof k.fields.nav === "object" && k.fields.nav.page === e.from
+            ? key(k.row, k.col, { ...k.fields, nav: { page: e.to } }, k.states)
+            : k,
+        );
+      return;
+    }
+    case "removePage": {
+      page(p, e.name);
+      const opener = p.pages.some((pg) => pg.keys.some((k) => k.kind === "page" && k.detail === `opens ${e.name}`));
+      if (opener) throw `that change would break the profile:\n  - a key opens “${e.name}”, which doesn't exist`;
+      if (p.pages.length === 1) throw "that change would break the profile:\n  - a profile needs at least one page";
+      p.pages = p.pages.filter((x) => x.name !== e.name);
+      return;
+    }
+    case "movePage": {
+      const pg = page(p, e.name);
+      p.pages = p.pages.filter((x) => x !== pg);
+      p.pages.splice(Math.min(e.index, p.pages.length), 0, pg);
+      return;
+    }
+  }
+}
+
+function view(): ProfileView {
+  return structuredClone({ ...profile, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 });
+}
+
 export const mock = {
+  /** Every edit batch the UI sent, for tests. */
+  edits: [] as Edit[][],
+
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     await new Promise((r) => setTimeout(r, 20));
     if (failStart) throw failStart;
@@ -102,7 +220,26 @@ export const mock = {
         return out(offer);
       }
       case "get_profile":
-        return out(profile);
+        return out(view());
+      case "edit_profile": {
+        const edits = args?.edits as Edit[];
+        const draft = structuredClone(profile);
+        for (const e of edits) applyEdit(draft, e);
+        this.edits.push(edits);
+        undoStack.push(profile);
+        redoStack.length = 0;
+        profile = draft;
+        return out(view());
+      }
+      case "undo_edit":
+      case "redo_edit": {
+        const [from, to] = cmd === "undo_edit" ? [undoStack, redoStack] : [redoStack, undoStack];
+        const prev = from.pop();
+        if (!prev) throw `Nothing to ${cmd === "undo_edit" ? "undo" : "redo"}.`;
+        to.push(profile);
+        profile = prev;
+        return out(view());
+      }
       case "open_profile_file":
       case "open_data_folder":
         return out(undefined);

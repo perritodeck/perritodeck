@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { DeviceInfo, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { DeviceInfo, Edit, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -24,6 +24,9 @@ export const api = {
   revoke: (deviceId: string) => call<boolean>("revoke_device", { deviceId }),
   startPairing: () => call<PairingOffer>("start_pairing"),
   profile: () => call<ProfileView>("get_profile"),
+  edit: (edits: Edit[]) => call<ProfileView>("edit_profile", { edits }),
+  undo: () => call<ProfileView>("undo_edit"),
+  redo: () => call<ProfileView>("redo_edit"),
   openProfileFile: () => call<void>("open_profile_file"),
   openDataFolder: () => call<void>("open_data_folder"),
   onHostEvent: (cb: (e: HostEvent) => void) => on<HostEvent>("host-event", cb),

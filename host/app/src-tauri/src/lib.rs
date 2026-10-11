@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use perritodeck_host::{
-    DeviceInfo, Host, HostEvent, HostOptions, HostStatus, PairingOffer, ProfileView,
+    DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus, PairingOffer, ProfileView,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -52,6 +52,22 @@ fn start_pairing(app: State<'_, App>) -> Result<PairingOffer, String> {
 #[tauri::command]
 fn get_profile(app: State<'_, App>) -> Result<ProfileView, String> {
     Ok(app.host()?.profile_view())
+}
+
+/// Apply editor changes to the profile file; tablets update straight away.
+#[tauri::command]
+fn edit_profile(app: State<'_, App>, edits: Vec<Edit>) -> Result<ProfileView, String> {
+    app.host()?.edit_profile(&edits)
+}
+
+#[tauri::command]
+fn undo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
+    app.host()?.undo()
+}
+
+#[tauri::command]
+fn redo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
+    app.host()?.redo()
 }
 
 /// Open the profile in the user's text editor.
@@ -198,6 +214,9 @@ pub fn run() {
             revoke_device,
             start_pairing,
             get_profile,
+            edit_profile,
+            undo_edit,
+            redo_edit,
             open_profile_file,
             open_data_folder,
         ])

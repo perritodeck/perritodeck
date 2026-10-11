@@ -37,6 +37,41 @@ jobs:
           path: host/app/test-results
           retention-days: 7
 
+  # The real app on Linux, driven through WebDriver: pair fakedeck, edit a key, check
+  # the profile file and the "tablet" both change, undo.
+  real-app:
+    name: Real app end to end (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/app/package-lock.json
+      - name: Install toolchain
+        working-directory: host
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Linux dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxkbcommon-dev webkit2gtk-driver xvfb dbus-x11
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            host
+            host/app/src-tauri
+      - run: cargo install tauri-driver --locked
+      - name: Build fakedeck
+        working-directory: host
+        run: cargo build --locked -p perritodeck-fakedeck
+      - run: npm ci
+      - run: npx tauri build --debug --no-bundle
+      - name: Run
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: dbus-run-session -- xvfb-run -a node e2e/real-app.mjs
+
   build:
     name: Build (${{ matrix.os }})
     strategy:
