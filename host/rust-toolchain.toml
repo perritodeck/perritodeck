@@ -1,0 +1,6 @@
+# Pinned so local builds, CI and future reproducible release builds use the same compiler
+# and the same clippy lints. Bump deliberately.
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

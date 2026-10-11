@@ -23,12 +23,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # Toolchain version comes from host/rust-toolchain.toml.
+      - name: Install toolchain
+        run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: host
       - run: cargo fmt --all --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - name: Clippy
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --all-targets --locked --message-format=short -- -D warnings 2>&1 | tee clippy.txt || {
+            # Surface the first errors as annotations so they're readable without the full log.
+            grep -E '^(error|warning)|: (error|warning)' clippy.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked 2>&1 | tee test.txt || {
+            grep -E 'panicked|FAILED|^error' test.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
