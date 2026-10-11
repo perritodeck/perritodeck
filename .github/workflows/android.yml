@@ -3,9 +3,9 @@ name: Android
 on:
   push:
     branches: [main]
-    paths: ["android/**", "protocol/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "protocol/**", "scripts/**", ".github/workflows/android.yml"]
   pull_request:
-    paths: ["android/**", "protocol/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "protocol/**", "scripts/**", ".github/workflows/android.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,11 +27,11 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ../scripts/gradle-annotate.sh testDebugUnitTest
       - name: Lint
-        run: ./gradlew --no-daemon lintDebug
+        run: ../scripts/gradle-annotate.sh lintDebug
       - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: ../scripts/gradle-annotate.sh assembleDebug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

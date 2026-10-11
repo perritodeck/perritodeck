@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/protocol", "crates/core", "crates/actions", "crates/host", "crates/fakedeck"]
+members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/host", "crates/fakedeck"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,9 +14,12 @@ rust-version = "1.80"
 perritodeck-protocol = { path = "crates/protocol" }
 perritodeck-core = { path = "crates/core" }
 perritodeck-actions = { path = "crates/actions" }
+perritodeck-render = { path = "crates/render" }
 perritodeck-fakedeck = { path = "crates/fakedeck" }
 
 anyhow = "1"
+ab_glyph = "0.2"
+tiny-skia = "0.11"
 base64 = "0.23"
 directories = "6"
 if-addrs = "0.15"
