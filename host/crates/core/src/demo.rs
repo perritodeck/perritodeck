@@ -63,6 +63,8 @@ pub fn layout_for_grid(grid: Grid) -> Layout {
                 title,
                 bg_color: bg.to_owned(),
                 text_color: fg.to_owned(),
+                control: None,
+                value: None,
             }
         })
         .collect();

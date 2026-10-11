@@ -92,6 +92,33 @@ impl Integrations for Builtins {
             client.call(service, entity, data).await
         })
     }
+
+    fn obs_request<'a>(
+        &'a self,
+        request_type: &'a str,
+        data: serde_json::Value,
+    ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
+        Box::pin(async move {
+            let client = self
+                .obs
+                .as_ref()
+                .ok_or_else(|| ActionError::NotConfigured("OBS".into()))?;
+            client.call(request_type, data).await
+        })
+    }
+
+    fn ha_state<'a>(
+        &'a self,
+        entity: &'a str,
+    ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
+        Box::pin(async move {
+            let client = self
+                .ha
+                .as_ref()
+                .ok_or_else(|| ActionError::NotConfigured("Home Assistant".into()))?;
+            client.state(entity).await
+        })
+    }
 }
 
 #[cfg(test)]

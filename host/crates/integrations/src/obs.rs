@@ -172,8 +172,37 @@ impl ObsClient {
         }
     }
 
+    /// Send any request; resolves to its `responseData` (or `{}`), or an error with
+    /// OBS's comment when it refuses.
+    pub async fn call(&self, request_type: &str, data: Value) -> Result<Value, ActionError> {
+        let resp = self.send(request_type, &data).await?;
+        let status = &resp["requestStatus"];
+        if status["result"].as_bool().unwrap_or(false) {
+            Ok(resp
+                .get("responseData")
+                .cloned()
+                .unwrap_or_else(|| json!({})))
+        } else {
+            Err(err(format!(
+                "OBS: {}",
+                status["comment"].as_str().unwrap_or("request failed")
+            )))
+        }
+    }
+
     pub async fn run(&self, action: &ObsAction) -> Result<Outcome, ActionError> {
         let (request_type, data) = request_for(action);
+        let resp = self.send(request_type, &data).await?;
+        let status = &resp["requestStatus"];
+        if status["result"].as_bool().unwrap_or(false) {
+            Ok(Outcome::Ok)
+        } else {
+            let comment = status["comment"].as_str().unwrap_or("request failed");
+            Ok(Outcome::Alert(format!("OBS: {comment}")))
+        }
+    }
+
+    async fn send(&self, request_type: &str, data: &Value) -> Result<Value, ActionError> {
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -185,16 +214,8 @@ impl ObsClient {
                 *guard = Some(self.connect().await?);
             }
             let ws = guard.as_mut().expect("just connected");
-            match Self::request(ws, &id, request_type, &data).await {
-                Ok(resp) => {
-                    let status = &resp["requestStatus"];
-                    return if status["result"].as_bool().unwrap_or(false) {
-                        Ok(Outcome::Ok)
-                    } else {
-                        let comment = status["comment"].as_str().unwrap_or("request failed");
-                        Ok(Outcome::Alert(format!("OBS: {comment}")))
-                    };
-                }
+            match Self::request(ws, &id, request_type, data).await {
+                Ok(resp) => return Ok(resp),
                 Err(e) if attempt == 0 => {
                     debug!("OBS connection lost ({e}); reconnecting");
                     *guard = None;

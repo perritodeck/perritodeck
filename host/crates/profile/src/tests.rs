@@ -174,6 +174,9 @@ fn obs_and_home_assistant_actions_parse() {
         .split("then add keys like these")
         .nth(1)
         .unwrap()
+        .split("# ---- Sliders")
+        .next()
+        .unwrap()
         .lines()
         .skip(1)
         .filter(|l| l.starts_with("# ") && !l.starts_with("#   #"))
@@ -201,4 +204,44 @@ fn obs_and_home_assistant_actions_parse() {
         bad.problems()
     );
     assert!(Profile::parse("schema_version = 1\nname = \"x\"\n[[pages]]\nname = \"P\"\n[[pages.keys]]\nat = [0, 0]\naction = { type = \"obs\", op = \"explode\" }\n").is_err());
+}
+
+#[test]
+fn sliders_parse_and_stand_alone() {
+    let p = Profile::parse(
+        r#"
+schema_version = 1
+name = "S"
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Volume"
+slider = { type = "volume" }
+[[pages.keys]]
+at = [0, 1]
+slider = { type = "command", program = "brightnessctl", args = ["set", "{value}%"] }
+"#,
+    )
+    .unwrap();
+    assert!(p.problems().is_empty(), "{:?}", p.problems());
+    assert_eq!(
+        p.pages[0].keys[0].slider,
+        Some(perritodeck_actions::SliderSpec::Volume)
+    );
+
+    let bad = Profile::parse(
+        r#"
+schema_version = 1
+name = "S"
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+slider = { type = "volume" }
+action = { type = "text", text = "x" }
+"#,
+    )
+    .unwrap();
+    assert!(bad.problems().iter().any(|p| p.contains("slider")));
 }

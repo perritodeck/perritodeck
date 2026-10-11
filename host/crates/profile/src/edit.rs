@@ -11,6 +11,8 @@ use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table, Value};
 use crate::{NavSpec, Profile};
 
 /// One change to a profile. Positions are `[row, column]`.
+// SetKey is the big one and by far the most common; boxing it buys nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Edit {
@@ -76,6 +78,9 @@ pub struct KeyFields {
     /// Image file, relative to the profile's folder.
     #[serde(default)]
     pub icon: Option<std::path::PathBuf>,
+    /// Makes the key a slider.
+    #[serde(default)]
+    pub slider: Option<perritodeck_actions::SliderSpec>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -141,6 +146,7 @@ fn apply_one(doc: &mut DocumentMut, edit: &Edit) -> Result<(), EditError> {
             set_opt(t, "fg", key.fg.as_ref().map(|s| Value::from(s.as_str())));
             set_opt(t, "action", key.action.as_ref().map(to_value).transpose()?);
             set_opt(t, "nav", key.nav.as_ref().map(to_value).transpose()?);
+            set_opt(t, "slider", key.slider.as_ref().map(to_value).transpose()?);
             set_opt(
                 t,
                 "icon",

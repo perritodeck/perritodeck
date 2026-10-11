@@ -28,6 +28,8 @@ pub const KNOWN_TYPES: &[&str] = &[
     "setImage",
     "showOk",
     "showAlert",
+    "sliderChange",
+    "setValue",
     "error",
 ];
 
@@ -81,6 +83,8 @@ pub enum Message {
     SetImage(SetImage),
     ShowOk(KeyFeedback),
     ShowAlert(KeyFeedback),
+    SliderChange(SliderValue),
+    SetValue(SliderValue),
     Error(ErrorMessage),
 }
 
@@ -197,6 +201,29 @@ pub struct KeySpec {
     pub title: String,
     pub bg_color: String,
     pub text_color: String,
+    /// `None` (or `Key`) for an ordinary key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<Control>,
+    /// A slider's position, 0–100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<u8>,
+}
+
+/// What a grid cell is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Control {
+    Key,
+    Slider,
+}
+
+/// Payload of `sliderChange` (client → host) and `setValue` (host → client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliderValue {
+    pub key_index: u32,
+    /// 0 (bottom) to 100 (top).
+    pub value: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +305,8 @@ impl Message {
             Message::SetImage(_) => "setImage",
             Message::ShowOk(_) => "showOk",
             Message::ShowAlert(_) => "showAlert",
+            Message::SliderChange(_) => "sliderChange",
+            Message::SetValue(_) => "setValue",
             Message::Error(_) => "error",
         }
     }

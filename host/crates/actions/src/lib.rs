@@ -6,6 +6,7 @@
 //! calls is testable headlessly.
 
 mod hotkey;
+pub mod slider;
 #[cfg(feature = "system")]
 pub mod system;
 
@@ -16,6 +17,7 @@ use tokio::process::Command;
 use tracing::debug;
 
 pub use hotkey::{Chord, HotkeyParseError, Key, Modifier};
+pub use slider::SliderSpec;
 
 /// Upper bound on a single delay inside a multi-action, so a typo can't hang a key for hours.
 pub const MAX_DELAY_MS: u64 = 60_000;
@@ -174,6 +176,16 @@ pub trait InputBackend: Send + Sync {
 /// Opening URLs and files with the user's default apps.
 pub trait SystemBackend: Send + Sync {
     fn open(&self, target: &str) -> Result<(), ActionError>;
+
+    /// Set the main output volume, 0–100.
+    fn set_volume(&self, _percent: u8) -> Result<(), ActionError> {
+        Err(ActionError::Unsupported("setting the volume".into()))
+    }
+
+    /// The main output volume, 0–100, if it can be read.
+    fn volume(&self) -> Option<u8> {
+        None
+    }
 }
 
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -187,13 +199,30 @@ pub trait Integrations: Send + Sync {
         entity: Option<&'a str>,
         data: Option<&'a serde_json::Value>,
     ) -> BoxFuture<'a, Result<Outcome, ActionError>>;
+
+    /// Send any obs-websocket request; resolves to its `responseData`.
+    fn obs_request<'a>(
+        &'a self,
+        _request_type: &'a str,
+        _data: serde_json::Value,
+    ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
+        Box::pin(async { Err(ActionError::NotConfigured("OBS".into())) })
+    }
+
+    /// An entity's state object from Home Assistant (`state`, `attributes`, …).
+    fn ha_state<'a>(
+        &'a self,
+        _entity: &'a str,
+    ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
+        Box::pin(async { Err(ActionError::NotConfigured("Home Assistant".into())) })
+    }
 }
 
 #[derive(Clone)]
 pub struct Executor {
     input: Arc<dyn InputBackend>,
-    system: Arc<dyn SystemBackend>,
-    integrations: Option<Arc<dyn Integrations>>,
+    pub(crate) system: Arc<dyn SystemBackend>,
+    pub(crate) integrations: Option<Arc<dyn Integrations>>,
 }
 
 impl Executor {
@@ -210,7 +239,7 @@ impl Executor {
         self
     }
 
-    fn integrations(&self, what: &str) -> Result<&Arc<dyn Integrations>, ActionError> {
+    pub(crate) fn integrations(&self, what: &str) -> Result<&Arc<dyn Integrations>, ActionError> {
         self.integrations
             .as_ref()
             .ok_or_else(|| ActionError::NotConfigured(what.to_owned()))
@@ -361,7 +390,7 @@ fn check_url(url: &str) -> Result<(), ActionError> {
     }
 }
 
-async fn run_command(
+pub(crate) async fn run_command(
     program: &str,
     args: &[String],
     cwd: Option<&std::path::Path>,

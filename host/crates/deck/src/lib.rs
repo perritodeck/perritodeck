@@ -15,11 +15,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use perritodeck_actions::{ActionError, ActionSpec, Executor, Outcome};
+use perritodeck_actions::{ActionError, ActionSpec, Executor, Outcome, SliderSpec};
 use perritodeck_core::{demo, ServerHandle};
 use perritodeck_profile::{KeyDef, Look, NavSpec, Profile, SimpleNav, DEFAULT_FG, EMPTY_BG};
 use perritodeck_protocol::{
-    Grid, Hello, KeyFeedback, KeySpec, Layout, Message, Screen, SetImage, SetTitle,
+    Control, Grid, Hello, KeyFeedback, KeySpec, Layout, Message, Screen, SetImage, SetTitle,
+    SliderValue,
 };
 use tracing::{info, warn};
 
@@ -43,6 +44,8 @@ struct DeviceView {
     screen: Screen,
     /// Key image size in pixels, if the device wants host-rendered images.
     image_px: Option<u32>,
+    /// The device draws sliders itself.
+    sliders: bool,
     page: usize,
     back: Vec<usize>,
     /// What each key showed last time, to send only changes.
@@ -55,6 +58,8 @@ struct Slot {
     base_dir: PathBuf,
     /// Toggle state per (page, position).
     toggles: HashMap<(usize, [u32; 2]), usize>,
+    /// Last known slider value per (page, position).
+    slider_values: HashMap<(usize, [u32; 2]), u8>,
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
     /// Why the last edit to the profile file was rejected, if it was.
     reload_error: Option<String>,
@@ -66,10 +71,22 @@ impl Slot {
             profile,
             base_dir,
             toggles: HashMap::new(),
+            slider_values: HashMap::new(),
             icons: HashMap::new(),
             reload_error: None,
         }
     }
+}
+
+/// A slider's position before anything is known about it.
+const SLIDER_START: u8 = 50;
+
+/// Values waiting to be applied, per slider, so a fast drag runs the action for the
+/// latest value instead of queueing every step.
+#[derive(Default)]
+struct SliderQueue {
+    pending: HashMap<String, u8>,
+    running: std::collections::HashSet<String>,
 }
 
 struct State {
@@ -119,6 +136,7 @@ pub struct Deck {
     executor: Executor,
     revision: std::sync::atomic::AtomicU64,
     paused: std::sync::atomic::AtomicBool,
+    sliders: Mutex<SliderQueue>,
 }
 
 /// Default grid when the profile doesn't fix one: sized to the device's screen.
@@ -164,6 +182,7 @@ impl Deck {
             executor,
             revision: Default::default(),
             paused: Default::default(),
+            sliders: Default::default(),
         })
     }
 
@@ -198,7 +217,12 @@ impl Deck {
         let st = self.lock();
         let slot = st.slot(&st.profile_for(&hello.device_id));
         let grid = device_grid(&slot.profile, demo::grid_for(hello));
-        page_layout(slot, 0, grid)
+        page_layout(
+            slot,
+            0,
+            grid,
+            hello.capabilities.iter().any(|c| c == "sliders"),
+        )
     }
 
     /// A device finished its handshake; it already has `initial_layout`.
@@ -208,8 +232,9 @@ impl Deck {
             .iter()
             .any(|c| c == "images")
             .then(|| perritodeck_render::key_pixel_size(&screen, grid));
+        let sliders = capabilities.iter().any(|c| c == "sliders");
         let profile = st.profile_for(device_id);
-        let layout = page_layout(st.slot(&profile), 0, grid);
+        let layout = page_layout(st.slot(&profile), 0, grid, sliders);
         let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
         st.devices.insert(
             device_id.to_owned(),
@@ -218,6 +243,7 @@ impl Deck {
                 grid,
                 screen,
                 image_px,
+                sliders,
                 page: 0,
                 back: Vec::new(),
                 sent,
@@ -435,6 +461,143 @@ impl Deck {
         self.show_page(st, device_id);
     }
 
+    /// A slider moved on a device: remember the value, show it on other tablets, and
+    /// set what it controls (coalescing a fast drag into the latest value).
+    pub fn slider_change(self: &Arc<Self>, device_id: &str, key_index: u32, value: u8) {
+        let value = value.min(100);
+        let mut st = self.lock();
+        let Some(d) = st.devices.get(device_id) else {
+            return;
+        };
+        let (profile, page, grid) = (d.profile.clone(), d.page, d.grid);
+        let at = [key_index / grid.cols.max(1), key_index % grid.cols.max(1)];
+        let Some(spec) = slider_at(st.slot(&profile), page, at).cloned() else {
+            return;
+        };
+        if self.paused() {
+            self.outbox.send(
+                device_id,
+                Message::ShowAlert(KeyFeedback {
+                    key_index,
+                    message: Some("Keys are paused on the computer".into()),
+                }),
+            );
+            return;
+        }
+        st.slot_mut(&profile)
+            .slider_values
+            .insert((page, at), value);
+        self.echo_slider(&st, Some(device_id), &profile, page, at, value);
+        drop(st);
+
+        let id = format!("{profile}/{page}/{}/{}", at[0], at[1]);
+        let mut q = self.sliders.lock().expect("slider queue poisoned");
+        q.pending.insert(id.clone(), value);
+        if !q.running.insert(id.clone()) {
+            return; // the running task will pick up the new value
+        }
+        drop(q);
+        let deck = Arc::clone(self);
+        let device = device_id.to_owned();
+        tokio::spawn(async move {
+            loop {
+                let next = {
+                    let mut q = deck.sliders.lock().expect("slider queue poisoned");
+                    match q.pending.remove(&id) {
+                        Some(v) => v,
+                        None => {
+                            q.running.remove(&id);
+                            break;
+                        }
+                    }
+                };
+                let alert = match deck.executor.set_slider(&spec, next).await {
+                    Ok(Outcome::Ok) => None,
+                    Ok(Outcome::Alert(m)) => Some(m),
+                    Err(e) => {
+                        warn!(device = %device, "slider failed: {e}");
+                        Some(e.to_string())
+                    }
+                };
+                if let Some(message) = alert {
+                    deck.outbox.send(
+                        &device,
+                        Message::ShowAlert(KeyFeedback {
+                            key_index,
+                            message: Some(message),
+                        }),
+                    );
+                }
+            }
+        });
+    }
+
+    /// Send a slider's value to every device showing it, except `skip`.
+    fn echo_slider(
+        &self,
+        st: &State,
+        skip: Option<&str>,
+        profile: &str,
+        page: usize,
+        at: [u32; 2],
+        value: u8,
+    ) {
+        for (id, d) in &st.devices {
+            if Some(id.as_str()) == skip || d.profile != profile || d.page != page || !d.sliders {
+                continue;
+            }
+            if at[0] < d.grid.rows && at[1] < d.grid.cols {
+                let key_index = at[0] * d.grid.cols + at[1];
+                self.outbox
+                    .send(id, Message::SetValue(SliderValue { key_index, value }));
+            }
+        }
+    }
+
+    /// Read the current level of every slider on screen (volume changed on the
+    /// computer, a light dimmed elsewhere) and move the tablets' sliders to match.
+    pub async fn poll_sliders(self: &Arc<Self>) {
+        let visible: Vec<(String, usize, [u32; 2], SliderSpec)> = {
+            let st = self.lock();
+            let mut seen = std::collections::HashSet::new();
+            let mut out = Vec::new();
+            for d in st.devices.values().filter(|d| d.sliders) {
+                let Some(p) = st.slot(&d.profile).profile.pages.get(d.page) else {
+                    continue;
+                };
+                for k in &p.keys {
+                    if let Some(spec) = &k.slider {
+                        if seen.insert((d.profile.clone(), d.page, k.at)) {
+                            out.push((d.profile.clone(), d.page, k.at, spec.clone()));
+                        }
+                    }
+                }
+            }
+            out
+        };
+        for (profile, page, at, spec) in visible {
+            {
+                // Don't fight a drag in progress.
+                let q = self.sliders.lock().expect("slider queue poisoned");
+                if q.running
+                    .contains(&format!("{profile}/{page}/{}/{}", at[0], at[1]))
+                {
+                    continue;
+                }
+            }
+            let Some(value) = self.executor.read_slider(&spec).await else {
+                continue;
+            };
+            let mut st = self.lock();
+            let Some(slot) = st.slots.get_mut(&profile) else {
+                continue;
+            };
+            if slot.slider_values.insert((page, at), value) != Some(value) {
+                self.echo_slider(&st, None, &profile, page, at, value);
+            }
+        }
+    }
+
     /// Refresh keys whose titles contain live values like `{time}`.
     pub fn tick(&self) {
         let mut st = self.lock();
@@ -575,7 +738,7 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let layout = page_layout(st.slot(&d.profile), d.page, d.grid);
+        let layout = page_layout(st.slot(&d.profile), d.page, d.grid, d.sliders);
         let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
         self.outbox.send(device_id, Message::Layout(layout));
         let images = d.image_px.is_some();
@@ -591,11 +754,16 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let (profile, page, grid, px) =
-            (d.profile.clone(), d.page, d.grid, d.image_px.unwrap_or(0));
+        let (profile, page, grid, px, sliders) = (
+            d.profile.clone(),
+            d.page,
+            d.grid,
+            d.image_px.unwrap_or(0),
+            d.sliders,
+        );
         let slot = st.slot_mut(&profile);
         for index in 0..grid.key_count() {
-            if let Some(url) = key_image(slot, page, grid, index, px) {
+            if let Some(url) = key_image(slot, page, grid, index, px, sliders) {
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -612,8 +780,9 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let (profile, page, grid, image_px) = (d.profile.clone(), d.page, d.grid, d.image_px);
-        let spec = key_spec(st.slot(&profile), page, grid, index);
+        let (profile, page, grid, image_px, sliders) =
+            (d.profile.clone(), d.page, d.grid, d.image_px, d.sliders);
+        let spec = key_spec(st.slot(&profile), page, grid, index, sliders);
         let previous = d.sent.get(&index).cloned();
         if previous.as_ref() == Some(&spec) {
             return;
@@ -632,7 +801,7 @@ impl Deck {
                     title: spec.title,
                 }),
             );
-            if let Some(url) = key_image(st.slot_mut(&profile), page, grid, index, px) {
+            if let Some(url) = key_image(st.slot_mut(&profile), page, grid, index, px, sliders) {
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -697,29 +866,52 @@ fn look_at(st: &Slot, page: usize, grid: Grid, index: u32) -> Option<(Look, [u32
     Some((key.look(state), at))
 }
 
-fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32) -> KeySpec {
+fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32, sliders: bool) -> KeySpec {
     match look_at(st, page, grid, index) {
-        Some((look, _)) => KeySpec {
-            index,
-            title: render_title(&look.title, chrono::Local::now()),
-            bg_color: look.bg,
-            text_color: look.fg,
-        },
+        Some((look, at)) => {
+            let is_slider = sliders && slider_at(st, page, at).is_some();
+            KeySpec {
+                index,
+                title: render_title(&look.title, chrono::Local::now()),
+                bg_color: look.bg,
+                text_color: look.fg,
+                control: is_slider.then_some(Control::Slider),
+                value: is_slider.then(|| {
+                    st.slider_values
+                        .get(&(page, at))
+                        .copied()
+                        .unwrap_or(SLIDER_START)
+                }),
+            }
+        }
         None => KeySpec {
             index,
             title: String::new(),
             bg_color: EMPTY_BG.to_owned(),
             text_color: DEFAULT_FG.to_owned(),
+            control: None,
+            value: None,
         },
     }
 }
 
-fn page_layout(st: &Slot, page: usize, grid: Grid) -> Layout {
+fn slider_at(st: &Slot, page: usize, at: [u32; 2]) -> Option<&SliderSpec> {
+    st.profile
+        .pages
+        .get(page)?
+        .keys
+        .iter()
+        .find(|k| k.at == at)?
+        .slider
+        .as_ref()
+}
+
+fn page_layout(st: &Slot, page: usize, grid: Grid, sliders: bool) -> Layout {
     Layout {
         cols: grid.cols,
         rows: grid.rows,
         keys: (0..grid.key_count())
-            .map(|i| key_spec(st, page, grid, i))
+            .map(|i| key_spec(st, page, grid, i, sliders))
             .collect(),
     }
 }
@@ -740,8 +932,18 @@ fn icon_bytes(st: &mut Slot, path: &Path) -> Option<Vec<u8>> {
 
 /// Render one key as a PNG data URL. `None` for empty positions (the client's
 /// background is enough).
-fn key_image(st: &mut Slot, page: usize, grid: Grid, index: u32, px: u32) -> Option<String> {
-    let (look, _) = look_at(st, page, grid, index)?;
+fn key_image(
+    st: &mut Slot,
+    page: usize,
+    grid: Grid,
+    index: u32,
+    px: u32,
+    sliders: bool,
+) -> Option<String> {
+    let (look, at) = look_at(st, page, grid, index)?;
+    if sliders && slider_at(st, page, at).is_some() {
+        return None; // the tablet draws its sliders
+    }
     let icon_png = look.icon.as_deref().and_then(|p| icon_bytes(st, p));
     let style = perritodeck_render::KeyStyle {
         title: render_title(&look.title, chrono::Local::now()),

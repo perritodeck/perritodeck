@@ -11,7 +11,7 @@ use std::{
 
 pub mod edit;
 
-use perritodeck_actions::{ActionSpec, Executor};
+use perritodeck_actions::{ActionSpec, Executor, SliderSpec};
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -68,6 +68,9 @@ pub struct KeyDef {
     /// action, then moves to the next state.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub states: Vec<StateDef>,
+    /// Makes the cell a slider (on tablets that support them) instead of a key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slider: Option<SliderSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -225,6 +228,11 @@ impl Profile {
                 if key.nav.is_some() && kinds.iter().filter(|k| **k).count() > 1 {
                     out.push(format!(
                         "{here}: a navigation key can't also have an action or states"
+                    ));
+                }
+                if key.slider.is_some() && kinds.iter().any(|k| *k) {
+                    out.push(format!(
+                        "{here}: a slider can't also have an action, page or states"
                     ));
                 }
                 if key.states.len() == 1 {

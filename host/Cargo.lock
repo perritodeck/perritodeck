@@ -1581,6 +1581,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "windows",
 ]
 
 [[package]]

@@ -49,6 +49,44 @@ impl HaClient {
         Self { config, agent }
     }
 
+    /// An entity's state object (`state`, `attributes`, …).
+    pub async fn state(&self, entity: &str) -> Result<Value, ActionError> {
+        if !entity
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            return Err(err(format!(
+                "{entity:?} isn't an entity id like \"light.desk\""
+            )));
+        }
+        let url = format!(
+            "{}/api/states/{entity}",
+            self.config.url.trim_end_matches('/')
+        );
+        let agent = self.agent.clone();
+        let token = self.config.token.clone();
+        let base = self.config.url.clone();
+        let entity = entity.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let mut resp = agent
+                .get(&url)
+                .header("Authorization", &format!("Bearer {token}"))
+                .call()
+                .map_err(|e| err(format!("can't reach {base}: {e}")))?;
+            match resp.status().as_u16() {
+                200 => resp
+                    .body_mut()
+                    .read_json::<Value>()
+                    .map_err(|e| err(format!("unexpected answer from Home Assistant: {e}"))),
+                401 => Err(err("the token in integrations.toml was rejected")),
+                404 => Err(err(format!("Home Assistant doesn't know {entity}"))),
+                code => Err(err(format!("Home Assistant answered {code}"))),
+            }
+        })
+        .await
+        .map_err(|e| err(e.to_string()))?
+    }
+
     pub async fn call(
         &self,
         service: &str,

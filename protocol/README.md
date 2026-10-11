@@ -64,12 +64,15 @@ client                                   host
 | `pair` | C → H | `code`, `deviceId`, `deviceName` — first message instead of `hello` |
 | `paired` | H → C | `deviceSecret`, `hostId` (certificate fingerprint), `hostName`; then the host closes |
 | `welcome` | H → C | `hostName`, `hostVersion`, `protocolVersion`, `heartbeatIntervalMs` |
-| `layout` | H → C | `cols`, `rows`, `keys[] {index, title, bgColor, textColor}` |
+| `layout` | H → C | `cols`, `rows`, `keys[] {index, title, bgColor, textColor, control?, value?}`; `control` is `"key"` (default) or `"slider"` (only to clients with the `sliders` capability), `value` 0–100 for sliders |
 | `keyDown` / `keyUp` | C → H | `keyIndex` (row-major), `clientTimestampMs` |
 | `keyAck` | H → C | `keyIndex`, `hostProcessingUs` |
 | `heartbeat` / `heartbeatAck` | C → H / H → C | `seq`, `sentAtMs` |
 | `setTitle` | H → C | `keyIndex`, `title` |
 | `setImage` | H → C | `keyIndex`, `image` (PNG/WebP data URL, or `null`). Defined now, implemented in Phase 2. |
+| `showOk` / `showAlert` | H → C | `keyIndex`, `message?` — flash ✓ or ⚠ on the key |
+| `sliderChange` | C → H | `keyIndex`, `value` (0–100). At most ~20 a second while dragging, then once on release; no reply |
+| `setValue` | H → C | `keyIndex`, `value` — move a slider to match a change made elsewhere |
 | `error` | both | `code` (`unauthorized`, `unsupportedVersion`, `badMessage`, `protocolViolation`, `internal`, `notPaired`, `pairingFailed`), `message` |
 
 ## Changing the protocol

@@ -174,3 +174,21 @@ steps = [
 # at = [1, 3]
 # title = "Dim"
 # action = { type = "homeAssistant", service = "light.turn_on", entity = "light.desk", data = { brightness_pct = 30 } }
+
+# ---- Sliders ----
+#
+# A slider fills one cell; drag it up and down on the tablet. It can set the
+# computer's volume, a Home Assistant light's brightness, an OBS source's volume,
+# or run a program with the value (0–100) in place of {value}:
+#
+#   slider = { type = "volume" }
+#   slider = { type = "homeAssistant", entity = "light.desk" }
+#   slider = { type = "obs", input = "Mic/Aux" }
+#   slider = { type = "command", program = "brightnessctl", args = ["set", "{value}%"] }
+
+[[pages.keys]]
+at = [0, 4]
+title = "Volume"
+bg = "#89B4FA"
+fg = "#11111B"
+slider = { type = "volume" }

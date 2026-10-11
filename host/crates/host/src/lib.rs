@@ -1044,6 +1044,15 @@ fn spawn_event_loop(
             ticker.tick();
         }
     });
+    let sliders = shared.deck.clone();
+    tokio::spawn(async move {
+        // Keep sliders in step with changes made on the computer.
+        let mut every = tokio::time::interval(Duration::from_secs(3));
+        loop {
+            every.tick().await;
+            sliders.poll_sliders().await;
+        }
+    });
     let watched = shared.clone();
     tokio::spawn(async move {
         let mut seen = watched.deck.revision();
@@ -1086,6 +1095,14 @@ fn spawn_event_loop(
                         device_id,
                         key_index,
                     })
+                }
+                ServerEvent::SliderChange {
+                    device_id,
+                    key_index,
+                    value,
+                } => {
+                    deck.slider_change(&device_id, key_index, value);
+                    None
                 }
                 ServerEvent::Paired {
                     device_id,

@@ -180,4 +180,139 @@ impl SystemBackend for OpenSystem {
             reason: e.to_string(),
         })
     }
+
+    fn set_volume(&self, percent: u8) -> Result<(), ActionError> {
+        volume::set(percent.min(100))
+    }
+
+    fn volume(&self) -> Option<u8> {
+        volume::get()
+    }
+}
+
+/// The main output volume, through each system's own tools.
+#[cfg(target_os = "linux")]
+mod volume {
+    use super::ActionError;
+    use std::process::Command;
+
+    fn run(program: &str, args: &[&str]) -> Option<String> {
+        let out = Command::new(program).args(args).output().ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    /// PipeWire's `wpctl`, else PulseAudio's `pactl`.
+    pub fn set(percent: u8) -> Result<(), ActionError> {
+        let level = format!("{:.2}", f64::from(percent) / 100.0);
+        if run("wpctl", &["set-volume", "@DEFAULT_AUDIO_SINK@", &level]).is_some() {
+            return Ok(());
+        }
+        if run(
+            "pactl",
+            &["set-sink-volume", "@DEFAULT_SINK@", &format!("{percent}%")],
+        )
+        .is_some()
+        {
+            return Ok(());
+        }
+        Err(ActionError::Unsupported(
+            "setting the volume without wpctl or pactl".into(),
+        ))
+    }
+
+    pub fn get() -> Option<u8> {
+        if let Some(out) = run("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]) {
+            // "Volume: 0.40" (maybe followed by "[MUTED]")
+            let v: f64 = out.split_whitespace().nth(1)?.parse().ok()?;
+            return Some((v * 100.0).round().clamp(0.0, 100.0) as u8);
+        }
+        let out = run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"])?;
+        let pct = out.split('/').nth(1)?.trim().trim_end_matches('%').trim();
+        pct.parse::<u8>().ok().map(|v| v.min(100))
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod volume {
+    use super::ActionError;
+    use std::process::Command;
+
+    pub fn set(percent: u8) -> Result<(), ActionError> {
+        let ok = Command::new("osascript")
+            .args(["-e", &format!("set volume output volume {percent}")])
+            .status()
+            .is_ok_and(|s| s.success());
+        if ok {
+            Ok(())
+        } else {
+            Err(ActionError::Input(
+                "osascript couldn't set the volume".into(),
+            ))
+        }
+    }
+
+    pub fn get() -> Option<u8> {
+        let out = Command::new("osascript")
+            .args(["-e", "output volume of (get volume settings)"])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<u8>()
+            .ok()
+            .map(|v| v.min(100))
+    }
+}
+
+// The Windows volume API is COM.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod volume {
+    use super::ActionError;
+    use windows::Win32::{
+        Media::Audio::{
+            eConsole, eRender, Endpoints::IAudioEndpointVolume, IMMDeviceEnumerator,
+            MMDeviceEnumerator,
+        },
+        System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED},
+    };
+
+    fn endpoint() -> windows::core::Result<IAudioEndpointVolume> {
+        // SAFETY: COM is initialised for this thread first (a repeat call is harmless);
+        // the interfaces are reference-counted by the `windows` crate.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+            device.Activate(CLSCTX_ALL, None)
+        }
+    }
+
+    pub fn set(percent: u8) -> Result<(), ActionError> {
+        let e = endpoint().map_err(|e| ActionError::Input(format!("no sound output: {e}")))?;
+        // SAFETY: a plain call on a live interface; no event context.
+        unsafe { e.SetMasterVolumeLevelScalar(f32::from(percent) / 100.0, std::ptr::null()) }
+            .map_err(|e| ActionError::Input(e.to_string()))
+    }
+
+    pub fn get() -> Option<u8> {
+        let e = endpoint().ok()?;
+        // SAFETY: a plain call on a live interface.
+        let v = unsafe { e.GetMasterVolumeLevelScalar() }.ok()?;
+        Some((v * 100.0).round().clamp(0.0, 100.0) as u8)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+mod volume {
+    use super::ActionError;
+    pub fn set(_: u8) -> Result<(), ActionError> {
+        Err(ActionError::Unsupported("setting the volume".into()))
+    }
+    pub fn get() -> Option<u8> {
+        None
+    }
 }

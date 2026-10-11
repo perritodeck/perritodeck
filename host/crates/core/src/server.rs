@@ -107,6 +107,12 @@ pub enum ServerEvent {
         device_id: String,
         key_index: u32,
     },
+    /// A slider on the tablet moved (0–100).
+    SliderChange {
+        device_id: String,
+        key_index: u32,
+        value: u8,
+    },
     Disconnected {
         device_id: String,
         reason: String,
@@ -595,6 +601,22 @@ impl Connection {
                     key_index: k.key_index,
                 });
                 ack(ws, env.id, k.key_index, received).await?;
+            }
+            Message::SliderChange(v) if v.key_index >= grid.key_count() || v.value > 100 => {
+                let msg = format!("slider {} = {} is out of range", v.key_index, v.value);
+                send(
+                    ws,
+                    Envelope::with_id(Message::error(ErrorCode::BadMessage, msg), env.id),
+                )
+                .await?;
+            }
+            Message::SliderChange(v) => {
+                debug!(device = %device_id, key = v.key_index, value = v.value, "sliderChange");
+                let _ = self.events.send(ServerEvent::SliderChange {
+                    device_id: device_id.to_owned(),
+                    key_index: v.key_index,
+                    value: v.value,
+                });
             }
             Message::Heartbeat(hb) => {
                 send(ws, Envelope::with_id(Message::HeartbeatAck(hb), env.id)).await?;

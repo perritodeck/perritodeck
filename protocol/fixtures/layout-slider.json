@@ -1,0 +1,24 @@
+{
+  "v": 1,
+  "type": "layout",
+  "payload": {
+    "cols": 2,
+    "rows": 1,
+    "keys": [
+      {
+        "index": 0,
+        "title": "Mute",
+        "bgColor": "#1E1E2E",
+        "textColor": "#FFFFFF"
+      },
+      {
+        "index": 1,
+        "title": "Volume",
+        "bgColor": "#89B4FA",
+        "textColor": "#11111B",
+        "control": "slider",
+        "value": 30
+      }
+    ]
+  }
+}

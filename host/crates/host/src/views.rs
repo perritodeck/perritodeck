@@ -48,7 +48,7 @@ pub struct KeyView {
     pub title: String,
     pub bg: String,
     pub fg: String,
-    /// "action", "page", "back", "next", "previous", "toggle" or "label".
+    /// "action", "page", "back", "next", "previous", "toggle", "slider" or "label".
     pub kind: String,
     /// Short description of what it does, e.g. "hotkey Ctrl+C".
     pub detail: String,
@@ -99,6 +99,13 @@ pub fn view_with_icons(
                 .map(|k| {
                     let look = k.look(0);
                     let (kind, detail) = match (&k.nav, k.states.len() >= 2, k.action(0)) {
+                        _ if k.slider.is_some() => (
+                            "slider",
+                            format!(
+                                "slider: {}",
+                                k.slider.as_ref().map(|s| s.describe()).unwrap_or_default()
+                            ),
+                        ),
                         (Some(NavSpec::Page { page }), _, _) => ("page", format!("opens {page}")),
                         (Some(NavSpec::Simple(SimpleNav::Back)), _, _) => {
                             ("back", "back".to_owned())
@@ -135,6 +142,7 @@ pub fn view_with_icons(
                             action: k.action.clone(),
                             nav: k.nav.clone(),
                             icon: k.icon.clone(),
+                            slider: k.slider.clone(),
                         },
                         states: k.states.len(),
                         has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),

@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "setValue",
+  "payload": {
+    "keyIndex": 3,
+    "value": 40
+  }
+}

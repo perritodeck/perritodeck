@@ -376,3 +376,98 @@ fn profile_ids_come_from_file_names() {
     assert_eq!(profile_id(Path::new("/x/.hidden.toml")), None);
     assert_eq!(profile_id(Path::new("/x/notes.txt")), None);
 }
+
+#[derive(Default)]
+struct Volume(std::sync::Mutex<Vec<u8>>);
+
+impl perritodeck_actions::SystemBackend for Volume {
+    fn open(&self, _: &str) -> Result<(), perritodeck_actions::ActionError> {
+        Ok(())
+    }
+    fn set_volume(&self, p: u8) -> Result<(), perritodeck_actions::ActionError> {
+        std::thread::sleep(Duration::from_millis(30));
+        self.0.lock().unwrap().push(p);
+        Ok(())
+    }
+    fn volume(&self) -> Option<u8> {
+        Some(33)
+    }
+}
+
+const SLIDERS: &str = r##"
+schema_version = 1
+name = "S"
+[grid]
+cols = 2
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Copy"
+action = { type = "hotkey", keys = "Ctrl+C" }
+[[pages.keys]]
+at = [0, 1]
+title = "Volume"
+slider = { type = "volume" }
+"##;
+
+#[tokio::test]
+async fn sliders_set_the_volume_and_follow_it() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let vol = Arc::new(Volume::default());
+    let deck = Deck::new(
+        Profile::parse(SLIDERS).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys, vol.clone()),
+    );
+    let grid = Grid { cols: 2, rows: 1 };
+    let caps = ["keys".to_string(), "sliders".to_string()];
+    deck.connected("a", grid, hello().screen, &caps);
+    deck.connected("b", grid, hello().screen, &caps);
+    deck.connected("old", grid, hello().screen, &["keys".to_string()]);
+
+    // Slider-capable tablets get a slider; others an ordinary key.
+    let mut h = hello();
+    h.capabilities = caps.to_vec();
+    let l = deck.initial_layout(&h);
+    assert_eq!(
+        l.keys[1].control,
+        Some(perritodeck_protocol::Control::Slider)
+    );
+    assert_eq!(l.keys[1].value, Some(50));
+    h.capabilities = vec!["keys".into()];
+    assert_eq!(deck.initial_layout(&h).keys[1].control, None);
+    sent.take();
+
+    // A fast drag: values coalesce; the last one always lands.
+    for v in [10u8, 20, 30, 40, 64] {
+        deck.slider_change("a", 1, v);
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let set = vol.0.lock().unwrap().clone();
+    assert_eq!(set.last(), Some(&64));
+    assert!(set.len() < 5, "coalesced: {set:?}");
+    // The other slider tablet follows; the one without sliders isn't told.
+    let msgs = sent.take();
+    assert!(msgs
+        .iter()
+        .any(|m| matches!(m, Message::SetValue(v) if v.value == 64)));
+    assert!(!msgs
+        .iter()
+        .any(|m| matches!(m, Message::SetValue(v) if v.value == 200)));
+
+    // Changes on the computer reach the tablets.
+    deck.poll_sliders().await;
+    let msgs = sent.take();
+    assert_eq!(
+        msgs.iter()
+            .filter(|m| matches!(m, Message::SetValue(v) if v.value == 33))
+            .count(),
+        2
+    );
+    deck.poll_sliders().await;
+    assert!(sent.take().is_empty(), "nothing new");
+}

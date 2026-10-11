@@ -17,6 +17,8 @@ neg = [
   {"v":1,"type":"layout","payload":{"cols":0,"rows":1,"keys":[]}},
   {"v":1,"type":"setImage","payload":{"keyIndex":0,"image":"data:image/gif;base64,AAAA"}},
   {"v":1,"type":"keyDown","payload":{"keyIndex":1,"clientTimestampMs":0,"extra":1}},
+  {"v":1,"type":"sliderChange","payload":{"keyIndex":0,"value":101}},
+  {"v":1,"type":"layout","payload":{"cols":1,"rows":1,"keys":[{"index":0,"title":"","bgColor":"#000000","textColor":"#FFFFFF","control":"dial"}]}},
 ]
 for n in neg:
     if v.is_valid(n): print("NEGATIVE PASSED (bad):", n); bad += 1
