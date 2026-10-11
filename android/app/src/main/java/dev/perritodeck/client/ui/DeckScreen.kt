@@ -20,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import dev.perritodeck.client.R
 import dev.perritodeck.client.net.ConnState
+import dev.perritodeck.client.net.DeckConnection
+import kotlinx.coroutines.delay
 import dev.perritodeck.client.protocol.KeySpec
 import dev.perritodeck.client.protocol.Layout
 import dev.perritodeck.client.protocol.parseColor
@@ -55,6 +58,7 @@ import dev.perritodeck.client.protocol.parseColor
 fun DeckScreen(
     layout: Layout?,
     images: Map<Int, Any>,
+    flash: DeckConnection.Flash?,
     state: ConnState,
     rttMs: Double?,
     onKeyDown: (Int) -> Unit,
@@ -67,7 +71,7 @@ fun DeckScreen(
             .background(Background)
     ) {
         if (layout != null) {
-            KeyGrid(layout, images, onKeyDown, onKeyUp)
+            KeyGrid(layout, images, flash, onKeyDown, onKeyUp)
         }
 
         // Small status line; stays out of the way of the grid.
@@ -112,7 +116,13 @@ private fun ConnectingOverlay(state: ConnState, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun KeyGrid(layout: Layout, images: Map<Int, Any>, onKeyDown: (Int) -> Unit, onKeyUp: (Int) -> Unit) {
+private fun KeyGrid(
+    layout: Layout,
+    images: Map<Int, Any>,
+    flash: DeckConnection.Flash?,
+    onKeyDown: (Int) -> Unit,
+    onKeyUp: (Int) -> Unit,
+) {
     val byIndex = remember(layout) { layout.keys.associateBy { it.index } }
     BoxWithConstraints(
         Modifier
@@ -135,7 +145,7 @@ private fun KeyGrid(layout: Layout, images: Map<Int, Any>, onKeyDown: (Int) -> U
                     for (c in 0 until cols) {
                         if (c > 0) Spacer(Modifier.size(gap))
                         val index = r * cols + c
-                        DeckKey(index, byIndex[index], images[index] as? ImageBitmap, cell, onKeyDown, onKeyUp)
+                        DeckKey(index, byIndex[index], images[index] as? ImageBitmap, flash, cell, onKeyDown, onKeyUp)
                     }
                 }
             }
@@ -148,6 +158,7 @@ private fun DeckKey(
     index: Int,
     spec: KeySpec?,
     image: ImageBitmap?,
+    flash: DeckConnection.Flash?,
     size: Dp,
     onKeyDown: (Int) -> Unit,
     onKeyUp: (Int) -> Unit,
@@ -162,6 +173,16 @@ private fun DeckKey(
     val title = spec?.title.orEmpty()
     val fontSize = with(LocalDensity.current) { (size.toPx() * 0.16f).toSp() }
     val description = stringResource(R.string.key_description, index + 1, title)
+
+    // ✓ or ⚠ for a moment after the host reports how this key's action went.
+    var badge by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(flash) {
+        if (flash != null && flash.keyIndex == index) {
+            badge = flash.ok
+            delay(1_200)
+            badge = null
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -197,9 +218,7 @@ private fun DeckKey(
                 filterQuality = FilterQuality.Medium,
                 modifier = Modifier.matchParentSize(),
             )
-            return@Box
-        }
-        Text(
+        } else Text(
             text = title,
             color = fg,
             fontSize = fontSize,
@@ -210,5 +229,18 @@ private fun DeckKey(
             lineHeight = fontSize * 1.1f,
             modifier = Modifier.padding(size * 0.06f),
         )
+        badge?.let { ok ->
+            Box(
+                Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (ok) "✓" else "⚠",
+                    color = if (ok) Color(0xFFA6E3A1) else Color(0xFFF9E2AF),
+                    fontSize = with(LocalDensity.current) { (size.toPx() * 0.42f).toSp() },
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
     }
 }

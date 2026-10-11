@@ -62,6 +62,12 @@ class DeckConnection(
     /** Host-rendered key images by key index (from `setImage`); cleared with each new layout. */
     val images: StateFlow<Map<Int, Any>> = _images.asStateFlow()
 
+    /** A short-lived ✓ / ⚠ on a key after its action finished. */
+    data class Flash(val keyIndex: Int, val ok: Boolean, val at: Long)
+
+    private val _flash = MutableStateFlow<Flash?>(null)
+    val flash: StateFlow<Flash?> = _flash.asStateFlow()
+
     private val _rttMs = MutableStateFlow<Double?>(null)
     /** Round trip of the most recent key press, in milliseconds. */
     val rttMs: StateFlow<Double?> = _rttMs.asStateFlow()
@@ -200,6 +206,8 @@ class DeckConnection(
                                 _layout.value = m.payload
                                 _images.value = emptyMap()
                             }
+                            is Message.ShowOk -> _flash.value = Flash(m.payload.keyIndex, true, nanoTime())
+                            is Message.ShowAlert -> _flash.value = Flash(m.payload.keyIndex, false, nanoTime())
                             is Message.SetImageMsg -> {
                                 val key = m.payload.keyIndex
                                 val decoded = m.payload.image?.let(decodeImage)

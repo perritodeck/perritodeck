@@ -85,6 +85,10 @@ data class SetTitle(val keyIndex: Int, val title: String)
 @Serializable
 data class SetImage(val keyIndex: Int, val image: String?)
 
+/** Payload of showOk / showAlert. */
+@Serializable
+data class KeyFeedback(val keyIndex: Int, val message: String? = null)
+
 @Serializable
 enum class ErrorCode {
     @SerialName("unauthorized") UNAUTHORIZED,
@@ -115,6 +119,8 @@ sealed interface Message {
     data class HeartbeatAck(val payload: Heartbeat) : Message { override val type = "heartbeatAck" }
     data class SetTitleMsg(val payload: SetTitle) : Message { override val type = "setTitle" }
     data class SetImageMsg(val payload: SetImage) : Message { override val type = "setImage" }
+    data class ShowOk(val payload: KeyFeedback) : Message { override val type = "showOk" }
+    data class ShowAlert(val payload: KeyFeedback) : Message { override val type = "showAlert" }
     data class Error(val payload: ErrorMessage) : Message { override val type = "error" }
 }
 
@@ -140,7 +146,7 @@ object Codec {
 
     val knownTypes = setOf(
         "hello", "pair", "paired", "welcome", "layout", "keyDown", "keyUp", "keyAck",
-        "heartbeat", "heartbeatAck", "setTitle", "setImage", "error",
+        "heartbeat", "heartbeatAck", "setTitle", "setImage", "showOk", "showAlert", "error",
     )
 
     fun encode(env: Envelope): String = json.encodeToString(JsonObject.serializer(), toJson(env))
@@ -165,6 +171,8 @@ object Codec {
         is Message.HeartbeatAck -> json.encodeToJsonElement(Heartbeat.serializer(), m.payload)
         is Message.SetTitleMsg -> json.encodeToJsonElement(SetTitle.serializer(), m.payload)
         is Message.SetImageMsg -> json.encodeToJsonElement(SetImage.serializer(), m.payload)
+        is Message.ShowOk -> json.encodeToJsonElement(KeyFeedback.serializer(), m.payload)
+        is Message.ShowAlert -> json.encodeToJsonElement(KeyFeedback.serializer(), m.payload)
         is Message.Error -> json.encodeToJsonElement(ErrorMessage.serializer(), m.payload)
     }
 
@@ -202,6 +210,8 @@ object Codec {
                 "heartbeatAck" -> Message.HeartbeatAck(p(Heartbeat.serializer(), payload))
                 "setTitle" -> Message.SetTitleMsg(p(SetTitle.serializer(), payload))
                 "setImage" -> Message.SetImageMsg(p(SetImage.serializer(), payload))
+                "showOk" -> Message.ShowOk(p(KeyFeedback.serializer(), payload))
+                "showAlert" -> Message.ShowAlert(p(KeyFeedback.serializer(), payload))
                 "error" -> Message.Error(p(ErrorMessage.serializer(), payload))
                 else -> error("unreachable: $type")
             }

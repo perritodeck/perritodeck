@@ -20,8 +20,8 @@ import java.io.File
 /**
  * Runs the real app against a real `perritodeck-host` started by CI on the machine
  * running the emulator (reachable as 10.0.2.2) with a fixed pairing code. Proves the
- * whole loop: pair over TLS, compare fingerprints, connect, receive the layout, press a
- * key and see the host's reply.
+ * whole loop: pair over TLS, compare fingerprints, connect, then use the host's starter
+ * profile — open a page, run a command, go back and flip a toggle.
  *
  * Instrumentation args: `pairCode` (default 424242) and optionally `hostFingerprint`
  * (the short form the host printed), which the on-screen fingerprint must equal.
@@ -36,7 +36,7 @@ class HostEndToEndTest {
     private val args = InstrumentationRegistry.getArguments()
 
     @Test
-    fun pairConnectPressAndSeeHostFeedback() {
+    fun pairConnectAndUseTheStarterProfile() {
         compose.onNodeWithText("Pair with a code").performClick()
         compose.onNodeWithText("Emulator").performClick()
         compose.onNodeWithTag("code").performTextInput(args.getString("pairCode") ?: "424242")
@@ -48,20 +48,28 @@ class HostEndToEndTest {
         screenshot("1-confirm-fingerprint")
         compose.onNodeWithText("It matches").performClick()
 
-        // Paired and connected over TLS: the host's demo counter key is on screen.
+        // Paired and connected over TLS: the host's starter profile is on screen.
         // (Keys may be host-rendered images, so match their accessibility labels, not visible text.)
-        compose.waitUntilAtLeastOneExists(hasContentDescription("0×", substring = true), timeout)
+        compose.waitUntilAtLeastOneExists(hasContentDescription("Copy", substring = true), timeout)
+        compose.waitUntilDoesNotExist(hasContentDescription("{time}", substring = true), timeout)
         screenshot("2-connected")
 
-        // Live clock: the host pushes setTitle every second, replacing the placeholder.
-        compose.waitUntilDoesNotExist(hasContentDescription("--:--:--", substring = true), timeout)
+        // A folder key opens the second page; Back returns.
+        compose.onNode(hasContentDescription("More", substring = true)).performClick()
+        compose.waitUntilAtLeastOneExists(hasContentDescription("Back", substring = true), timeout)
 
-        // Press the counter key three times; the host answers each press with a new title.
-        repeat(3) { n ->
-            compose.onNode(hasContentDescription("Pressed", substring = true)).performClick()
-            compose.waitUntilAtLeastOneExists(hasContentDescription("${n + 1}×", substring = true), timeout)
-        }
-        screenshot("3-after-presses")
+        // Running a command on the host: the key flashes ✓ when it finishes.
+        compose.onNode(hasContentDescription("command", substring = true)).performClick()
+        Thread.sleep(400)
+        screenshot("3-command-ran")
+
+        compose.onNode(hasContentDescription("Back", substring = true)).performClick()
+        compose.waitUntilAtLeastOneExists(hasContentDescription("Copy", substring = true), timeout)
+
+        // A toggle switches state on each press (shared by every tablet showing it).
+        compose.onNode(hasContentDescription("live", substring = true)).performClick()
+        compose.waitUntilAtLeastOneExists(hasContentDescription("muted", substring = true), timeout)
+        screenshot("4-toggled")
     }
 
     /**

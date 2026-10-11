@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/host", "crates/fakedeck"]
+members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/profile", "crates/deck", "crates/host", "crates/fakedeck"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +15,8 @@ perritodeck-protocol = { path = "crates/protocol" }
 perritodeck-core = { path = "crates/core" }
 perritodeck-actions = { path = "crates/actions" }
 perritodeck-render = { path = "crates/render" }
+perritodeck-profile = { path = "crates/profile" }
+perritodeck-deck = { path = "crates/deck" }
 perritodeck-fakedeck = { path = "crates/fakedeck" }
 
 anyhow = "1"
@@ -24,6 +26,7 @@ base64 = "0.23"
 directories = "6"
 if-addrs = "0.15"
 mdns-sd = "0.21"
+notify = "8"
 qrcode = { version = "0.14", default-features = false }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
@@ -40,6 +43,7 @@ rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+toml = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal", "process", "io-util"] }
 tokio-tungstenite = "0.27"
 tracing = "0.1"

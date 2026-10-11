@@ -76,7 +76,7 @@ jobs:
         if: always()
         run: |
           cat host.log
-          grep -q "key 2 down" host.log && echo "host saw the presses"
+          grep -q "pressed" host.log && echo "host saw the presses"
 
       - name: Publish screenshots to a branch (easy to browse on GitHub)
         if: always() && github.event_name != 'pull_request'

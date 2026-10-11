@@ -5,7 +5,6 @@
 //! to let a new tablet pair.
 
 use std::{
-    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,12 +13,17 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use perritodeck_actions::{
+    system::{EnigoInput, OpenSystem},
+    Executor,
+};
 use perritodeck_core::{
-    demo, discovery, display_fingerprint,
+    discovery, display_fingerprint,
     pairing::{PairingStore, DEFAULT_OFFER_TTL},
     HostIdentity, Security, Server, ServerConfig, ServerEvent, ServerHandle,
 };
-use perritodeck_protocol::{Grid, Message, SetImage, SetTitle, DEFAULT_PORT};
+use perritodeck_deck::{watch::watch_profile, Deck, Outbox};
+use perritodeck_protocol::{Message, DEFAULT_PORT};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::TcpListener,
@@ -41,6 +45,9 @@ struct Cli {
     /// Where the host keeps its certificate and paired devices.
     #[arg(long, env = "PERRITODECK_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Profile to show on the tablets (created with examples if missing).
+    #[arg(long, env = "PERRITODECK_PROFILE")]
+    profile: Option<PathBuf>,
     /// Open a pairing window as soon as the host starts.
     #[arg(long)]
     pair: bool,
@@ -50,9 +57,9 @@ struct Cli {
     /// Don't advertise on the local network (mDNS).
     #[arg(long)]
     no_mdns: bool,
-    /// Testing only: also accept this fixed pairing code for an hour.
+    /// Testing only: also accept this fixed pairing code for an hour (repeatable).
     #[arg(long, hide = true)]
-    pair_code: Option<String>,
+    pair_code: Vec<String>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -89,6 +96,12 @@ fn data_dir(cli: &Cli) -> Result<PathBuf> {
 
 fn devices_path(dir: &Path) -> PathBuf {
     dir.join("devices.json")
+}
+
+fn profile_path(cli: &Cli, dir: &Path) -> PathBuf {
+    cli.profile
+        .clone()
+        .unwrap_or_else(|| dir.join("profiles").join("default.toml"))
 }
 
 async fn run_action(json: &str, delay_secs: u64) -> Result<()> {
@@ -169,6 +182,7 @@ async fn main() -> Result<()> {
             println!("certificate:  {}", cert.display());
             println!("private key:  {}", key.display());
             println!("devices:      {}", devices_path(&dir).display());
+            println!("profile:      {}", profile_path(&cli, &dir).display());
             return Ok(());
         }
         Some(Command::Serve) | None => {}
@@ -186,7 +200,7 @@ async fn main() -> Result<()> {
         let identity = HostIdentity::load_or_create(&dir)
             .with_context(|| format!("loading the host certificate from {}", dir.display()))?;
         let store = Arc::new(PairingStore::open(&devices_path(&dir))?);
-        if let Some(code) = &cli.pair_code {
+        for code in &cli.pair_code {
             if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
                 bail!("--pair-code must be 6 digits");
             }
@@ -206,10 +220,45 @@ async fn main() -> Result<()> {
         format!("could not listen on {addr} — is another host already running?")
     })?;
 
-    let mut config = ServerConfig::new(host_name.clone(), security, Arc::new(demo::layout_for));
+    let profile_file = profile_path(&cli, &dir);
+    if perritodeck_profile::ensure_starter(&profile_file)? {
+        println!("  created a starter profile: {}", profile_file.display());
+    }
+    let profile = perritodeck_profile::load(&profile_file)?;
+    let missing = profile.missing_icons(profile_file.parent().unwrap_or(Path::new(".")));
+    for m in missing {
+        warn!("icon not found: {}", m.display());
+    }
+    let base_dir = profile_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    // The deck sends through the server's handle, which exists only once the server does;
+    // a small shim lets it be wired up after.
+    let outbox = Arc::new(LateOutbox::default());
+    let executor = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem));
+    let deck = Deck::new(profile, base_dir, outbox.clone(), executor);
+    let layout_deck = deck.clone();
+
+    let mut config = ServerConfig::new(
+        host_name.clone(),
+        security,
+        Arc::new(move |hello: &perritodeck_protocol::Hello| layout_deck.initial_layout(hello)),
+    );
     config.heartbeat_interval = Duration::from_millis(cli.heartbeat_ms);
     let (server, events) = Server::new(listener, config);
     let handle = server.handle();
+    outbox.set(handle.clone());
+    let _watcher = match watch_profile(profile_file.clone(), deck.clone()) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            warn!(
+                "won't notice edits to {} until restart: {e}",
+                profile_file.display()
+            );
+            None
+        }
+    };
 
     let lan = if cli.listen.is_loopback() {
         vec![]
@@ -245,13 +294,29 @@ async fn main() -> Result<()> {
         spawn_console(store.clone(), handle.clone(), pairing);
     }
 
-    spawn_demo(handle, events);
+    spawn_deck(deck, events);
 
     tokio::select! {
         r = server.run() => r.context("server stopped")?,
         _ = tokio::signal::ctrl_c() => info!("shutting down"),
     }
     Ok(())
+}
+
+/// Outbox that forwards to the server handle once it exists.
+#[derive(Default)]
+struct LateOutbox(std::sync::OnceLock<ServerHandle>);
+
+impl LateOutbox {
+    fn set(&self, h: ServerHandle) {
+        let _ = self.0.set(h);
+    }
+}
+
+impl Outbox for LateOutbox {
+    fn send(&self, device_id: &str, msg: Message) -> bool {
+        self.0.get().is_some_and(|h| h.send(device_id, msg))
+    }
 }
 
 struct PairingUi {
@@ -320,68 +385,18 @@ fn spawn_console(store: Arc<PairingStore>, handle: ServerHandle, pairing: Pairin
     });
 }
 
-/// Devices that asked for host-rendered images: their key size and grid.
-type ImageDevices = Arc<std::sync::Mutex<HashMap<String, (u32, Grid)>>>;
-
-/// Render one demo key with `title` and send it as `setImage`.
-fn send_key_image(
-    handle: &ServerHandle,
-    device_id: &str,
-    grid: Grid,
-    px: u32,
-    key_index: u32,
-    title: &str,
-) {
-    let layout = demo::layout_for_grid(grid);
-    let Some(spec) = layout.keys.iter().find(|k| k.index == key_index) else {
-        return;
-    };
-    let style = perritodeck_render::KeyStyle {
-        title: title.to_owned(),
-        background: perritodeck_render::parse_hex(&spec.bg_color).unwrap_or([0x1E, 0x1E, 0x2E]),
-        text: perritodeck_render::parse_hex(&spec.text_color).unwrap_or([0xFF, 0xFF, 0xFF]),
-        icon_png: None,
-    };
-    let url = perritodeck_render::data_url(&perritodeck_render::render_png(&style, px));
-    handle.send(
-        device_id,
-        Message::SetImage(SetImage {
-            key_index,
-            image: Some(url),
-        }),
-    );
-}
-
-/// Demo behaviour until profiles exist: live clock on key 1, press counter on key 2.
-/// Devices that support images get host-rendered keys; others get titles only.
-fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) {
-    let image_devices: ImageDevices = Default::default();
-
-    let clock = handle.clone();
-    let clock_devices = image_devices.clone();
+/// Feed server events to the deck runtime and keep live titles ticking.
+fn spawn_deck(deck: Arc<Deck>, mut events: UnboundedReceiver<ServerEvent>) {
+    let ticker = deck.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
             tick.tick().await;
-            let title = chrono::Local::now().format("%H:%M:%S").to_string();
-            clock.broadcast(Message::SetTitle(SetTitle {
-                key_index: demo::CLOCK_KEY,
-                title: title.clone(),
-            }));
-            let devices: Vec<_> = clock_devices
-                .lock()
-                .expect("poisoned")
-                .clone()
-                .into_iter()
-                .collect();
-            for (id, (px, grid)) in devices {
-                send_key_image(&clock, &id, grid, px, demo::CLOCK_KEY, &title);
-            }
+            ticker.tick();
         }
     });
 
     tokio::spawn(async move {
-        let mut counts: HashMap<String, u64> = HashMap::new();
         while let Some(event) = events.recv().await {
             match event {
                 ServerEvent::Connected {
@@ -391,56 +406,19 @@ fn spawn_demo(handle: ServerHandle, mut events: UnboundedReceiver<ServerEvent>) 
                     capabilities,
                     ..
                 } => {
-                    if capabilities.iter().any(|c| c == "images") {
-                        let px = perritodeck_render::key_pixel_size(&screen, grid);
-                        for spec in demo::layout_for_grid(grid).keys {
-                            send_key_image(&handle, &device_id, grid, px, spec.index, &spec.title);
-                        }
-                        image_devices
-                            .lock()
-                            .expect("poisoned")
-                            .insert(device_id, (px, grid));
-                    }
+                    deck.connected(&device_id, grid, screen, &capabilities);
                 }
                 ServerEvent::KeyDown {
                     device_id,
                     key_index,
                 } => {
-                    info!(device = %device_id, "key {} down", key_index + 1);
-                    if key_index == demo::COUNTER_KEY {
-                        let n = counts.entry(device_id.clone()).or_default();
-                        *n += 1;
-                        let title = demo::counter_title(*n);
-                        handle.send(
-                            &device_id,
-                            Message::SetTitle(SetTitle {
-                                key_index,
-                                title: title.clone(),
-                            }),
-                        );
-                        let image = image_devices
-                            .lock()
-                            .expect("poisoned")
-                            .get(&device_id)
-                            .copied();
-                        if let Some((px, grid)) = image {
-                            send_key_image(&handle, &device_id, grid, px, key_index, &title);
-                        }
-                    }
-                }
-                ServerEvent::KeyUp {
-                    device_id,
-                    key_index,
-                } => {
-                    info!(device = %device_id, "key {} up", key_index + 1);
+                    info!(device = %device_id, "key {} pressed", key_index + 1);
+                    deck.key_down(&device_id, key_index);
                 }
                 ServerEvent::Paired { device_name, .. } => {
                     println!("\n  Paired with {device_name}. It will connect automatically from now on.\n");
                 }
-                ServerEvent::Disconnected { device_id, .. } => {
-                    counts.remove(&device_id);
-                    image_devices.lock().expect("poisoned").remove(&device_id);
-                }
+                ServerEvent::Disconnected { device_id, .. } => deck.disconnected(&device_id),
                 _ => {}
             }
         }

@@ -154,6 +154,26 @@
           "$ref": "#/$defs/error"
         }
       }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "showOk"
+        },
+        "payload": {
+          "$ref": "#/$defs/keyFeedback"
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "showAlert"
+        },
+        "payload": {
+          "$ref": "#/$defs/keyFeedback"
+        }
+      }
     }
   ],
   "$defs": {
@@ -518,6 +538,23 @@
         },
         "hostName": {
           "type": "string"
+        }
+      }
+    },
+    "keyFeedback": {
+      "description": "Host → client (showOk / showAlert). Briefly flash ✓ or ⚠ on a key after its action finished; message (alerts only) is for logs and screen readers.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyIndex"
+      ],
+      "properties": {
+        "keyIndex": {
+          "$ref": "#/$defs/keyIndex"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 256
         }
       }
     }

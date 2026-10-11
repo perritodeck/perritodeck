@@ -26,6 +26,8 @@ pub const KNOWN_TYPES: &[&str] = &[
     "heartbeatAck",
     "setTitle",
     "setImage",
+    "showOk",
+    "showAlert",
     "error",
 ];
 
@@ -77,7 +79,18 @@ pub enum Message {
     HeartbeatAck(Heartbeat),
     SetTitle(SetTitle),
     SetImage(SetImage),
+    ShowOk(KeyFeedback),
+    ShowAlert(KeyFeedback),
     Error(ErrorMessage),
+}
+
+/// Payload of `showOk` / `showAlert`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyFeedback {
+    pub key_index: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -263,6 +276,8 @@ impl Message {
             Message::HeartbeatAck(_) => "heartbeatAck",
             Message::SetTitle(_) => "setTitle",
             Message::SetImage(_) => "setImage",
+            Message::ShowOk(_) => "showOk",
+            Message::ShowAlert(_) => "showAlert",
             Message::Error(_) => "error",
         }
     }

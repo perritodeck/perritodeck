@@ -1,0 +1,141 @@
+# PerritoDeck profile
+#
+# This file decides what's on your tablet. Save it and the tablet updates within a
+# second; if something's wrong, the host's window says what and keeps the last good
+# version on screen.
+#
+# Keys sit at [row, column], counted from 0 at the top left.
+# Colours are "#RRGGBB". Titles can use \n for a line break and these live values:
+#   {time}  current time, e.g. 21:07     {time_s}  with seconds, e.g. 21:07:45
+#   {date}  e.g. Sun 11 Oct
+
+schema_version = 1
+name = "Starter"
+
+# Every tablet gets this grid. Delete these lines to size the grid to each tablet.
+[grid]
+cols = 5
+rows = 3
+
+# ---------------------------------------------------------------------------
+[[pages]]
+name = "Main"
+
+# A key with no action: a live clock.
+[[pages.keys]]
+at = [0, 0]
+title = "{time}"
+
+# Media keys work with whatever app is playing.
+# key: playPause, next, previous, stop, volumeUp, volumeDown, mute
+[[pages.keys]]
+at = [0, 1]
+title = "Play /\nPause"
+bg = "#A6E3A1"
+fg = "#11111B"
+action = { type = "media", key = "playPause" }
+
+[[pages.keys]]
+at = [0, 2]
+title = "Vol +"
+bg = "#89B4FA"
+fg = "#11111B"
+action = { type = "media", key = "volumeUp" }
+
+[[pages.keys]]
+at = [0, 3]
+title = "Vol −"
+bg = "#89B4FA"
+fg = "#11111B"
+action = { type = "media", key = "volumeDown" }
+
+[[pages.keys]]
+at = [0, 4]
+title = "Mute"
+bg = "#89B4FA"
+fg = "#11111B"
+action = { type = "media", key = "mute" }
+
+# A toggle: each press runs the current state's action, then switches to the next
+# state. Ctrl+Shift+M toggles your mic in Microsoft Teams; Discord uses
+# Ctrl+Shift+M too. Change the keys to match your app.
+[[pages.keys]]
+at = [1, 0]
+states = [
+  { title = "Mic\nlive", bg = "#A6E3A1", fg = "#11111B", action = { type = "hotkey", keys = "Ctrl+Shift+M" } },
+  { title = "Mic\nmuted", bg = "#F38BA8", fg = "#11111B", action = { type = "hotkey", keys = "Ctrl+Shift+M" } },
+]
+
+# Hotkeys: modifiers Ctrl, Alt, Shift, Meta (Cmd/Win), then one key: a letter,
+# a digit, F1–F24, Enter, Tab, Space, Esc, Backspace, Delete, Home, End, PageUp,
+# PageDown, Up, Down, Left, Right. On a Mac use Meta+C instead of Ctrl+C.
+[[pages.keys]]
+at = [1, 1]
+title = "Copy"
+action = { type = "hotkey", keys = "Ctrl+C" }
+
+[[pages.keys]]
+at = [1, 2]
+title = "Paste"
+action = { type = "hotkey", keys = "Ctrl+V" }
+
+# Type text exactly as written.
+[[pages.keys]]
+at = [1, 3]
+title = "Type\nhello"
+action = { type = "text", text = "Hello from Perrito! " }
+
+# Open a website (http, https or mailto) in your default browser.
+[[pages.keys]]
+at = [1, 4]
+title = "Perrito\nwebsite"
+bg = "#FAB387"
+fg = "#11111B"
+action = { type = "openUrl", url = "https://perritodeck.dev" }
+
+# Go to another page. Pages work like folders: put a Back key on them.
+[[pages.keys]]
+at = [2, 0]
+title = "More ›"
+bg = "#CBA6F7"
+fg = "#11111B"
+nav = { page = "More" }
+
+[[pages.keys]]
+at = [2, 4]
+title = "{date}"
+fg = "#9399B2"
+
+# ---------------------------------------------------------------------------
+[[pages]]
+name = "More"
+
+[[pages.keys]]
+at = [0, 0]
+title = "‹ Back"
+bg = "#CBA6F7"
+fg = "#11111B"
+nav = "back"
+
+# Run a program and wait for it. The key flashes ✓ when it succeeds and ⚠ when it
+# fails. Arguments are a list; nothing goes through a shell.
+[[pages.keys]]
+at = [0, 1]
+title = "Run a\ncommand"
+action = { type = "command", program = "hostname" }
+
+# Start an app without waiting for it, e.g.
+#   action = { type = "launch", program = "obs" }
+# or open a file or folder with its default app:
+#   action = { type = "openPath", path = "/home/you/Videos" }
+
+# Several actions in a row, with optional pauses (milliseconds) between them.
+[[pages.keys]]
+at = [0, 2]
+title = "Select all\n+ copy"
+[pages.keys.action]
+type = "multi"
+steps = [
+  { action = { type = "hotkey", keys = "Ctrl+A" }, delayMs = 100 },
+  { action = { type = "hotkey", keys = "Ctrl+C" } },
+]

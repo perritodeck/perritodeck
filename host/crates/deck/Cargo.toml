@@ -1,0 +1,26 @@
+[package]
+name = "perritodeck-deck"
+description = "Runs a PerritoDeck profile: pages per device, key presses to actions, toggles, live titles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+perritodeck-actions.workspace = true
+perritodeck-core.workspace = true
+perritodeck-profile.workspace = true
+perritodeck-protocol.workspace = true
+perritodeck-render.workspace = true
+chrono.workspace = true
+notify.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
