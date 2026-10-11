@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build the online plugin catalogue: one zip per plugin plus index.json.
+"""Build the online plugin catalogue: one zip per plugin, index.json for the app, and
+index.html, a page listing them for people.
 
     python3 plugins/build_catalog.py [OUT_DIR]
 
@@ -10,6 +11,7 @@ left out. Standard library only.
 """
 
 import hashlib
+import html
 import json
 import os
 import sys
@@ -67,13 +69,125 @@ def main():
                 "author": m.get("author", ""),
                 "url": zip_name,
                 "sha256": digest,
+                "runtime": m.get("runtime", ""),
+                "actions": [a["name"] for a in m.get("actions", [])],
+                "values": [
+                    v["name"] + (f" (per {v['arg'].split('(')[0].strip().lower()})" if v.get("arg") else "")
+                    for v in m.get("values", [])
+                ],
+                "size": os.path.getsize(os.path.join(out, zip_name)),
             }
         )
         print(f"{zip_name}  {digest}")
     with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as f:
         json.dump({"version": 1, "plugins": entries}, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print(f"{len(entries)} plugin(s) in {os.path.normpath(out)}/index.json")
+    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
+        f.write(page(entries))
+    print(f"{len(entries)} plugin(s) in {os.path.normpath(out)}/index.json and index.html")
+
+
+RUNTIMES = {"python": "Python 3", "node": "Node.js", "exec": "nothing extra"}
+
+
+def page(entries):
+    """The catalogue as a web page, styled like the rest of the site."""
+    e = html.escape
+    items = []
+    for i, p in enumerate(sorted(entries, key=lambda p: p["name"].lower())):
+        initials = "".join(w[0] for w in p["name"].split()[:2]).upper() or "?"
+        actions = "".join(f"<li>{e(a)}</li>" for a in p["actions"][:8])
+        more = len(p["actions"]) - 8
+        if more > 0:
+            actions += f"<li class=more>and {more} more</li>"
+        values = "".join(f"<li>{e(v)}</li>" for v in p["values"][:8])
+        vmore = len(p["values"]) - 8
+        if vmore > 0:
+            values += f"<li class=more>and {vmore} more</li>"
+        columns = ""
+        if actions:
+            columns += f"<div><h3>Keys can</h3><ul>{actions}</ul></div>"
+        if values:
+            columns += f"<div><h3>Titles can show</h3><ul>{values}</ul></div>"
+        items.append(
+            f"""
+      <article class="plugin" id="{e(p['id'])}">
+        <span class="key" data-tone="{i % 7 + 1}" aria-hidden="true">{e(initials)}</span>
+        <div class="about">
+          <h2>{e(p['name'])} <span class="version">{e(p['version'])}</span></h2>
+          <p>{e(p['description'])}</p>
+          <div class="columns">{columns}</div>
+          <p class="get"><a href="{e(p['url'])}" download>Download ({max(1, p['size'] // 1024)} KB)</a>
+            · needs {e(RUNTIMES.get(p['runtime'], p['runtime']))}
+            <br><span class="sha" title="SHA-256">SHA-256 {e(p['sha256'])}</span></p>
+        </div>
+      </article>"""
+        )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plugins — PerritoDeck</title>
+  <meta name="description" content="Plugins that add actions and live values to PerritoDeck: OBS Studio, Home Assistant helpers, Proxmox, timers and more.">
+  <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .plugins {{ display: grid; gap: 0; max-width: 900px; }}
+    .plugin {{ display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 22px; padding: 28px 0; border-top: 1px solid var(--line); }}
+    .plugin .key {{ width: 64px; height: 64px; cursor: default; font-size: 1.1rem; }}
+    .plugin h2 {{ font-size: 1.45rem; margin: 0 0 6px; max-width: none; }}
+    .version {{ font: 400 0.95rem/1 var(--body); color: var(--ink-soft); }}
+    .plugin p {{ color: var(--ink-soft); }}
+    .columns {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 32px; margin: 4px 0 14px; }}
+    .columns h3 {{ font-size: 1rem; margin: 0 0 4px; }}
+    .columns ul {{ margin: 0; padding-left: 1.1em; color: var(--ink-soft); font-size: 0.95rem; }}
+    .columns li {{ margin-bottom: 0.1em; }}
+    .columns .more {{ list-style: none; margin-left: -1.1em; font-style: italic; }}
+    .get {{ font-size: 0.95rem; margin: 0; }}
+    .sha {{ font-size: 0.75rem; overflow-wrap: anywhere; color: var(--ink-soft); }}
+    @media (max-width: 640px) {{
+      .plugin {{ grid-template-columns: 1fr; gap: 12px; }}
+      .columns {{ grid-template-columns: 1fr; }}
+    }}
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="../">
+        <img src="../paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="../#how">How it works</a>
+        <a href="../#download">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="prose">
+    <div class="wrap">
+      <h1>Plugins</h1>
+      <p class="updated">Plugins add things keys can do and values their titles can show. Add them in PerritoDeck from Plugins → Look online, or download one here, unzip it and use Install from folder. They're free and open source (MIT), and they run on your computer with your permissions.</p>
+      <div class="plugins">{''.join(items)}
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
+      <span><a href="../">Home</a></span>
+    </div>
+  </footer>
+</body>
+</html>
+"""
 
 
 if __name__ == "__main__":

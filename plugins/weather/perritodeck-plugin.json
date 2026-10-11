@@ -1,0 +1,81 @@
+{
+  "id": "dev.perritodeck.weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "description": "Current weather and today's forecast for any place, from Open-Meteo. Free, no account needed.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "refresh",
+      "name": "Refresh the weather",
+      "description": "Fetches the weather for every place your keys show right now. It also refreshes by itself every 10 minutes."
+    }
+  ],
+  "values": [
+    {
+      "id": "temp",
+      "name": "Temperature",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "feels",
+      "name": "Feels like",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "condition",
+      "name": "Conditions (e.g. Light rain)",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "icon",
+      "name": "Weather icon",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "humidity",
+      "name": "Humidity",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "wind",
+      "name": "Wind speed",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "high",
+      "name": "Today's high",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "low",
+      "name": "Today's low",
+      "arg": "Place or latitude,longitude"
+    },
+    {
+      "id": "rain_chance",
+      "name": "Chance of rain today",
+      "arg": "Place or latitude,longitude"
+    }
+  ],
+  "settings": [
+    {
+      "id": "units",
+      "label": "Units",
+      "type": "select",
+      "default": "metric",
+      "options": [
+        {
+          "value": "metric",
+          "label": "Metric (°C, km/h)"
+        },
+        {
+          "value": "imperial",
+          "label": "Imperial (°F, mph)"
+        }
+      ]
+    }
+  ]
+}

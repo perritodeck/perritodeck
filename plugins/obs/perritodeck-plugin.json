@@ -1,0 +1,778 @@
+{
+  "id": "dev.perritodeck.obs",
+  "name": "OBS Studio",
+  "version": "1.0.0",
+  "description": "Control OBS Studio 28 or newer: scenes, streaming, recording, audio, sources, filters, screenshots and more, with live status on your keys.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "url",
+      "label": "OBS address",
+      "type": "text",
+      "placeholder": "ws://127.0.0.1:4455",
+      "default": "ws://127.0.0.1:4455"
+    },
+    {
+      "id": "password",
+      "label": "Password (from OBS: Tools → WebSocket Server Settings → Show Connect Info)",
+      "type": "password"
+    },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (only for wss:// addresses with a self-signed certificate)",
+      "type": "checkbox",
+      "default": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "scene",
+      "name": "Switch scene",
+      "fields": [
+        {
+          "id": "scene",
+          "label": "Scene",
+          "type": "text",
+          "placeholder": "Gaming"
+        },
+        {
+          "id": "where",
+          "label": "Switch",
+          "type": "select",
+          "options": [
+            {
+              "value": "auto",
+              "label": "Live, or the preview when Studio Mode is on"
+            },
+            {
+              "value": "program",
+              "label": "Always live"
+            },
+            {
+              "value": "preview",
+              "label": "Always the preview (Studio Mode)"
+            }
+          ],
+          "default": "auto"
+        }
+      ]
+    },
+    {
+      "id": "studio-mode",
+      "name": "Studio Mode on or off",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Turn on or off"
+            },
+            {
+              "value": "on",
+              "label": "Turn on"
+            },
+            {
+              "value": "off",
+              "label": "Turn off"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "transition",
+      "name": "Transition now (Studio Mode)",
+      "description": "Sends the preview live, like the Transition button. A transition or duration given here is used once, then the previous one comes back.",
+      "fields": [
+        {
+          "id": "transition",
+          "label": "Use this transition (optional)",
+          "type": "text",
+          "placeholder": "Fade"
+        },
+        {
+          "id": "duration",
+          "label": "Duration in milliseconds (optional)",
+          "type": "number",
+          "placeholder": "500"
+        }
+      ]
+    },
+    {
+      "id": "set-transition",
+      "name": "Choose the transition",
+      "fields": [
+        {
+          "id": "transition",
+          "label": "Transition",
+          "type": "text",
+          "placeholder": "Fade"
+        },
+        {
+          "id": "duration",
+          "label": "Duration in milliseconds (optional)",
+          "type": "number",
+          "placeholder": "300"
+        }
+      ]
+    },
+    {
+      "id": "stream",
+      "name": "Streaming",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Start or stop"
+            },
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "stop",
+              "label": "Stop"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "record",
+      "name": "Recording",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Start or stop"
+            },
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "stop",
+              "label": "Stop"
+            },
+            {
+              "value": "pause-toggle",
+              "label": "Pause or resume"
+            },
+            {
+              "value": "pause",
+              "label": "Pause"
+            },
+            {
+              "value": "resume",
+              "label": "Resume"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "record-split",
+      "name": "Split the recording into a new file",
+      "description": "Needs OBS 30.2 or newer.",
+      "fields": []
+    },
+    {
+      "id": "record-chapter",
+      "name": "Add a chapter marker to the recording",
+      "description": "Needs OBS 30.2 or newer and the Hybrid MP4 recording format.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Chapter name (optional)",
+          "type": "text",
+          "placeholder": "Boss fight"
+        }
+      ]
+    },
+    {
+      "id": "replay-buffer",
+      "name": "Replay buffer",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Start or stop"
+            },
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "stop",
+              "label": "Stop"
+            },
+            {
+              "value": "save",
+              "label": "Save the replay"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "virtualcam",
+      "name": "Virtual camera",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Start or stop"
+            },
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "stop",
+              "label": "Stop"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "mute",
+      "name": "Mute an audio source",
+      "fields": [
+        {
+          "id": "input",
+          "label": "Audio source",
+          "type": "text",
+          "placeholder": "Mic/Aux"
+        },
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Mute or unmute"
+            },
+            {
+              "value": "mute",
+              "label": "Mute"
+            },
+            {
+              "value": "unmute",
+              "label": "Unmute"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "volume",
+      "name": "Volume of an audio source",
+      "description": "The slider sets the source's volume, from silent (0) to full (100).",
+      "slider": true,
+      "fields": [
+        {
+          "id": "input",
+          "label": "Audio source",
+          "type": "text",
+          "placeholder": "Mic/Aux"
+        }
+      ]
+    },
+    {
+      "id": "volume-step",
+      "name": "Turn a source's volume up or down",
+      "description": "Moves the volume by this many steps of 100, the same scale as a volume slider.",
+      "fields": [
+        {
+          "id": "input",
+          "label": "Audio source",
+          "type": "text",
+          "placeholder": "Mic/Aux"
+        },
+        {
+          "id": "step",
+          "label": "Step (use a minus sign to turn it down)",
+          "type": "number",
+          "placeholder": "10",
+          "default": 10
+        }
+      ]
+    },
+    {
+      "id": "source-visibility",
+      "name": "Show or hide a source",
+      "fields": [
+        {
+          "id": "scene",
+          "label": "Scene (blank: the live scene)",
+          "type": "text",
+          "placeholder": "Gaming"
+        },
+        {
+          "id": "source",
+          "label": "Source",
+          "type": "text",
+          "placeholder": "Webcam"
+        },
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Show or hide"
+            },
+            {
+              "value": "show",
+              "label": "Show"
+            },
+            {
+              "value": "hide",
+              "label": "Hide"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "filter",
+      "name": "Turn a filter on or off",
+      "fields": [
+        {
+          "id": "source",
+          "label": "Source or scene",
+          "type": "text",
+          "placeholder": "Webcam"
+        },
+        {
+          "id": "filter",
+          "label": "Filter",
+          "type": "text",
+          "placeholder": "Color Correction"
+        },
+        {
+          "id": "mode",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Turn on or off"
+            },
+            {
+              "value": "on",
+              "label": "Turn on"
+            },
+            {
+              "value": "off",
+              "label": "Turn off"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "screenshot",
+      "name": "Save a screenshot",
+      "fields": [
+        {
+          "id": "source",
+          "label": "Source or scene (blank: what's live)",
+          "type": "text",
+          "placeholder": "Webcam"
+        },
+        {
+          "id": "folder",
+          "label": "Folder (blank: your Pictures folder)",
+          "type": "text",
+          "placeholder": "C:\\Users\\me\\Pictures\\OBS"
+        },
+        {
+          "id": "format",
+          "label": "Format",
+          "type": "select",
+          "options": [
+            {
+              "value": "png",
+              "label": "PNG"
+            },
+            {
+              "value": "jpg",
+              "label": "JPEG"
+            }
+          ],
+          "default": "png"
+        }
+      ]
+    },
+    {
+      "id": "hotkey",
+      "name": "Press an OBS hotkey",
+      "description": "Runs one of OBS's own hotkeys by its internal name, even if no key is assigned to it.",
+      "fields": [
+        {
+          "id": "hotkey",
+          "label": "Hotkey name",
+          "type": "text",
+          "placeholder": "OBSBasic.Screenshot"
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "name": "Control a media source",
+      "fields": [
+        {
+          "id": "input",
+          "label": "Media source",
+          "type": "text",
+          "placeholder": "Intro video"
+        },
+        {
+          "id": "command",
+          "label": "What to do",
+          "type": "select",
+          "options": [
+            {
+              "value": "play-pause",
+              "label": "Play or pause"
+            },
+            {
+              "value": "play",
+              "label": "Play"
+            },
+            {
+              "value": "pause",
+              "label": "Pause"
+            },
+            {
+              "value": "restart",
+              "label": "Play from the start"
+            },
+            {
+              "value": "stop",
+              "label": "Stop"
+            },
+            {
+              "value": "next",
+              "label": "Next in playlist"
+            },
+            {
+              "value": "previous",
+              "label": "Previous in playlist"
+            }
+          ],
+          "default": "play-pause"
+        }
+      ]
+    },
+    {
+      "id": "browser-refresh",
+      "name": "Refresh a browser source",
+      "fields": [
+        {
+          "id": "input",
+          "label": "Browser source",
+          "type": "text",
+          "placeholder": "Chat overlay"
+        }
+      ]
+    },
+    {
+      "id": "set-text",
+      "name": "Change the text of a text source",
+      "description": "Works with Text (GDI+) and Text (FreeType 2) sources. Type \\n for a new line.",
+      "fields": [
+        {
+          "id": "input",
+          "label": "Text source",
+          "type": "text",
+          "placeholder": "Now playing"
+        },
+        {
+          "id": "text",
+          "label": "Text",
+          "type": "text",
+          "placeholder": "Back in 5 minutes"
+        }
+      ]
+    },
+    {
+      "id": "projector",
+      "name": "Open a projector",
+      "fields": [
+        {
+          "id": "what",
+          "label": "Show",
+          "type": "select",
+          "options": [
+            {
+              "value": "program",
+              "label": "What's live (program)"
+            },
+            {
+              "value": "preview",
+              "label": "The preview"
+            },
+            {
+              "value": "multiview",
+              "label": "Multiview"
+            },
+            {
+              "value": "source",
+              "label": "A source or scene"
+            }
+          ],
+          "default": "program"
+        },
+        {
+          "id": "source",
+          "label": "Source or scene (for “A source or scene”)",
+          "type": "text",
+          "placeholder": "Webcam"
+        },
+        {
+          "id": "monitor",
+          "label": "Full screen on screen number (blank: in a window)",
+          "type": "number",
+          "placeholder": "2"
+        }
+      ]
+    },
+    {
+      "id": "profile",
+      "name": "Switch profile",
+      "fields": [
+        {
+          "id": "profile",
+          "label": "Profile",
+          "type": "text",
+          "placeholder": "Streaming"
+        }
+      ]
+    },
+    {
+      "id": "scene-collection",
+      "name": "Switch scene collection",
+      "fields": [
+        {
+          "id": "collection",
+          "label": "Scene collection",
+          "type": "text",
+          "placeholder": "Podcast"
+        }
+      ]
+    },
+    {
+      "id": "caption",
+      "name": "Send a caption on the stream",
+      "description": "Sends closed-caption text (CEA-608) with the stream.",
+      "fields": [
+        {
+          "id": "text",
+          "label": "Caption",
+          "type": "text",
+          "placeholder": "Hello everyone"
+        }
+      ]
+    },
+    {
+      "id": "request",
+      "name": "Send any request (advanced)",
+      "description": "Sends any obs-websocket 5 request. The answer appears in the value “Last answer to Send any request”.",
+      "fields": [
+        {
+          "id": "request",
+          "label": "Request type",
+          "type": "text",
+          "placeholder": "SetCurrentProgramScene"
+        },
+        {
+          "id": "data",
+          "label": "Request data as JSON (optional)",
+          "type": "text",
+          "placeholder": "{\"sceneName\": \"Gaming\"}"
+        }
+      ]
+    },
+    {
+      "id": "request-value",
+      "name": "Send any request with the slider's value (advanced)",
+      "description": "{value} in the data becomes the slider's position (0 to 100); {mul} becomes the matching OBS volume multiplier.",
+      "slider": true,
+      "fields": [
+        {
+          "id": "request",
+          "label": "Request type",
+          "type": "text",
+          "placeholder": "SetInputVolume"
+        },
+        {
+          "id": "data",
+          "label": "Request data as JSON",
+          "type": "text",
+          "placeholder": "{\"inputName\": \"Mic/Aux\", \"inputVolumeDb\": {value}}"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "connected",
+      "name": "Connected to OBS (on/off)"
+    },
+    {
+      "id": "scene",
+      "name": "Live scene"
+    },
+    {
+      "id": "preview_scene",
+      "name": "Preview scene (Studio Mode)"
+    },
+    {
+      "id": "studio_mode",
+      "name": "Studio Mode (on/off)"
+    },
+    {
+      "id": "streaming",
+      "name": "Streaming (on/off)"
+    },
+    {
+      "id": "recording",
+      "name": "Recording (on/off)"
+    },
+    {
+      "id": "record_paused",
+      "name": "Recording paused (on/off)"
+    },
+    {
+      "id": "replay_buffer",
+      "name": "Replay buffer running (on/off)"
+    },
+    {
+      "id": "virtualcam",
+      "name": "Virtual camera running (on/off)"
+    },
+    {
+      "id": "transition",
+      "name": "Current transition"
+    },
+    {
+      "id": "profile",
+      "name": "Current profile"
+    },
+    {
+      "id": "scene_collection",
+      "name": "Current scene collection"
+    },
+    {
+      "id": "stream_time",
+      "name": "Streaming time (HH:MM:SS)"
+    },
+    {
+      "id": "record_time",
+      "name": "Recording time (HH:MM:SS)"
+    },
+    {
+      "id": "fps",
+      "name": "Frames per second"
+    },
+    {
+      "id": "cpu",
+      "name": "OBS CPU use (%)"
+    },
+    {
+      "id": "memory",
+      "name": "OBS memory use (MB)"
+    },
+    {
+      "id": "dropped_frames",
+      "name": "Skipped frames (%)"
+    },
+    {
+      "id": "bitrate",
+      "name": "Stream bitrate (kbps)"
+    },
+    {
+      "id": "last_response",
+      "name": "Last answer to Send any request"
+    },
+    {
+      "id": "scene_active",
+      "name": "Scene is live (on/off)",
+      "arg": "Scene"
+    },
+    {
+      "id": "scene_preview",
+      "name": "Scene is in the preview (on/off)",
+      "arg": "Scene"
+    },
+    {
+      "id": "muted",
+      "name": "Source is muted (on/off)",
+      "arg": "Audio source"
+    },
+    {
+      "id": "volume",
+      "name": "Source volume (0–100)",
+      "arg": "Audio source"
+    },
+    {
+      "id": "volume_db",
+      "name": "Source volume (dB)",
+      "arg": "Audio source"
+    },
+    {
+      "id": "item_visible",
+      "name": "Source is visible (on/off)",
+      "arg": "Scene/source"
+    },
+    {
+      "id": "filter_enabled",
+      "name": "Filter is on (on/off)",
+      "arg": "Source/filter"
+    },
+    {
+      "id": "input_text",
+      "name": "Text of a text source",
+      "arg": "Text source"
+    },
+    {
+      "id": "media_playing",
+      "name": "Media is playing (on/off)",
+      "arg": "Media source"
+    }
+  ]
+}

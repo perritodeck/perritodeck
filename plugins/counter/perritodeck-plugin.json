@@ -1,0 +1,98 @@
+{
+  "id": "dev.perritodeck.counter",
+  "name": "Counters",
+  "version": "1.0.0",
+  "description": "Count things with a key press: deaths on stream, laps, cups of coffee. Counts are kept, and can be written to a text file for OBS.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "increment",
+      "name": "Count up",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Counter name",
+          "type": "text",
+          "placeholder": "deaths"
+        },
+        {
+          "id": "step",
+          "label": "Step",
+          "type": "number",
+          "default": 1
+        }
+      ]
+    },
+    {
+      "id": "decrement",
+      "name": "Count down",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Counter name",
+          "type": "text",
+          "placeholder": "deaths"
+        },
+        {
+          "id": "step",
+          "label": "Step",
+          "type": "number",
+          "default": 1
+        },
+        {
+          "id": "stop_at_zero",
+          "label": "Don't go below zero",
+          "type": "checkbox",
+          "default": true
+        }
+      ]
+    },
+    {
+      "id": "reset",
+      "name": "Reset to zero",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Counter name",
+          "type": "text",
+          "placeholder": "deaths"
+        }
+      ]
+    },
+    {
+      "id": "set",
+      "name": "Set to a number",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Counter name",
+          "type": "text",
+          "placeholder": "deaths"
+        },
+        {
+          "id": "value",
+          "label": "Number",
+          "type": "number",
+          "placeholder": "10"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "count",
+      "name": "Count",
+      "arg": "Counter name"
+    }
+  ],
+  "settings": [
+    {
+      "id": "folder",
+      "label": "Text file folder for OBS (optional)",
+      "type": "text",
+      "placeholder": "C:\\Users\\me\\Documents\\OBS"
+    }
+  ]
+}

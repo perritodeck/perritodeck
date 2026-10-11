@@ -1,0 +1,198 @@
+{
+  "id": "dev.perritodeck.proxmox",
+  "name": "Proxmox VE",
+  "version": "1.0.0",
+  "description": "Start, shut down and watch Proxmox virtual machines and containers.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "url",
+      "label": "Proxmox address",
+      "type": "text",
+      "placeholder": "https://pve.local:8006"
+    },
+    {
+      "id": "token_id",
+      "label": "API token id",
+      "type": "text",
+      "placeholder": "root@pam!perritodeck"
+    },
+    {
+      "id": "token_secret",
+      "label": "API token secret",
+      "type": "password",
+      "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (for Proxmox's own self-signed certificate)",
+      "type": "checkbox",
+      "default": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "start",
+      "name": "Start",
+      "description": "Starts the VM or container.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "shutdown",
+      "name": "Shut down",
+      "description": "Asks the guest to shut down cleanly.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "stop",
+      "name": "Stop (pull the plug)",
+      "description": "Stops it at once, like pulling the power cord.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "reboot",
+      "name": "Restart",
+      "description": "Asks the guest to restart cleanly.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "suspend",
+      "name": "Pause a VM",
+      "description": "Pauses a running VM (VMs only).",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "resume",
+      "name": "Resume a paused VM",
+      "description": "Resumes a paused VM (VMs only).",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "toggle",
+      "name": "Start or shut down",
+      "description": "Starts it if it's off, otherwise shuts it down cleanly. Pair with \"Running\" to light the key.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        }
+      ]
+    },
+    {
+      "id": "snapshot",
+      "name": "Take a snapshot",
+      "description": "Takes a snapshot (without RAM). Leave the name empty for one with the date and time.",
+      "fields": [
+        {
+          "id": "vmid",
+          "label": "VM or container id",
+          "type": "text",
+          "placeholder": "101"
+        },
+        {
+          "id": "name",
+          "label": "Snapshot name (optional)",
+          "type": "text",
+          "placeholder": "before_update"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "status",
+      "name": "Guest status (running, stopped, paused)",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "running",
+      "name": "Guest is running (on/off)",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "cpu",
+      "name": "Guest CPU use (%)",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "mem",
+      "name": "Guest memory use (%)",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "uptime",
+      "name": "Guest uptime",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "name",
+      "name": "Guest name",
+      "arg": "VM or container id"
+    },
+    {
+      "id": "node_cpu",
+      "name": "Node CPU use (%)",
+      "arg": "Node name"
+    },
+    {
+      "id": "node_mem",
+      "name": "Node memory use (%)",
+      "arg": "Node name"
+    },
+    {
+      "id": "node_status",
+      "name": "Node status (online, offline)",
+      "arg": "Node name"
+    },
+    {
+      "id": "guests_running",
+      "name": "Running VMs and containers"
+    }
+  ]
+}

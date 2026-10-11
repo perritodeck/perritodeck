@@ -1,0 +1,140 @@
+{
+  "id": "dev.perritodeck.gitlab",
+  "name": "GitLab",
+  "version": "1.0.0",
+  "description": "Run, retry and watch GitLab CI/CD pipelines; count open merge requests and issues. Works with gitlab.com and your own GitLab.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "url",
+      "label": "GitLab address",
+      "type": "text",
+      "placeholder": "https://gitlab.com"
+    },
+    {
+      "id": "token",
+      "label": "Access token",
+      "type": "password",
+      "placeholder": "glpat-…"
+    },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (only for a self-signed certificate)",
+      "type": "checkbox",
+      "default": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "run-pipeline",
+      "name": "Run a pipeline",
+      "description": "Starts a new pipeline. With no branch, it runs on the default branch.",
+      "fields": [
+        {
+          "id": "project",
+          "label": "Project",
+          "type": "text",
+          "placeholder": "my-group/my-project"
+        },
+        {
+          "id": "ref",
+          "label": "Branch or tag (optional)",
+          "type": "text",
+          "placeholder": "main"
+        },
+        {
+          "id": "variables",
+          "label": "Variables (optional), KEY=VALUE separated by ;",
+          "type": "text",
+          "placeholder": "DEPLOY=yes; ENV=staging"
+        }
+      ]
+    },
+    {
+      "id": "retry-pipeline",
+      "name": "Retry the last failed pipeline",
+      "description": "Retries the failed jobs of the most recent failed pipeline.",
+      "fields": [
+        {
+          "id": "project",
+          "label": "Project",
+          "type": "text",
+          "placeholder": "my-group/my-project"
+        },
+        {
+          "id": "ref",
+          "label": "Branch or tag (optional)",
+          "type": "text",
+          "placeholder": "main"
+        }
+      ]
+    },
+    {
+      "id": "cancel-pipelines",
+      "name": "Cancel running pipelines",
+      "description": "Cancels every running or waiting pipeline (on one branch, if you give one).",
+      "fields": [
+        {
+          "id": "project",
+          "label": "Project",
+          "type": "text",
+          "placeholder": "my-group/my-project"
+        },
+        {
+          "id": "ref",
+          "label": "Branch or tag (optional)",
+          "type": "text",
+          "placeholder": "main"
+        }
+      ]
+    },
+    {
+      "id": "open-pipeline",
+      "name": "Open the latest pipeline",
+      "description": "Opens the latest pipeline's page in the web browser on this computer.",
+      "fields": [
+        {
+          "id": "project",
+          "label": "Project",
+          "type": "text",
+          "placeholder": "my-group/my-project"
+        },
+        {
+          "id": "ref",
+          "label": "Branch or tag (optional)",
+          "type": "text",
+          "placeholder": "main"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "pipeline",
+      "name": "Latest pipeline status",
+      "arg": "Project (add @branch for one branch)"
+    },
+    {
+      "id": "pipeline_ok",
+      "name": "Latest pipeline passed (on/off)",
+      "arg": "Project (add @branch for one branch)"
+    },
+    {
+      "id": "pipeline_running",
+      "name": "A pipeline is running (on/off)",
+      "arg": "Project (add @branch for one branch)"
+    },
+    {
+      "id": "mrs",
+      "name": "Open merge requests",
+      "arg": "Project"
+    },
+    {
+      "id": "issues",
+      "name": "Open issues",
+      "arg": "Project"
+    }
+  ]
+}

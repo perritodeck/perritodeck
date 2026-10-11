@@ -1,0 +1,178 @@
+{
+  "id": "dev.perritodeck.truenas",
+  "name": "TrueNAS",
+  "version": "1.0.0",
+  "description": "Watch TrueNAS pools, alerts and apps, start and stop apps, and run scrubs and backup tasks.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "url",
+      "label": "TrueNAS address (https)",
+      "type": "text",
+      "placeholder": "https://truenas.local"
+    },
+    {
+      "id": "username",
+      "label": "User name the API key belongs to",
+      "type": "text",
+      "placeholder": "truenas_admin"
+    },
+    {
+      "id": "api_key",
+      "label": "API key",
+      "type": "password",
+      "placeholder": "1-AbCdEf…"
+    },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (for TrueNAS's own self-signed certificate)",
+      "type": "checkbox",
+      "default": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "start-app",
+      "name": "Start an app",
+      "fields": [
+        {
+          "id": "app",
+          "label": "App name",
+          "type": "text",
+          "placeholder": "jellyfin"
+        }
+      ]
+    },
+    {
+      "id": "stop-app",
+      "name": "Stop an app",
+      "fields": [
+        {
+          "id": "app",
+          "label": "App name",
+          "type": "text",
+          "placeholder": "jellyfin"
+        }
+      ]
+    },
+    {
+      "id": "restart-app",
+      "name": "Restart an app",
+      "description": "Stops the app, then starts it again.",
+      "fields": [
+        {
+          "id": "app",
+          "label": "App name",
+          "type": "text",
+          "placeholder": "jellyfin"
+        }
+      ]
+    },
+    {
+      "id": "toggle-app",
+      "name": "Start or stop an app",
+      "description": "Starts the app if it's stopped, otherwise stops it. Pair with \"App is running\" to light the key.",
+      "fields": [
+        {
+          "id": "app",
+          "label": "App name",
+          "type": "text",
+          "placeholder": "jellyfin"
+        }
+      ]
+    },
+    {
+      "id": "scrub",
+      "name": "Scrub a pool",
+      "description": "Starts a scrub, which checks every block of the pool for errors.",
+      "fields": [
+        {
+          "id": "pool",
+          "label": "Pool name",
+          "type": "text",
+          "placeholder": "tank"
+        }
+      ]
+    },
+    {
+      "id": "dismiss-alerts",
+      "name": "Dismiss all alerts",
+      "description": "Dismisses every alert TrueNAS shows right now.",
+      "fields": []
+    },
+    {
+      "id": "run-task",
+      "name": "Run a backup task",
+      "description": "Runs a cloud sync or replication task now. Its number is the id TrueNAS gives it.",
+      "fields": [
+        {
+          "id": "kind",
+          "label": "Task type",
+          "type": "select",
+          "default": "cloudsync",
+          "options": [
+            {
+              "value": "cloudsync",
+              "label": "Cloud sync"
+            },
+            {
+              "value": "replication",
+              "label": "Replication"
+            }
+          ]
+        },
+        {
+          "id": "task_id",
+          "label": "Task number",
+          "type": "number",
+          "placeholder": "1"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "pool",
+      "name": "Pool health (ONLINE, DEGRADED…)",
+      "arg": "Pool name"
+    },
+    {
+      "id": "pool_ok",
+      "name": "Pool is healthy (on/off)",
+      "arg": "Pool name"
+    },
+    {
+      "id": "pool_used",
+      "name": "Pool space used (%)",
+      "arg": "Pool name"
+    },
+    {
+      "id": "alerts",
+      "name": "Active alerts"
+    },
+    {
+      "id": "alert_level",
+      "name": "Worst alert level"
+    },
+    {
+      "id": "app",
+      "name": "App state (running, stopped…)",
+      "arg": "App name"
+    },
+    {
+      "id": "app_running",
+      "name": "App is running (on/off)",
+      "arg": "App name"
+    },
+    {
+      "id": "cpu",
+      "name": "CPU use (%)"
+    },
+    {
+      "id": "temp",
+      "name": "CPU temperature (°C)"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "dev.perritodeck.wol",
+  "name": "Wake-on-LAN",
+  "version": "1.0.0",
+  "description": "Switch on a computer or server on your network with a key press. Wake-on-LAN must be turned on in its BIOS or network settings.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "wake",
+      "name": "Wake a computer",
+      "fields": [
+        {
+          "id": "mac",
+          "label": "MAC address",
+          "type": "text",
+          "placeholder": "1A:2B:3C:4D:5E:6F"
+        },
+        {
+          "id": "broadcast",
+          "label": "Broadcast address (optional)",
+          "type": "text",
+          "placeholder": "255.255.255.255"
+        },
+        {
+          "id": "port",
+          "label": "Port",
+          "type": "select",
+          "default": "9",
+          "options": [
+            {
+              "value": "9",
+              "label": "9 (usual)"
+            },
+            {
+              "value": "7",
+              "label": "7"
+            }
+          ]
+        },
+        {
+          "id": "password",
+          "label": "SecureOn password (optional, rarely needed)",
+          "type": "password",
+          "placeholder": "00:11:22:33:44:55"
+        }
+      ]
+    }
+  ],
+  "values": []
+}

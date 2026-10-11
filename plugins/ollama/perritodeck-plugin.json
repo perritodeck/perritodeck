@@ -1,0 +1,122 @@
+{
+  "id": "dev.perritodeck.ollama",
+  "name": "Ollama",
+  "version": "1.0.0",
+  "description": "Load, unload and pull local AI models in Ollama, and ask one a question from a key.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "url",
+      "label": "Ollama address",
+      "type": "text",
+      "placeholder": "http://127.0.0.1:11434"
+    }
+  ],
+  "actions": [
+    {
+      "id": "load",
+      "name": "Load a model",
+      "description": "Loads the model into memory so the first question is fast.",
+      "fields": [
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "placeholder": "llama3.2"
+        },
+        {
+          "id": "keep_alive",
+          "label": "Keep it loaded for (optional)",
+          "type": "text",
+          "placeholder": "30m, or -1 for always"
+        }
+      ]
+    },
+    {
+      "id": "unload",
+      "name": "Unload a model",
+      "description": "Frees the memory the model uses.",
+      "fields": [
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "placeholder": "llama3.2"
+        }
+      ]
+    },
+    {
+      "id": "unload-all",
+      "name": "Unload all models",
+      "description": "Frees all the memory loaded models use.",
+      "fields": []
+    },
+    {
+      "id": "pull",
+      "name": "Download a model",
+      "description": "Downloads (or updates) a model. Big models take a while: show \"Download progress\" on the key to follow it.",
+      "fields": [
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "placeholder": "llama3.2"
+        }
+      ]
+    },
+    {
+      "id": "ask",
+      "name": "Ask a question",
+      "description": "Sends the prompt to the model. The answer goes to the clipboard and to \"Last answer\".",
+      "fields": [
+        {
+          "id": "model",
+          "label": "Model",
+          "type": "text",
+          "placeholder": "llama3.2"
+        },
+        {
+          "id": "prompt",
+          "label": "Prompt",
+          "type": "text",
+          "placeholder": "Write a haiku about Mondays"
+        },
+        {
+          "id": "copy",
+          "label": "Copy the answer to the clipboard",
+          "type": "checkbox",
+          "default": true
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "loaded",
+      "name": "Loaded models"
+    },
+    {
+      "id": "loaded_count",
+      "name": "Number of loaded models"
+    },
+    {
+      "id": "vram",
+      "name": "Graphics memory used by models (GB)"
+    },
+    {
+      "id": "model_loaded",
+      "name": "Model is loaded (on/off)",
+      "arg": "Model"
+    },
+    {
+      "id": "last_answer",
+      "name": "Last answer (shortened)"
+    },
+    {
+      "id": "pull_status",
+      "name": "Download progress"
+    }
+  ]
+}

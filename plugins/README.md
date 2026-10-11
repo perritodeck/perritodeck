@@ -10,6 +10,16 @@ starts and talks to over stdin/stdout (see [PROTOCOL.md](PROTOCOL.md)).
 | [`http/`](http/) | First-party: send HTTP requests (webhooks, REST APIs) |
 | [`mqtt/`](mqtt/) | First-party: publish MQTT messages |
 | [`media/`](media/) | First-party: now playing and media controls (Windows media session, Spotify/Music on macOS, `playerctl` on Linux) |
+| [`obs/`](obs/) | First-party: OBS Studio 28+ over obs-websocket 5: scenes, Studio Mode, outputs, audio, sources, filters, screenshots, live stats |
+| [`timer/`](timer/) | First-party: countdowns, stopwatches and Pomodoro |
+| [`counter/`](counter/) | First-party: named counters, optionally written to text files for OBS |
+| [`uptime/`](uptime/) | First-party: is a host or web address up, and how fast |
+| [`wol/`](wol/) | First-party: Wake-on-LAN |
+| [`weather/`](weather/) | First-party: weather from Open-Meteo (no account) |
+| [`ollama/`](ollama/) | First-party: load, unload, pull and ask local Ollama models |
+| [`proxmox/`](proxmox/) | First-party: Proxmox VE guests: power, snapshots, status |
+| [`truenas/`](truenas/) | First-party: TrueNAS pools, alerts, apps, scrubs, tasks (JSON-RPC API) |
+| [`gitlab/`](gitlab/) | First-party: GitLab pipelines, merge requests, issues |
 
 Everything in this folder is MIT-licensed (see [LICENSE](LICENSE)) so plugin authors
 can use the SDKs under any license.
@@ -19,7 +29,7 @@ folder into the host's settings folder under `plugins/`.
 
 ## Online catalogue
 
-`python3 plugins/build_catalog.py` writes `website/plugins/index.json` and one
-reproducible zip per plugin. Publishing that folder at `https://perritodeck.dev/plugins/`
+`python3 plugins/build_catalog.py` writes `website/plugins/index.json`, a browsable
+`index.html` and one reproducible zip per plugin. Publishing that folder at `https://perritodeck.dev/plugins/`
 makes the plugins available from the app's Plugins page ("Look online"). The app
 refuses a zip whose SHA-256 doesn't match the index.

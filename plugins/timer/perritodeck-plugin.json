@@ -1,0 +1,253 @@
+{
+  "id": "dev.perritodeck.timer",
+  "name": "Timers",
+  "version": "1.0.0",
+  "description": "Countdown timers, stopwatches and a Pomodoro timer on your keys. They keep going if the app restarts.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "start",
+      "name": "Start a countdown",
+      "description": "Starts the timer from the beginning. Leave the time empty to reuse the last length.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Timer name",
+          "type": "text",
+          "placeholder": "tea"
+        },
+        {
+          "id": "minutes",
+          "label": "Minutes",
+          "type": "number",
+          "placeholder": "5"
+        },
+        {
+          "id": "seconds",
+          "label": "Seconds",
+          "type": "number",
+          "placeholder": "0"
+        }
+      ]
+    },
+    {
+      "id": "toggle",
+      "name": "Start or pause a countdown",
+      "description": "Pauses a running timer, carries on a paused one, and starts it again once it has finished.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Timer name",
+          "type": "text",
+          "placeholder": "tea"
+        },
+        {
+          "id": "minutes",
+          "label": "Minutes",
+          "type": "number",
+          "placeholder": "5"
+        },
+        {
+          "id": "seconds",
+          "label": "Seconds",
+          "type": "number",
+          "placeholder": "0"
+        }
+      ]
+    },
+    {
+      "id": "pause",
+      "name": "Pause a countdown",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Timer name",
+          "type": "text",
+          "placeholder": "tea"
+        }
+      ]
+    },
+    {
+      "id": "reset",
+      "name": "Reset a countdown",
+      "description": "Stops the timer and puts it back to its full length.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Timer name",
+          "type": "text",
+          "placeholder": "tea"
+        }
+      ]
+    },
+    {
+      "id": "add",
+      "name": "Add or take away time",
+      "description": "Use a minus sign to take time away, e.g. -1 minute.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Timer name",
+          "type": "text",
+          "placeholder": "tea"
+        },
+        {
+          "id": "minutes",
+          "label": "Minutes",
+          "type": "number",
+          "placeholder": "1"
+        },
+        {
+          "id": "seconds",
+          "label": "Seconds",
+          "type": "number",
+          "placeholder": "0"
+        }
+      ]
+    },
+    {
+      "id": "stopwatch-toggle",
+      "name": "Start or stop a stopwatch",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Stopwatch name",
+          "type": "text",
+          "placeholder": "run"
+        }
+      ]
+    },
+    {
+      "id": "stopwatch-lap",
+      "name": "Stopwatch lap",
+      "description": "Remembers the time since the last lap.",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Stopwatch name",
+          "type": "text",
+          "placeholder": "run"
+        }
+      ]
+    },
+    {
+      "id": "stopwatch-reset",
+      "name": "Reset a stopwatch",
+      "fields": [
+        {
+          "id": "name",
+          "label": "Stopwatch name",
+          "type": "text",
+          "placeholder": "run"
+        }
+      ]
+    },
+    {
+      "id": "pomodoro-start",
+      "name": "Start or pause the Pomodoro",
+      "description": "Work, then a break, and a long break after a few rounds. The lengths are used when the Pomodoro starts.",
+      "fields": [
+        {
+          "id": "work",
+          "label": "Work (minutes)",
+          "type": "number",
+          "default": 25
+        },
+        {
+          "id": "short",
+          "label": "Short break (minutes)",
+          "type": "number",
+          "default": 5
+        },
+        {
+          "id": "long",
+          "label": "Long break (minutes)",
+          "type": "number",
+          "default": 15
+        },
+        {
+          "id": "rounds",
+          "label": "Work rounds before a long break",
+          "type": "number",
+          "default": 4
+        },
+        {
+          "id": "auto",
+          "label": "Start the next part by itself",
+          "type": "checkbox",
+          "default": true
+        }
+      ]
+    },
+    {
+      "id": "pomodoro-skip",
+      "name": "Skip to the next Pomodoro part"
+    },
+    {
+      "id": "pomodoro-reset",
+      "name": "Reset the Pomodoro"
+    }
+  ],
+  "values": [
+    {
+      "id": "remaining",
+      "name": "Time left",
+      "arg": "Timer name"
+    },
+    {
+      "id": "running",
+      "name": "Timer or stopwatch is running (on/off)",
+      "arg": "Timer name"
+    },
+    {
+      "id": "done",
+      "name": "Timer has finished (on/off)",
+      "arg": "Timer name"
+    },
+    {
+      "id": "progress",
+      "name": "How far the timer is, 0 to 100",
+      "arg": "Timer name"
+    },
+    {
+      "id": "stopwatch",
+      "name": "Stopwatch time",
+      "arg": "Stopwatch name"
+    },
+    {
+      "id": "lap",
+      "name": "Last lap time",
+      "arg": "Stopwatch name"
+    },
+    {
+      "id": "pomodoro_phase",
+      "name": "Pomodoro: work or break"
+    },
+    {
+      "id": "pomodoro_remaining",
+      "name": "Pomodoro: time left"
+    },
+    {
+      "id": "pomodoro_round",
+      "name": "Pomodoro: round (e.g. 2/4)"
+    },
+    {
+      "id": "pomodoro_running",
+      "name": "Pomodoro is running (on/off)"
+    },
+    {
+      "id": "pomodoro_progress",
+      "name": "Pomodoro: how far this part is, 0 to 100"
+    }
+  ],
+  "settings": [
+    {
+      "id": "sound",
+      "label": "Play a sound when a timer or Pomodoro part ends",
+      "type": "checkbox",
+      "default": false
+    }
+  ]
+}

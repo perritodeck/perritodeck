@@ -1,0 +1,55 @@
+{
+  "id": "dev.perritodeck.uptime",
+  "name": "Is it up?",
+  "version": "1.0.0",
+  "description": "Shows whether your servers and web services answer: a web address, a host and port, or just a host name.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "check",
+      "name": "Check now",
+      "description": "Checks right away and warns on the key if something is down. Leave the target empty to check everything your keys show.",
+      "fields": [
+        {
+          "id": "target",
+          "label": "Target (optional)",
+          "type": "text",
+          "placeholder": "https://nas.local:5001"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "id": "up",
+      "name": "Is up (on/off)",
+      "arg": "Web address, host:port or host"
+    },
+    {
+      "id": "ms",
+      "name": "Response time",
+      "arg": "Web address, host:port or host"
+    },
+    {
+      "id": "status",
+      "name": "Status (up, down or the web answer code)",
+      "arg": "Web address, host:port or host"
+    }
+  ],
+  "settings": [
+    {
+      "id": "interval",
+      "label": "Check every (seconds)",
+      "type": "number",
+      "default": 10
+    },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (for self-signed certificates)",
+      "type": "checkbox",
+      "default": false
+    }
+  ]
+}

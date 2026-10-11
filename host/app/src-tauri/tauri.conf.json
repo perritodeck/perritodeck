@@ -44,9 +44,19 @@
       "icons/icon.ico"
     ],
     "resources": {
+      "../../../plugins/counter/": "plugins/counter/",
+      "../../../plugins/gitlab/": "plugins/gitlab/",
       "../../../plugins/http/": "plugins/http/",
+      "../../../plugins/media/": "plugins/media/",
       "../../../plugins/mqtt/": "plugins/mqtt/",
-      "../../../plugins/media/": "plugins/media/"
+      "../../../plugins/obs/": "plugins/obs/",
+      "../../../plugins/ollama/": "plugins/ollama/",
+      "../../../plugins/proxmox/": "plugins/proxmox/",
+      "../../../plugins/timer/": "plugins/timer/",
+      "../../../plugins/truenas/": "plugins/truenas/",
+      "../../../plugins/uptime/": "plugins/uptime/",
+      "../../../plugins/weather/": "plugins/weather/",
+      "../../../plugins/wol/": "plugins/wol/"
     }
   }
 }
