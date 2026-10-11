@@ -107,7 +107,7 @@ test.describe("editing", () => {
         op: "setKey",
         page: "Main",
         at: [1, 1],
-        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null },
+        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null, icon: null },
       },
     ]);
 
@@ -220,6 +220,20 @@ test.describe("editing", () => {
     await expect(page.getByText("Ran, with a warning: exited with status 1")).toBeVisible();
   });
 
+  test("adds an image and copies a key to another spot", async ({ page }) => {
+    await key(page, /^Paste:/).click();
+    await page.getByRole("button", { name: "Choose…" }).click();
+    await expect(key(page, /^Paste:/).locator("img")).toBeVisible();
+    await expect.poll(async () => (await lastEdits(page))[0].key.icon).toBe("icons/mock.png");
+
+    await key(page, /^Paste:/).focus();
+    await expect(key(page, /^Paste:/)).toBeFocused();
+    await page.keyboard.press("Control+c");
+    await key(page, "Empty, row 3 column 2").click();
+    await page.keyboard.press("Control+v");
+    await expect(key(page, /^Paste:/)).toHaveCount(2);
+  });
+
   test("toggle keys are edited in the file", async ({ page }) => {
     await key(page, /^Mic live/).click();
     await expect(page.getByText(/toggle with 2 states/)).toBeVisible();
@@ -249,7 +263,7 @@ test.describe("profiles, tablets and switching", () => {
     await key(page, "Empty, row 1 column 1").click();
     await page.getByLabel("Title").fill("GG");
     await expect.poll(() => lastEdits(page)).toEqual([
-      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null } },
+      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null, icon: null } },
     ]);
 
     await page.getByRole("button", { name: "Profile options" }).click();
@@ -300,6 +314,16 @@ test.describe("profiles, tablets and switching", () => {
     await expect(page.getByText("In front just now:")).toContainText("firefox");
     await page.getByRole("button", { name: "Remove" }).click();
     await expect(page.getByLabel("App name")).toHaveCount(0);
+  });
+
+  test("macOS asks for the Accessibility permission", async ({ page }) => {
+    await page.evaluate(() => {
+      (window as any).__perritoMock.accessibility = false;
+      window.dispatchEvent(new Event("focus"));
+    });
+    await expect(page.getByText("Hotkeys and typing need your permission.")).toBeVisible();
+    await page.getByRole("button", { name: "Open System Settings" }).click();
+    await expect(page.getByText("Hotkeys and typing need your permission.")).toHaveCount(0);
   });
 
   test("pausing keys shows a banner until resumed", async ({ page }) => {

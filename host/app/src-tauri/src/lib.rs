@@ -151,6 +151,55 @@ fn set_autostart(handle: AppHandle, enabled: bool) -> Res<()> {
     .map_err(|e| e.to_string())
 }
 
+/// Let the person pick an image for a key; it's copied next to the profiles.
+/// `None` if they cancelled.
+#[tauri::command]
+async fn choose_icon(handle: AppHandle, app: State<'_, App>) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let host = app.host()?.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .dialog()
+            .file()
+            .set_title("Choose an image for the key")
+            .add_filter("Images", &["png", "jpg", "jpeg"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(file) = picked else { return Ok(None) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    host.import_icon(&path).map(Some)
+}
+
+/// macOS only: whether PerritoDeck may send key presses (System Settings → Privacy &
+/// Security → Accessibility). `None` elsewhere.
+#[tauri::command]
+fn accessibility_allowed() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrusted() -> bool;
+        }
+        // SAFETY: takes no arguments and only reads the process's permission.
+        Some(unsafe { AXIsProcessTrusted() })
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+#[tauri::command]
+fn open_accessibility_settings(handle: AppHandle) -> Res<()> {
+    handle
+        .opener()
+        .open_url(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            None::<&str>,
+        )
+        .map_err(|e| e.to_string())
+}
+
 /// Open a profile in the user's text editor; `None` for the default.
 #[tauri::command]
 fn open_profile_file(handle: AppHandle, app: State<'_, App>, id: Option<String>) -> Res<()> {
@@ -288,6 +337,7 @@ pub fn run() {
             show_window(app)
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec![HIDDEN_ARG]),
@@ -345,6 +395,9 @@ pub fn run() {
             set_autostart,
             open_profile_file,
             open_data_folder,
+            choose_icon,
+            accessibility_allowed,
+            open_accessibility_settings,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

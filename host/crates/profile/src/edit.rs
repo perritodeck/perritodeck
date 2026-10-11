@@ -73,6 +73,9 @@ pub struct KeyFields {
     pub action: Option<ActionSpec>,
     #[serde(default)]
     pub nav: Option<NavSpec>,
+    /// Image file, relative to the profile's folder.
+    #[serde(default)]
+    pub icon: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -138,6 +141,13 @@ fn apply_one(doc: &mut DocumentMut, edit: &Edit) -> Result<(), EditError> {
             set_opt(t, "fg", key.fg.as_ref().map(|s| Value::from(s.as_str())));
             set_opt(t, "action", key.action.as_ref().map(to_value).transpose()?);
             set_opt(t, "nav", key.nav.as_ref().map(to_value).transpose()?);
+            set_opt(
+                t,
+                "icon",
+                key.icon
+                    .as_ref()
+                    .map(|p| Value::from(p.to_string_lossy().replace('\\', "/"))),
+            );
         }
         Edit::ClearKey { page, at } => {
             let keys = page_keys(doc, page)?;

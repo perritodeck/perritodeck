@@ -33,7 +33,7 @@ let devices: DeviceInfo[] = [
 ];
 
 function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?: Partial<KeyView>): KeyView {
-  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, ...f };
+  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, icon: null, ...f };
   return {
     row,
     col,
@@ -43,12 +43,17 @@ function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?
     ...kindOf(fields, states),
     fields,
     states,
-    hasIcon: false,
+    hasIcon: !!fields.icon,
+    iconData: fields.icon ? MOCK_ICON : null,
     ...shown,
   };
 }
 
 const dark = "#11111B";
+// A small orange circle.
+const MOCK_ICON =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="%23FAB387"/></svg>').replace("%2523", "%23");
 
 const starter: ProfileView = {
   id: "default",
@@ -344,6 +349,13 @@ export const mock = {
         return out(undefined);
       case "recent_apps":
         return out(["obs64", "Code", "firefox"]);
+      case "choose_icon":
+        return out("icons/mock.png");
+      case "accessibility_allowed":
+        return out(this.accessibility);
+      case "open_accessibility_settings":
+        this.accessibility = true;
+        return out(undefined);
       case "get_autostart":
         return out(this.autostart);
       case "set_autostart":
@@ -383,6 +395,7 @@ export const mock = {
     this.emit("host-event", e);
   },
   autostart: false,
+  accessibility: null as boolean | null,
   setReloadError(msg: string | null) {
     profiles.default.reloadError = msg;
     this.emit("host-event", { kind: "profileChanged" });

@@ -42,6 +42,11 @@ export const api = {
   setAutostart: (enabled: boolean) => call<void>("set_autostart", { enabled }),
   openProfileFile: (id?: string) => call<void>("open_profile_file", { id: id ?? null }),
   openDataFolder: () => call<void>("open_data_folder"),
+  /** Pick an image file; resolves to its path for the key, or null if cancelled. */
+  chooseIcon: () => call<string | null>("choose_icon"),
+  /** macOS: may PerritoDeck send key presses? null on other systems. */
+  accessibilityAllowed: () => call<boolean | null>("accessibility_allowed"),
+  openAccessibilitySettings: () => call<void>("open_accessibility_settings"),
   onHostEvent: (cb: (e: HostEvent) => void) => on<HostEvent>("host-event", cb),
   onNavigate: (cb: (v: View) => void) => on<View>("navigate", cb),
 };

@@ -57,9 +57,21 @@ pub struct KeyView {
     /// Toggle states (0 for an ordinary key). Toggles are edited in the file for now.
     pub states: usize,
     pub has_icon: bool,
+    /// The key's image (first state) as a PNG data URL, for the editor's preview.
+    pub icon_data: Option<String>,
 }
 
 pub fn view_of(id: &str, profile: &Profile, reload_error: Option<String>) -> ProfileView {
+    view_with_icons(id, profile, reload_error, None)
+}
+
+/// Like [`view_of`], with key images read from `base_dir` for the preview.
+pub fn view_with_icons(
+    id: &str,
+    profile: &Profile,
+    reload_error: Option<String>,
+    base_dir: Option<&std::path::Path>,
+) -> ProfileView {
     let (cols, rows) = profile.grid.map(|g| (g.cols, g.rows)).unwrap_or_else(|| {
         // Sized per tablet; preview the most common tablet grid.
         let max_c = profile
@@ -122,9 +134,14 @@ pub fn view_of(id: &str, profile: &Profile, reload_error: Option<String>) -> Pro
                             fg: k.fg.clone(),
                             action: k.action.clone(),
                             nav: k.nav.clone(),
+                            icon: k.icon.clone(),
                         },
                         states: k.states.len(),
                         has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),
+                        icon_data: look.icon.as_ref().zip(base_dir).and_then(|(icon, dir)| {
+                            let bytes = std::fs::read(dir.join(icon)).ok()?;
+                            Some(perritodeck_render::data_url(&bytes))
+                        }),
                     }
                 })
                 .collect(),

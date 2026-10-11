@@ -274,3 +274,44 @@ fn slugs_and_unique_ids() {
     assert_eq!(slug("***"), "profile");
     assert_eq!(unique_id("a", |id| id == "a" || id == "a-2"), "a-3");
 }
+
+#[tokio::test]
+async fn icons_are_imported_and_shown_in_the_preview() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let src = dir.path().join("big.png");
+    image::RgbaImage::from_pixel(600, 300, image::Rgba([255, 0, 0, 255]))
+        .save(&src)
+        .unwrap();
+    let rel = host.import_icon(&src).unwrap();
+    assert!(rel.starts_with("icons/") && rel.ends_with(".png"));
+    let saved = image::open(host.profiles_dir.join(&rel)).unwrap();
+    assert_eq!((saved.width(), saved.height()), (288, 144), "scaled to fit");
+    assert!(host
+        .import_icon(&dir.path().join("app-settings.json"))
+        .is_err());
+
+    let edit = Edit::SetKey {
+        page: "Main".into(),
+        at: [2, 2],
+        key: KeyFields {
+            title: Some("Red".into()),
+            icon: Some(rel.clone().into()),
+            ..Default::default()
+        },
+    };
+    let view = host.edit_profile("default", &[edit]).unwrap();
+    let key = view.pages[0]
+        .keys
+        .iter()
+        .find(|k| k.row == 2 && k.col == 2)
+        .unwrap();
+    assert!(key
+        .icon_data
+        .as_deref()
+        .unwrap()
+        .starts_with("data:image/png;base64,"));
+    assert!(std::fs::read_to_string(&host.profile_path)
+        .unwrap()
+        .contains(&format!("icon = \"{rel}\"")));
+}

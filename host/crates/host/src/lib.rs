@@ -39,7 +39,7 @@ use tracing::{info, warn};
 pub use perritodeck_actions::ActionSpec;
 pub use perritodeck_profile::edit::{Edit, KeyFields};
 pub use settings::{AppSettings, AutoSwitch, SwitchRule};
-pub use views::{view_of, KeyView, PageView, ProfileSummary, ProfileView};
+pub use views::{view_of, view_with_icons, KeyView, PageView, ProfileSummary, ProfileView};
 
 #[derive(Debug, Clone)]
 pub struct HostOptions {
@@ -686,7 +686,12 @@ impl Host {
             .deck
             .profile_by_id(&id)
             .ok_or_else(|| format!("There's no profile called {id}."))?;
-        let mut view = view_of(&id, &profile, self.deck.reload_error_of(&id));
+        let mut view = view_with_icons(
+            &id,
+            &profile,
+            self.deck.reload_error_of(&id),
+            Some(&self.profiles_dir),
+        );
         let history = self.history.lock().expect("history poisoned");
         view.can_undo = !history.undo.is_empty();
         view.can_redo = !history.redo.is_empty();
@@ -743,6 +748,32 @@ impl Host {
         let id = unique_id(&slug(name), |id| self.path_of(id).exists());
         self.write_profile(&self.path_of(&id), &text)?;
         Ok(id)
+    }
+
+    /// Copy an image into the profiles folder for use as a key icon: PNG or JPEG,
+    /// scaled down to at most 288 px. Returns its path relative to the folder.
+    pub fn import_icon(&self, source: &Path) -> Result<String, String> {
+        use sha2::{Digest, Sha256};
+        const MAX: u32 = 288;
+        let bytes = std::fs::read(source)
+            .map_err(|e| format!("Couldn't read {}: {e}", source.display()))?;
+        let img = image::load_from_memory(&bytes)
+            .map_err(|_| "That file isn't a PNG or JPEG image.".to_owned())?;
+        let img = if img.width() > MAX || img.height() > MAX {
+            img.resize(MAX, MAX, image::imageops::FilterType::Lanczos3)
+        } else {
+            img
+        };
+        let mut png = Vec::new();
+        img.to_rgba8()
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|e| format!("Couldn't convert the image: {e}"))?;
+        let hash = Sha256::digest(&png);
+        let name: String = hash.iter().take(6).map(|b| format!("{b:02x}")).collect();
+        let dir = self.profiles_dir.join("icons");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(format!("{name}.png")), &png).map_err(|e| e.to_string())?;
+        Ok(format!("icons/{name}.png"))
     }
 
     /// Delete a profile (the default can't be). Its file is kept in the settings

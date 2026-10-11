@@ -41,11 +41,13 @@
   // The draft starts from the key once; the inspector is re-created when the selection
   // (or the key underneath it) changes from outside.
   const initial = untrack(() => ({ key, page, pageNames }));
-  const f = initial.key?.fields ?? { title: null, bg: null, fg: null, action: null, nav: null };
+  const f = initial.key?.fields ?? { title: null, bg: null, fg: null, action: null, nav: null, icon: null };
   const a = f.action;
   const nav = f.nav;
 
   let title = $state(f.title ?? "");
+  let icon = $state(f.icon);
+  let iconPreview = $state(initial.key?.iconData ?? null);
   let bg = $state(f.bg);
   let fg = $state(f.fg);
   const initialChoice: Choice = nav ? (typeof nav === "object" ? "page" : nav) : a ? a.type : "none";
@@ -151,7 +153,7 @@
         action = key?.fields.action ?? null;
         break;
     }
-    return { title: title === "" ? null : title, bg, fg, action, nav: navOut };
+    return { title: title === "" ? null : title, bg, fg, action, nav: navOut, icon };
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -228,9 +230,6 @@
       it.
     </p>
   {/if}
-  {#if key?.hasIcon}
-    <p class="note">This key has an icon from the profile file; it stays as it is.</p>
-  {/if}
 
   <div class="field">
     <label for="f1">Title</label>
@@ -241,6 +240,47 @@
       disabled={isToggle}
       placeholder={"Two lines\nat most"}></textarea>
     <small>Use <code>{"{time}"}</code> or <code>{"{date}"}</code> for a live clock.</small>
+  </div>
+
+  <div class="field">
+    <span id="lbl-image">Image</span>
+    <div class="image-row">
+      {#if iconPreview || icon}
+        <span class="thumb" style="background: {bg ?? DEFAULT_BG}">
+          {#if iconPreview}<img src={iconPreview} alt="" />{/if}
+        </span>
+      {/if}
+      <button
+        type="button"
+        class="btn small"
+        aria-describedby="lbl-image"
+        disabled={isToggle}
+        onclick={async () => {
+          try {
+            const picked = await api.chooseIcon();
+            if (picked) {
+              icon = picked;
+              iconPreview = null;
+              changed(0);
+            }
+          } catch (e) {
+            problem = String(e);
+          }
+        }}>{icon ? "Change…" : "Choose…"}</button
+      >
+      {#if icon && !isToggle}
+        <button
+          type="button"
+          class="link"
+          onclick={() => {
+            icon = null;
+            iconPreview = null;
+            changed(0);
+          }}>Remove</button
+        >
+      {/if}
+    </div>
+    <small>PNG or JPEG. It’s copied next to your profiles.</small>
   </div>
 
   <div class="colors">
@@ -505,6 +545,20 @@
     font-size: 0.8rem;
     text-decoration: underline;
   }
+  .image-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .thumb img { width: 70%; height: 70%; object-fit: contain; }
   .record-row {
     display: flex;
     gap: 8px;

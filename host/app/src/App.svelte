@@ -12,6 +12,16 @@
   let status = $state<HostStatus | null>(null);
   let startError = $state<string | null>(null);
   let devices = $state<DeviceInfo[]>([]);
+  // macOS: false until PerritoDeck is allowed to send key presses.
+  let accessibility = $state<boolean | null>(null);
+
+  async function checkAccessibility() {
+    try {
+      accessibility = await api.accessibilityAllowed();
+    } catch {
+      accessibility = null;
+    }
+  }
 
   const connected = $derived(devices.filter((d) => d.connected).length);
 
@@ -40,6 +50,10 @@
       }
     })();
     offs.push(api.onNavigate((v) => (view = v)));
+    checkAccessibility();
+    const onFocus = () => checkAccessibility();
+    window.addEventListener("focus", onFocus);
+    offs.push(Promise.resolve(() => window.removeEventListener("focus", onFocus)));
     offs.push(
       api.onHostEvent((e) => {
         if (e.kind === "connected" || e.kind === "disconnected" || e.kind === "paired") refreshDevices();
@@ -110,6 +124,15 @@
         </p>
       </section>
     {:else if status}
+      {#if accessibility === false}
+        <div class="paused" role="alert">
+          <span
+            ><strong>Hotkeys and typing need your permission.</strong> In System Settings, under Privacy &amp; Security →
+            Accessibility, turn on PerritoDeck.</span
+          >
+          <button class="btn small" onclick={() => api.openAccessibilitySettings().then(checkAccessibility)}>Open System Settings</button>
+        </div>
+      {/if}
       {#if status.paused}
         <div class="paused" role="status">
           <span><strong>Keys are paused.</strong> Presses on the tablets do nothing until you resume.</span>

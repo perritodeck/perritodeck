@@ -93,6 +93,8 @@ export interface KeyFields {
   fg: string | null;
   action: ActionSpec | null;
   nav: NavSpec | null;
+  /** Image file relative to the profiles folder, e.g. "icons/3fa907c2d41e.png". */
+  icon: string | null;
 }
 
 export type Pos = [number, number];
@@ -123,6 +125,8 @@ export interface KeyView {
   /** Toggle states; 0 for an ordinary key. */
   states: number;
   hasIcon: boolean;
+  /** PNG data URL of the key's image, for the preview. */
+  iconData: string | null;
 }
 
 export interface PageView {

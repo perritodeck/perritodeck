@@ -266,11 +266,20 @@
     if (await run([{ op: "removePage", name }])) goToPage(Math.max(0, pageIndex - 1));
   }
 
+  // Copy and paste keys within the app (the system clipboard keeps text).
+  let copied = $state.raw<KeyFields | null>(null);
+
   function onWindowKey(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement)?.closest?.("input, textarea, select");
     if (typing || !(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
-    if (k === "z" && !e.shiftKey) {
+    if (k === "c" && selectedKey) {
+      e.preventDefault();
+      copied = $state.snapshot(selectedKey.fields) as KeyFields;
+    } else if (k === "v" && copied && selected && page) {
+      e.preventDefault();
+      run([{ op: "setKey", page: page.name, at: selected, key: copied }]).then(() => select(selected));
+    } else if (k === "z" && !e.shiftKey) {
       e.preventDefault();
       history("undo");
     } else if ((k === "z" && e.shiftKey) || k === "y") {
@@ -475,7 +484,10 @@
             if (from && (from[0] !== at[0] || from[1] !== at[1])) move(from, at);
           }}
         >
-          {#if k}<span>{live(k.title)}</span>{:else}<span class="plus" aria-hidden="true">+</span>{/if}
+          {#if k}
+            {#if k.iconData}<img class="icon" class:with-title={!!k.title} src={k.iconData} alt="" />{/if}
+            {#if k.title}<span>{live(k.title)}</span>{/if}
+          {:else}<span class="plus" aria-hidden="true">+</span>{/if}
         </button>
       {/each}
     </div>
@@ -495,7 +507,7 @@
       {:else}
         <p class="hint">Select a key to change it, or an empty spot to add one.</p>
         <p class="hint">Drag keys to move them, or onto a page tab to send them there.</p>
-        <p class="hint">With a key selected: arrows move the selection, Alt+arrows move the key, Delete removes it, Enter follows a page key.</p>
+        <p class="hint">With a key selected: arrows move the selection, Alt+arrows move the key, Delete removes it, Enter follows a page key, Ctrl+C and Ctrl+V copy it to another spot.</p>
         <p class="hint">Changes save to the profile file and reach the tablets straight away.</p>
       {/if}
     </aside>
@@ -664,6 +676,9 @@
   .key.empty:focus-visible { opacity: 0.8; color: #fff; }
   .key.drop { outline: 3px dashed var(--apricot); outline-offset: 2px; }
   .plus { font: 400 1.6rem/1 var(--display); }
+  .key:has(.icon) { place-items: center; align-content: center; gap: 4%; }
+  .icon { width: 62%; height: 62%; object-fit: contain; pointer-events: none; }
+  .icon.with-title { width: 48%; height: 48%; }
 
   .side { display: grid; gap: 10px; }
   .hint { color: var(--ink-soft); font-size: 0.92rem; }
