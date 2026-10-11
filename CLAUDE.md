@@ -42,6 +42,6 @@ time, because both the CLI and the app listen on port 46710.
 ## CI
 
 The workflows in `.github/workflows` are `host`, `protocol`, `android`, `e2e` (real host +
-API 22/34 emulators), `desktop-app` (bundles for all three OSes) and `release` (triggered by
-a tag, not yet exercised). E2E screenshots are pushed to the `ci/e2e-api22` and
-`ci/e2e-api34` branches.
+API 22/34 emulators plus Fire-sized API 22 runs), `desktop-app` (bundles for all three OSes) and `release` (triggered by
+a tag, not yet exercised). E2E screenshots are pushed to the `ci/e2e-<run name>` branches (`api22`, `api34`,
+`fire7`, `firehd10`).
