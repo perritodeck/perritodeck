@@ -39,6 +39,9 @@ use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::{info, warn};
 
 pub use perritodeck_actions::ActionSpec;
+pub use perritodeck_plugins::{
+    BrokenPlugin, Manifest as PluginManifest, PluginInfo, Status as PluginStatus,
+};
 pub use perritodeck_profile::edit::{Edit, KeyFields};
 pub use settings::{AppSettings, AutoSwitch, SwitchRule};
 pub use views::{view_of, view_with_icons, KeyView, PageView, ProfileSummary, ProfileView};
@@ -174,6 +177,16 @@ pub struct HostStatus {
     pub usb_available: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginsView {
+    pub installed: Vec<PluginInfo>,
+    /// Plugin folders whose manifest couldn't be read, and why.
+    pub broken: Vec<BrokenPlugin>,
+    /// Where plugins are installed.
+    pub folder: String,
+}
+
 /// Outbox that forwards to the server handle once it exists.
 #[derive(Default)]
 struct LateOutbox(std::sync::OnceLock<ServerHandle>);
@@ -262,6 +275,7 @@ pub struct Host {
     insecure: bool,
     integrations: Vec<String>,
     shared: Arc<Shared>,
+    plugins: Arc<perritodeck_plugins::PluginHost>,
     usb: usb::UsbDevices,
     usb_available: bool,
     history: Mutex<History>,
@@ -349,7 +363,22 @@ impl Host {
         if !integrations.is_empty() {
             info!("integrations: {}", integrations.join(", "));
         }
-        let executor = Executor::new(input, Arc::new(OpenSystem)).with_integrations(builtins);
+        // Plugins publish live values into the deck, which exists only below; a shim
+        // forwards them once it does.
+        let live_sink: Arc<std::sync::OnceLock<Arc<Deck>>> = Arc::default();
+        let sink = live_sink.clone();
+        let plugins = perritodeck_plugins::PluginHost::start(
+            dir.join("plugins"),
+            env!("CARGO_PKG_VERSION"),
+            Arc::new(move |k, v| {
+                if let Some(deck) = sink.get() {
+                    deck.set_live([(k, v)]);
+                }
+            }),
+        );
+        let executor = Executor::new(input, Arc::new(OpenSystem))
+            .with_integrations(builtins)
+            .with_plugins(plugins.clone());
         let test_executor = executor.clone();
 
         let outbox = Arc::new(LateOutbox::default());
@@ -361,6 +390,7 @@ impl Host {
             executor,
         );
         watch::load_all(&profiles_dir, &deck);
+        let _ = live_sink.set(deck.clone());
 
         let settings_file = settings_path(&dir);
         let settings = AppSettings::load(&settings_file);
@@ -423,6 +453,7 @@ impl Host {
         let server = tokio::spawn(server.run());
 
         Ok(Self {
+            plugins,
             usb: usb_devices,
             usb_available,
             host_name,
@@ -671,6 +702,34 @@ impl Host {
             .lock()
             .expect("focus poisoned")
             .clone()
+    }
+
+    // ---- Plugins ----
+
+    pub fn plugins(&self) -> PluginsView {
+        PluginsView {
+            installed: self.plugins.list(),
+            broken: self.plugins.broken(),
+            folder: self.plugins.folder().display().to_string(),
+        }
+    }
+
+    /// Copy a plugin's folder into the plugins folder and start it.
+    pub fn install_plugin(&self, folder: &Path) -> Result<String, String> {
+        self.plugins.install_from(folder)
+    }
+
+    pub fn remove_plugin(&self, id: &str) -> Result<(), String> {
+        self.plugins.remove(id)
+    }
+
+    pub fn restart_plugin(&self, id: &str) -> Result<(), String> {
+        self.plugins.restart(id)
+    }
+
+    /// Look again for plugins added or removed by hand.
+    pub fn rescan_plugins(&self) {
+        self.plugins.scan();
     }
 
     // ---- Profiles ----

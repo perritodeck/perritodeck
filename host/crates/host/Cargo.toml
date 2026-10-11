@@ -22,6 +22,7 @@ perritodeck-render.workspace = true
 perritodeck-profile.workspace = true
 perritodeck-deck.workspace = true
 perritodeck-integrations.workspace = true
+perritodeck-plugins.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 notify.workspace = true

@@ -482,6 +482,15 @@ impl Deck {
         }
     }
 
+    /// One live value, if known.
+    pub fn live_value(&self, name: &str) -> Option<String> {
+        self.live
+            .read()
+            .expect("live values poisoned")
+            .get(name)
+            .cloned()
+    }
+
     /// Every live value name used by any loaded profile, in titles or toggles' `follow`.
     pub fn live_tokens(&self) -> Vec<String> {
         let st = self.lock();

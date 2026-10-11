@@ -191,6 +191,7 @@ pub fn describe(a: &perritodeck_actions::ActionSpec) -> String {
                     .unwrap_or_default()
             )
         }
+        A::Plugin { plugin, action, .. } => format!("{plugin}: {action}"),
         A::None => "nothing".to_owned(),
     }
 }

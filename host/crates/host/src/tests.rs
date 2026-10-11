@@ -379,3 +379,76 @@ async fn imports_cannot_write_outside_the_profiles_folder() {
     assert!(!dir.path().join("escaped.png").exists());
     assert!(!host.profiles_dir.join("../escaped.png").exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plugin_actions_run_from_keys_and_values_reach_titles() {
+    let has_python = ["python3", "python", "py"].iter().any(|p| {
+        std::process::Command::new(p)
+            .arg("--version")
+            .output()
+            .is_ok()
+    });
+    if !has_python {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    std::fs::write(
+        src.path().join("perritodeck-plugin.json"),
+        r#"{ "id": "test.counter", "name": "Counter", "version": "1", "runtime": "python", "main": "p.py",
+             "actions": [{ "id": "bump", "name": "Bump" }], "values": [{ "id": "count", "name": "Count" }] }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        src.path().join("p.py"),
+        "import json,sys\nn=0\ndef send(m):\n    print(json.dumps(m), flush=True)\nfor l in sys.stdin:\n    m=json.loads(l)\n    if m['event']=='hello': send({'event':'ready'}); send({'event':'value','id':'count','value':str(n)})\n    elif m['event']=='run':\n        n+=1; send({'event':'value','id':'count','value':str(n)}); send({'event':'result','id':m['id'],'ok':True})\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    assert_eq!(host.install_plugin(src.path()).unwrap(), "test.counter");
+    for _ in 0..200 {
+        if host
+            .plugins()
+            .installed
+            .first()
+            .is_some_and(|p| p.status == PluginStatus::Running)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let bump = ActionSpec::Plugin {
+        plugin: "test.counter".into(),
+        action: "bump".into(),
+        settings: serde_json::Value::Null,
+    };
+    assert_eq!(host.test_action(&bump).await, Ok(None));
+    assert_eq!(host.test_action(&bump).await, Ok(None));
+
+    // The plugin's value shows in a title.
+    let edit = Edit::SetKey {
+        page: "Main".into(),
+        at: [2, 2],
+        key: KeyFields {
+            title: Some("n={plugin:test.counter:count}".into()),
+            ..Default::default()
+        },
+    };
+    host.edit_profile("default", &[edit]).unwrap();
+    assert!(host
+        .deck
+        .live_tokens()
+        .contains(&"plugin:test.counter:count".to_string()));
+    for _ in 0..100 {
+        if host.deck.live_value("plugin:test.counter:count").as_deref() == Some("2") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        host.deck.live_value("plugin:test.counter:count").as_deref(),
+        Some("2")
+    );
+    host.remove_plugin("test.counter").unwrap();
+    assert!(host.plugins().installed.is_empty());
+}

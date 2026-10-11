@@ -82,6 +82,13 @@ pub enum ActionSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         data: Option<serde_json::Value>,
     },
+    /// Runs an action from an installed plugin.
+    Plugin {
+        plugin: String,
+        action: String,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        settings: serde_json::Value,
+    },
     /// Does nothing (an empty key).
     None,
 }
@@ -218,8 +225,19 @@ pub trait Integrations: Send + Sync {
     }
 }
 
+/// Installed plugins (separate programs; see plugins/PROTOCOL.md).
+pub trait PluginRunner: Send + Sync {
+    fn run_plugin<'a>(
+        &'a self,
+        plugin: &'a str,
+        action: &'a str,
+        settings: &'a serde_json::Value,
+    ) -> BoxFuture<'a, Result<Outcome, ActionError>>;
+}
+
 #[derive(Clone)]
 pub struct Executor {
+    plugins: Option<Arc<dyn PluginRunner>>,
     input: Arc<dyn InputBackend>,
     pub(crate) system: Arc<dyn SystemBackend>,
     pub(crate) integrations: Option<Arc<dyn Integrations>>,
@@ -231,7 +249,13 @@ impl Executor {
             input,
             system,
             integrations: None,
+            plugins: None,
         }
+    }
+
+    pub fn with_plugins(mut self, plugins: Arc<dyn PluginRunner>) -> Self {
+        self.plugins = Some(plugins);
+        self
     }
 
     pub fn with_integrations(mut self, integrations: Arc<dyn Integrations>) -> Self {
@@ -334,6 +358,17 @@ impl Executor {
                         .home_assistant(service, entity.as_deref(), data.as_ref())
                         .await
                 }
+                ActionSpec::Plugin {
+                    plugin,
+                    action,
+                    settings,
+                } => {
+                    let plugins = self
+                        .plugins
+                        .as_ref()
+                        .ok_or_else(|| ActionError::NotConfigured("Plugins".into()))?;
+                    plugins.run_plugin(plugin, action, settings).await
+                }
                 ActionSpec::None => Ok(Outcome::Ok),
             }
         })
@@ -342,6 +377,20 @@ impl Executor {
 
 fn validate_at(spec: &ActionSpec, depth: usize) -> Result<(), ActionError> {
     match spec {
+        ActionSpec::Plugin { plugin, action, .. } => {
+            let ok = |id: &str| {
+                !id.is_empty()
+                    && id.chars().all(|c| {
+                        c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_')
+                    })
+            };
+            if !ok(plugin) || !ok(action) {
+                return Err(ActionError::Integration {
+                    service: "Plugins".into(),
+                    reason: format!("{plugin:?} / {action:?} isn't a plugin action id"),
+                });
+            }
+        }
         ActionSpec::Hotkey { keys } => {
             keys.parse::<Chord>()?;
         }

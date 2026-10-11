@@ -1680,6 +1680,7 @@ dependencies = [
  "perritodeck-core",
  "perritodeck-deck",
  "perritodeck-integrations",
+ "perritodeck-plugins",
  "perritodeck-profile",
  "perritodeck-protocol",
  "perritodeck-render",
@@ -1714,6 +1715,19 @@ dependencies = [
  "toml",
  "tracing",
  "ureq",
+]
+
+[[package]]
+name = "perritodeck-plugins"
+version = "0.1.0"
+dependencies = [
+ "perritodeck-actions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
