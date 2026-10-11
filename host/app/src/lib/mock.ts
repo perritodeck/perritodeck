@@ -35,7 +35,18 @@ let devices: DeviceInfo[] = [
 ];
 
 function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?: Partial<KeyView>): KeyView {
-  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, icon: null, slider: null, ...f };
+  const fields: KeyFields = {
+    title: null,
+    bg: null,
+    fg: null,
+    action: null,
+    nav: null,
+    icon: null,
+    slider: null,
+    states: [],
+    follow: null,
+    ...f,
+  };
   return {
     row,
     col,
@@ -75,7 +86,18 @@ const starter: ProfileView = {
         key(0, 2, { title: "Vol +", bg: "#89B4FA", fg: dark, action: { type: "media", key: "volumeUp" } }),
         key(0, 3, { title: "Vol −", bg: "#89B4FA", fg: dark, action: { type: "media", key: "volumeDown" } }),
         key(0, 4, { title: "Mute", bg: "#89B4FA", fg: dark, action: { type: "media", key: "mute" } }),
-        key(1, 0, {}, 2, { title: "Mic\nlive", bg: "#A6E3A1", fg: dark, detail: "2 states, hotkey Ctrl+Shift+M" }),
+        key(
+          1,
+          0,
+          {
+            states: [
+              { title: "Mic\nlive", bg: "#A6E3A1", fg: dark, action: { type: "hotkey", keys: "Ctrl+Shift+M" } },
+              { title: "Mic\nmuted", bg: "#F38BA8", fg: dark, action: { type: "hotkey", keys: "Ctrl+Shift+M" } },
+            ],
+          },
+          2,
+          { title: "Mic\nlive", bg: "#A6E3A1", fg: dark, detail: "2 states, hotkey Ctrl+Shift+M" },
+        ),
         key(1, 1, { title: "Copy", action: { type: "hotkey", keys: "Ctrl+C" } }),
         key(1, 2, { title: "Paste", action: { type: "hotkey", keys: "Ctrl+V" } }),
         key(1, 3, { title: "Type\nhello", action: { type: "text", text: "Hello from Perrito! " } }),
@@ -213,7 +235,8 @@ function applyEdit(p: ProfileView, e: Edit) {
       if (e.key.bg && !/^#[0-9a-fA-F]{6}$/.test(e.key.bg)) throw "that change would break the profile:\n  - colours look like #1E1E2E";
       const pg = page(p, e.page);
       const old = pg.keys.find((k) => same(k, e.at));
-      const next = key(e.at[0], e.at[1], e.key, old?.states ?? 0);
+      const s0 = e.key.states[0];
+      const next = key(e.at[0], e.at[1], e.key, e.key.states.length, e.key.states.length >= 2 ? { title: s0?.title ?? e.key.title ?? "", bg: s0?.bg ?? e.key.bg ?? DEFAULT_BG, fg: s0?.fg ?? e.key.fg ?? DEFAULT_FG } : {});
       pg.keys = old ? pg.keys.map((k) => (k === old ? next : k)) : [...pg.keys, next];
       return;
     }
@@ -425,6 +448,8 @@ export const mock = {
       case "restart_plugin":
       case "open_plugins_folder":
         return out(undefined);
+      case "import_icon_data":
+        return out("icons/builtin.png");
       case "choose_icon":
         return out("icons/mock.png");
       case "accessibility_allowed":

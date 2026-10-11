@@ -107,7 +107,7 @@ test.describe("editing", () => {
         op: "setKey",
         page: "Main",
         at: [1, 1],
-        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null, icon: null, slider: null },
+        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null, icon: null, slider: null, states: [], follow: null },
       },
     ]);
 
@@ -223,8 +223,15 @@ test.describe("editing", () => {
   test("adds an image and copies a key to another spot", async ({ page }) => {
     await key(page, /^Paste:/).click();
     await page.getByRole("button", { name: "Choose…" }).click();
+    await page.getByLabel("Search icons").fill("micro");
+    await page.getByRole("button", { name: "microphone off" }).click();
     await expect(key(page, /^Paste:/).locator("img")).toBeVisible();
-    await expect.poll(async () => (await lastEdits(page))[0].key.icon).toBe("icons/mock.png");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.icon).toBe("icons/builtin.png");
+
+    // Or a file.
+    await page.getByRole("button", { name: "Change…" }).click();
+    await page.getByRole("button", { name: "From a file…" }).click();
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.icon).toBe("icons/mock.png");
 
     await key(page, /^Paste:/).focus();
     await expect(key(page, /^Paste:/)).toBeFocused();
@@ -242,15 +249,46 @@ test.describe("editing", () => {
     await expect(page.getByText("Enter the audio source's name as OBS shows it.")).toBeVisible();
     await page.getByLabel("Audio source").fill("Mic/Aux");
     await expect(key(page, /^Mic: slider: OBS volume of Mic\/Aux/)).toBeVisible();
-    await expect.poll(async () => (await lastEdits(page))[0].key.slider).toEqual({ type: "obs", input: "Mic/Aux" });
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.slider).toEqual({ type: "obs", input: "Mic/Aux" });
     await expect(page.getByRole("button", { name: "Try it" })).toHaveCount(0);
   });
 
-  test("toggle keys are edited in the file", async ({ page }) => {
+  test("makes and edits a toggle", async ({ page }) => {
+    // The starter's mic toggle opens with its two states.
     await key(page, /^Mic live/).click();
-    await expect(page.getByText(/toggle with 2 states/)).toBeVisible();
-    await expect(page.getByLabel("Title")).toBeDisabled();
-    await expect(page.getByLabel("When pressed")).toBeDisabled();
+    await expect(page.getByRole("radio", { name: /Toggle/ })).toBeChecked();
+    await expect(page.getByRole("tab", { name: /Mic\s+live/ })).toBeVisible();
+    await page.getByRole("tab", { name: /Mic\s+muted/ }).click();
+    await page.getByLabel("State 2 title").fill("Muted!");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key?.states?.[1]?.title).toBe("Muted!");
+
+    // An ordinary key becomes a toggle that follows OBS.
+    await key(page, /^Paste:/).click();
+    await page.getByRole("radio", { name: /Toggle/ }).check();
+    await page.getByLabel("State 1 title").fill("Rec");
+    await page.getByLabel("When pressed").selectOption("obs");
+    await page.getByLabel("Follow a live value (optional)").fill("obs:recording");
+    await expect
+      .poll(async () => {
+        const k = (await lastEdits(page))?.[0]?.key;
+        return [k?.states?.length, k?.states?.[0]?.title, k?.states?.[0]?.action?.type, k?.follow, k?.action];
+      })
+      .toEqual([2, "Rec", "obs", "obs:recording", null]);
+
+    // A third state can't be combined with following.
+    await page.getByRole("button", { name: "+ State" }).click();
+    await expect(page.getByText("A toggle that follows a value needs exactly two states.")).toBeVisible();
+  });
+
+  test("several steps as JSON", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("multi");
+    await page.getByLabel("Steps, as JSON").fill('[{"action": {"type": "text", "text": "hi"}, "delayMs": 50}]');
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
+      .toEqual({ type: "multi", steps: [{ action: { type: "text", text: "hi" }, delayMs: 50 }] });
+    await page.getByLabel("Steps, as JSON").fill("[nope");
+    await expect(page.getByText("The steps aren't valid JSON.")).toBeVisible();
   });
 });
 
@@ -275,7 +313,7 @@ test.describe("profiles, tablets and switching", () => {
     await key(page, "Empty, row 1 column 1").click();
     await page.getByLabel("Title").fill("GG");
     await expect.poll(() => lastEdits(page)).toEqual([
-      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null, icon: null, slider: null } },
+      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null, icon: null, slider: null, states: [], follow: null } },
     ]);
 
     await page.getByRole("button", { name: "Profile options" }).click();
@@ -391,7 +429,7 @@ test.describe("plugins", () => {
     await page.getByLabel("Method").selectOption("PUT");
     await page.getByLabel("Skip the check").check();
     await expect
-      .poll(async () => (await lastEdits(page))[0].key.action)
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
       .toEqual({
         type: "plugin",
         plugin: "dev.perritodeck.http",

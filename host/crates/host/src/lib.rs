@@ -892,11 +892,16 @@ impl Host {
     /// Copy an image into the profiles folder for use as a key icon: PNG or JPEG,
     /// scaled down to at most 288 px. Returns its path relative to the folder.
     pub fn import_icon(&self, source: &Path) -> Result<String, String> {
-        use sha2::{Digest, Sha256};
-        const MAX: u32 = 288;
         let bytes = std::fs::read(source)
             .map_err(|e| format!("Couldn't read {}: {e}", source.display()))?;
-        let img = image::load_from_memory(&bytes)
+        self.import_icon_bytes(&bytes)
+    }
+
+    /// Like [`Host::import_icon`], from the image's bytes (PNG or JPEG).
+    pub fn import_icon_bytes(&self, bytes: &[u8]) -> Result<String, String> {
+        use sha2::{Digest, Sha256};
+        const MAX: u32 = 288;
+        let img = image::load_from_memory(bytes)
             .map_err(|_| "That file isn't a PNG or JPEG image.".to_owned())?;
         let img = if img.width() > MAX || img.height() > MAX {
             img.resize(MAX, MAX, image::imageops::FilterType::Lanczos3)

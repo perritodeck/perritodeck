@@ -109,6 +109,19 @@ export interface KeyFields {
   icon: string | null;
   /** Makes the key a slider. */
   slider: SliderSpec | null;
+  /** Two or more make the key a toggle; empty for an ordinary key. */
+  states: StateFields[];
+  /** For a two-state toggle: the live value it follows, e.g. "obs:recording". */
+  follow: string | null;
+}
+
+/** One state of a toggle (fields fall back to the key's). */
+export interface StateFields {
+  title?: string | null;
+  icon?: string | null;
+  bg?: string | null;
+  fg?: string | null;
+  action?: ActionSpec | null;
 }
 
 export type Pos = [number, number];

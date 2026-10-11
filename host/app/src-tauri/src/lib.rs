@@ -172,6 +172,16 @@ async fn choose_icon(handle: AppHandle, app: State<'_, App>) -> Res<Option<Strin
     host.import_icon(&path).map(Some)
 }
 
+/// Save a built-in icon (drawn by the window as a PNG, base64) for use on a key.
+#[tauri::command]
+fn import_icon_data(app: State<'_, App>, png_base64: String) -> Res<String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64.trim())
+        .map_err(|_| "That image data is damaged.".to_owned())?;
+    app.host()?.import_icon_bytes(&bytes)
+}
+
 /// Save a profile as a `.perritoprofile` file. False if the person cancelled.
 #[tauri::command]
 async fn export_profile(handle: AppHandle, app: State<'_, App>, id: String) -> Res<bool> {
@@ -498,6 +508,7 @@ pub fn run() {
             open_profile_file,
             open_data_folder,
             choose_icon,
+            import_icon_data,
             list_plugins,
             install_catalog_plugin,
             install_plugin_folder,

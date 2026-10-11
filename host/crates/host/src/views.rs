@@ -143,6 +143,8 @@ pub fn view_with_icons(
                             nav: k.nav.clone(),
                             icon: k.icon.clone(),
                             slider: k.slider.clone(),
+                            states: k.states.clone(),
+                            follow: k.follow.clone(),
                         },
                         states: k.states.len(),
                         has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),

@@ -81,6 +81,12 @@ pub struct KeyFields {
     /// Makes the key a slider.
     #[serde(default)]
     pub slider: Option<perritodeck_actions::SliderSpec>,
+    /// Two or more states make the key a toggle; empty for an ordinary key.
+    #[serde(default)]
+    pub states: Vec<crate::StateDef>,
+    /// For a two-state toggle: the live value it follows.
+    #[serde(default)]
+    pub follow: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -147,6 +153,26 @@ fn apply_one(doc: &mut DocumentMut, edit: &Edit) -> Result<(), EditError> {
             set_opt(t, "action", key.action.as_ref().map(to_value).transpose()?);
             set_opt(t, "nav", key.nav.as_ref().map(to_value).transpose()?);
             set_opt(t, "slider", key.slider.as_ref().map(to_value).transpose()?);
+            set_opt(
+                t,
+                "follow",
+                key.follow.as_ref().map(|f| Value::from(f.as_str())),
+            );
+            if key.states.is_empty() {
+                t.remove("states");
+            } else if existing_states(t).as_ref() != Some(&key.states) {
+                let mut arr = Array::new();
+                for st in &key.states {
+                    arr.push(to_value(st)?);
+                }
+                // One state per line reads best.
+                for v in arr.iter_mut() {
+                    v.decor_mut().set_prefix("\n  ");
+                }
+                arr.set_trailing("\n");
+                arr.set_trailing_comma(true);
+                set_opt(t, "states", Some(Value::Array(arr)));
+            }
             set_opt(
                 t,
                 "icon",
@@ -262,6 +288,17 @@ fn rename_nav(key: &mut Table, from: &str, to: &str) {
         nav.insert("page", Value::from(to));
         key.insert("nav", value(nav));
     }
+}
+
+/// The key's states as they are in the file, however they're written.
+fn existing_states(t: &Table) -> Option<Vec<crate::StateDef>> {
+    #[derive(Deserialize)]
+    struct W {
+        states: Vec<crate::StateDef>,
+    }
+    let mut d = DocumentMut::new();
+    d["states"] = t.get("states")?.clone();
+    toml::from_str::<W>(&d.to_string()).ok().map(|w| w.states)
 }
 
 fn pos(at: [u32; 2]) -> Array {
@@ -590,6 +627,63 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed(&out).pages.len(), 2);
+    }
+
+    #[test]
+    fn toggles_are_made_and_changed_in_place() {
+        use crate::StateDef;
+        let st = |title: &str, keys: &str| StateDef {
+            title: Some(title.into()),
+            action: Some(ActionSpec::Hotkey { keys: keys.into() }),
+            ..Default::default()
+        };
+        // An ordinary key becomes a toggle that follows OBS.
+        let out = apply(
+            STARTER_PROFILE,
+            &[set(
+                "Main",
+                [1, 1],
+                KeyFields {
+                    states: vec![st("Off", "F1"), st("On", "F2")],
+                    follow: Some("obs:recording".into()),
+                    ..Default::default()
+                },
+            )],
+        )
+        .unwrap();
+        let p = parsed(&out);
+        let k = key(&p, "Main", [1, 1]).unwrap();
+        assert_eq!(k.states.len(), 2);
+        assert_eq!(k.follow.as_deref(), Some("obs:recording"));
+        assert_eq!(comments(&out), comments(STARTER_PROFILE));
+
+        // The starter's Mic toggle, saved unchanged, keeps its exact text.
+        let before = parsed(STARTER_PROFILE);
+        let mic = key(&before, "Main", [1, 0]).unwrap().clone();
+        let same = KeyFields {
+            states: mic.states.clone(),
+            ..Default::default()
+        };
+        let out = apply(STARTER_PROFILE, &[set("Main", [1, 0], same)]).unwrap();
+        assert_eq!(out, STARTER_PROFILE);
+
+        // Back to an ordinary key.
+        let out = apply(
+            STARTER_PROFILE,
+            &[set(
+                "Main",
+                [1, 0],
+                KeyFields {
+                    title: Some("Mic".into()),
+                    ..Default::default()
+                },
+            )],
+        )
+        .unwrap();
+        assert!(key(&parsed(&out), "Main", [1, 0])
+            .unwrap()
+            .states
+            .is_empty());
     }
 
     #[test]

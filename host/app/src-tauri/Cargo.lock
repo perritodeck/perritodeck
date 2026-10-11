@@ -3196,6 +3196,7 @@ dependencies = [
 name = "perritodeck-app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "perritodeck-host",
  "serde",
  "serde_json",

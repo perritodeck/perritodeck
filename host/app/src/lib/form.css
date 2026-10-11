@@ -1,0 +1,131 @@
+/* Form fields shared by the key inspector and action pickers. */
+.form {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+
+.form header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+  }
+
+.form .where { color: var(--ink-soft); font-size: 0.85rem; }
+
+.form .note {
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+  }
+
+.form .field {
+    display: grid;
+    gap: 5px;
+  }
+
+.form .field > span,
+.form .field > label { font-weight: 700; font-size: 0.9rem; }
+
+.form .field.narrow input { max-width: 8em; }
+
+.form small { color: var(--ink-soft); font-size: 0.8rem; }
+
+.form input:not([type="color"]):not([type="radio"]):not([type="checkbox"]),
+.form textarea,
+.form select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 7px 10px;
+    width: 100%;
+    user-select: text;
+  }
+
+.form textarea { resize: vertical; }
+
+.form input:focus-visible,
+.form textarea:focus-visible,
+.form select:focus-visible { border-color: var(--apricot); outline: none; }
+
+.form :disabled { opacity: 0.55; }
+
+.form .colors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+.form .swatch-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+.form input[type="color"] {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: none;
+    cursor: pointer;
+  }
+
+.form .swatch-row code { font-size: 0.8rem; color: var(--ink-soft); }
+
+.form .link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--apricot-deep);
+    font-size: 0.8rem;
+    text-decoration: underline;
+  }
+
+.form .image-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+.form .thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+.form .thumb img { width: 70%; height: 70%; object-fit: contain; }
+
+.form .record-row {
+    display: flex;
+    gap: 8px;
+  }
+
+.form .record-row input.recording { border-color: var(--apricot); }
+
+.form .btn.small { padding: 5px 12px; font-size: 0.85rem; }
+
+.form .problem { color: var(--danger); font-size: 0.9rem; }
+
+.form .check { display: flex; align-items: center; gap: 8px; font-weight: 400 !important; }
+
+.form .try {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+  }
+
+.form .try .bad { color: var(--danger); }

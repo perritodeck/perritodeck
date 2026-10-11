@@ -51,6 +51,8 @@ export const api = {
   openPluginsFolder: () => call<void>("open_plugins_folder"),
   /** Pick an image file; resolves to its path for the key, or null if cancelled. */
   chooseIcon: () => call<string | null>("choose_icon"),
+  /** Save a PNG (base64) as a key image; resolves to its path for the key. */
+  importIconData: (pngBase64: string) => call<string>("import_icon_data", { pngBase64 }),
   /** Save a profile to a file the person picks; false if they cancelled. */
   exportProfile: (id: string) => call<boolean>("export_profile", { id }),
   /** Add a profile from a file; resolves to its id, or null if cancelled. */
