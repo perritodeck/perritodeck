@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the PerritoDeck window may do: listen for host events. Everything else goes through the app's own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

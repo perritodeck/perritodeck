@@ -60,6 +60,7 @@ pub struct Deck {
     state: Mutex<State>,
     outbox: Arc<dyn Outbox>,
     executor: Executor,
+    revision: std::sync::atomic::AtomicU64,
 }
 
 /// Default grid when the profile doesn't fix one: sized to the device's screen.
@@ -91,7 +92,18 @@ impl Deck {
             }),
             outbox,
             executor,
+            revision: Default::default(),
         })
+    }
+
+    /// Goes up whenever the profile is reloaded or a reload fails, so UIs can refresh.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn bump(&self) {
+        self.revision
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -146,10 +158,12 @@ impl Deck {
 
     pub fn set_reload_error(&self, error: String) {
         self.lock().reload_error = Some(error);
+        self.bump();
     }
 
     /// Swap in a new profile (after the file changed) and redraw every device.
     pub fn reload(&self, profile: Profile) {
+        self.bump();
         let mut st = self.lock();
         st.reload_error = None;
         let pages = profile.pages.len();

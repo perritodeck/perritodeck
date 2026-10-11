@@ -15,7 +15,7 @@ PerritoDeck has two parts:
 
 | Path | What |
 |---|---|
-| [`host/`](host/) | Desktop host (Rust) |
+| [`host/`](host/) | Desktop host (Rust): command-line host, and the tray app in [`host/app/`](host/app/) (Tauri + Svelte) |
 | [`android/`](android/) | Android client (Kotlin + Jetpack Compose) |
 | [`protocol/`](protocol/) | Wire protocol schema and golden fixtures |
 | [`plugins/`](plugins/) | Plugin SDKs and first-party plugins |

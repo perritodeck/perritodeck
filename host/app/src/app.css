@@ -1,0 +1,80 @@
+:root {
+  --fog: #eef1f6;
+  --paper: #ffffff;
+  --ink: #1c2433;
+  --ink-soft: #4a5568;
+  --apricot: #fab387;
+  --apricot-deep: #c9622a;
+  --deck: #2a3142;
+  --line: #d5dbe5;
+  --danger: #b4233a;
+  --display: "Bricolage Grotesque Variable", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fog: #161b26;
+    --paper: #1f2533;
+    --ink: #e9edf4;
+    --ink-soft: #a7b0c0;
+    --line: #333b4d;
+    --deck: #0e121a;
+    --apricot-deep: #fab387;
+    --danger: #f38ba8;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--fog);
+  color: var(--ink);
+  font: 15px/1.55 var(--body);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#app { height: 100%; }
+
+h1, h2, h3 { font-family: var(--display); line-height: 1.1; margin: 0; }
+h1 { font-size: 1.75rem; font-weight: 750; letter-spacing: -0.02em; }
+h2 { font-size: 1.15rem; font-weight: 700; }
+p { margin: 0; }
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+:focus-visible { outline: 3px solid var(--apricot); outline-offset: 2px; border-radius: 6px; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--paper);
+  font-weight: 700;
+}
+.btn:hover { border-color: var(--ink-soft); }
+.btn.primary { background: var(--apricot); border-color: var(--apricot); color: #1c2433; }
+.btn.primary:hover { background: #f7a26c; }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--ink-soft); }
+.btn.quiet:hover { color: var(--ink); background: var(--paper); }
+.btn.danger { color: var(--danger); }
+
+.selectable { user-select: text; cursor: text; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

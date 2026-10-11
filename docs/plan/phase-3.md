@@ -1,5 +1,15 @@
 # Phase 3 — Desktop app & editor
 
+## Status (2026-10-11)
+
+First slice done in `host/app/`:
+- The host runtime is a library (`perritodeck-host`); the CLI and the app both use it.
+- Tray icon with Open, Pair a tablet and Quit; closing the window keeps the host running; a second launch focuses the first.
+- Views: Buttons (the profile drawn as the tablet shows it, read-only, live-reloads and shows edit errors), Tablets (status, unpair), Pair a tablet (QR, code, fingerprint, flips to "Paired with …"), Settings (addresses, fingerprint, folders).
+- Tested with Playwright against a mocked host, checked by hand against the real app with `fakedeck` pairing, and built on all three OSes in CI.
+
+Next: the editor itself (inspector, drag and drop, saving TOML), start at login, pause all keys, macOS Accessibility check.
+
 **Goal:** a normal desktop app that someone who has never seen a terminal can install, pair a tablet with, and lay out buttons in by dragging, with every edit appearing on the tablet as they make it.
 
 ## The app shell (Tauri 2)

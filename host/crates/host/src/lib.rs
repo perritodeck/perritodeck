@@ -96,6 +96,8 @@ pub enum HostEvent {
     },
     #[serde(rename_all = "camelCase")]
     KeyPressed { device_id: String, key_index: u32 },
+    /// The profile file was reloaded, or an edit to it was rejected.
+    ProfileChanged,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -551,6 +553,19 @@ fn spawn_event_loop(
             ticker.tick();
         }
     });
+    let (watched, notify) = (deck.clone(), out.clone());
+    tokio::spawn(async move {
+        let mut seen = watched.revision();
+        let mut every = tokio::time::interval(Duration::from_millis(200));
+        loop {
+            every.tick().await;
+            let now = watched.revision();
+            if now != seen {
+                seen = now;
+                let _ = notify.send(HostEvent::ProfileChanged);
+            }
+        }
+    });
     tokio::spawn(async move {
         while let Some(event) = server_events.recv().await {
             let ui = match event {
@@ -635,6 +650,20 @@ mod tests {
         assert!(!view.pages.is_empty());
         assert!(view.pages[0].keys.iter().any(|k| k.kind == "page"));
         assert!(view.reload_error.is_none());
+
+        // A broken edit is reported to subscribers and in the view.
+        let mut events = host.subscribe();
+        std::fs::write(&status.profile_path, "this is not toml [").unwrap();
+        let got = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(HostEvent::ProfileChanged) = events.recv().await {
+                    break;
+                }
+            }
+        })
+        .await;
+        assert!(got.is_ok(), "no ProfileChanged event");
+        assert!(host.profile_view().reload_error.is_some());
     }
 
     #[tokio::test]
