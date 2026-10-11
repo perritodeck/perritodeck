@@ -389,6 +389,58 @@ class AuthAndFramingTest(unittest.TestCase):
         self.assertEqual(password["type"], "password")
 
 
+class FrameRulesTest(unittest.TestCase):
+    """The client refuses frames a server must never send (RFC 6455 5.1, 5.4, 5.5)."""
+
+    def received(self, *frames):
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        ws = obs.WebSocket(a)
+        b.sendall(b"".join(frames))
+        return ws.recv()
+
+    def refused(self, code, *frames):
+        with self.assertRaises(obs.WebSocketClosed) as caught:
+            self.received(*frames)
+        self.assertEqual(caught.exception.code, code)
+
+    def test_fragments_and_pings_between_them(self):
+        message = self.received(
+            server_frame(obs.OP_TEXT, b"he", fin=False),
+            server_frame(obs.OP_PING, b"p"),
+            server_frame(obs.OP_CONT, "llo ☕".encode(), fin=True),
+        )
+        self.assertEqual(message, "hello ☕")
+
+    def test_masked_server_frames_are_refused(self):
+        self.refused(1002, obs.encode_frame(obs.OP_TEXT, b"hi", mask=True))
+
+    def test_control_frame_rules(self):
+        self.refused(1002, server_frame(obs.OP_PING, b"x" * 126))
+        self.refused(1002, server_frame(obs.OP_PING, b"x", fin=False))
+        self.refused(1002, server_frame(0xB, b""))
+
+    def test_fragment_ordering(self):
+        self.refused(1002, server_frame(obs.OP_CONT, b"x"))
+        self.refused(1002, server_frame(obs.OP_TEXT, b"a", fin=False), server_frame(obs.OP_TEXT, b"b"))
+        self.refused(1002, bytes([0x80 | 0x40 | obs.OP_TEXT, 1]) + b"x")  # RSV1 without an extension
+
+    def test_size_limit(self):
+        self.assertLessEqual(obs.MAX_MESSAGE, 8 << 20)
+        # A header announcing a too-big frame is refused before reading the payload.
+        self.refused(1009, bytes([0x80 | obs.OP_TEXT, 127]) + struct.pack("!Q", obs.MAX_MESSAGE + 1))
+        old = obs.MAX_MESSAGE
+        obs.MAX_MESSAGE = 10
+        try:
+            # Fragments that add up to too much are refused too.
+            self.refused(
+                1009, server_frame(obs.OP_TEXT, b"x" * 6, fin=False), server_frame(obs.OP_CONT, b"x" * 6)
+            )
+        finally:
+            obs.MAX_MESSAGE = old
+
+
 class ConnectionTest(PluginTest):
     def test_handshake_identify_and_initial_values(self):
         self.connect()
@@ -665,6 +717,30 @@ class ActionTest(PluginTest):
         ])
         self.run_action(obs.source_visibility, {"scene": "Other", "source": "Cam", "mode": "show"})
         self.assertEqual(self.server.requests[-1], ("SetSceneItemEnabled", {"sceneName": "Other", "sceneItemId": 7, "sceneItemEnabled": True}))
+
+    def test_slow_multi_request_actions_answer_in_time(self):
+        def slow(answer):
+            def handler(d):
+                time.sleep(0.4)
+                return answer
+            return handler
+
+        self.server.handlers["GetSceneItemId"] = slow({"sceneItemId": 7})
+        self.server.handlers["GetSceneItemEnabled"] = slow({"sceneItemEnabled": True})
+        self.server.handlers["SetCurrentSceneCollection"] = slow({})
+        old = obs.ACTION_DEADLINE
+        obs.ACTION_DEADLINE = 0.3
+        try:
+            began = time.monotonic()
+            self.assertEqual(self.run_action(obs.source_visibility, {"source": "Cam"}), obs.STILL_WORKING)
+            self.assertLess(time.monotonic() - began, 0.6)
+            # It finishes in the background.
+            wait_for(lambda: ("SetSceneItemEnabled", {"sceneName": "Live", "sceneItemId": 7, "sceneItemEnabled": False})
+                     in self.server.requests, message="the toggle to finish")
+            self.assertIn("still switching", self.run_action(obs.scene_collection, {"collection": "Podcast"}))
+            wait_for(lambda: ("SetCurrentSceneCollection", {"sceneCollectionName": "Podcast"}) in self.server.requests)
+        finally:
+            obs.ACTION_DEADLINE = old
 
     def test_source_visibility_missing_source(self):
         def missing(d):

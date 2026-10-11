@@ -29,6 +29,7 @@ TIMEOUT = 8
 REFRESH = 600  # seconds between forecasts for a place
 RETRY = 120  # seconds before trying again after a failure
 NOT_FOUND_RETRY = 3600
+ACTION_DEADLINE = 8.0  # the host wants an answer within 10 s; slower places finish later
 VALUES = ("temp", "feels", "condition", "icon", "humidity", "wind", "high", "low", "rain_chance")
 UNKNOWN = "–"
 
@@ -256,7 +257,13 @@ def refresh(settings):
     places = watched_places()
     if not places:
         return "no key shows the weather yet"
-    errors = {p: e for p, e in zip(places, _pool.map(update, places)) if e}
+    futures = {_pool.submit(update, p): p for p in places}
+    done, pending = concurrent.futures.wait(futures, timeout=ACTION_DEADLINE)
+    errors = {futures[f]: f.result() for f in done if f.result()}
+    if pending:  # they keep going and publish when they're done
+        waiting = sorted(futures[f] for f in pending)
+        more = f" and {len(waiting) - 1} more" if len(waiting) > 1 else ""
+        return f"still working on {waiting[0]}{more}…"
     if errors:
         place, error = next(iter(errors.items()))
         more = f" (and {len(errors) - 1} more)" if len(errors) > 1 else ""

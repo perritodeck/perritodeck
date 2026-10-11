@@ -32,9 +32,11 @@ DEFAULT_URL = "ws://127.0.0.1:4455"
 TIMEOUT = 5.0  # one request
 CONNECT_TIMEOUT = 4.0  # TCP connect, WebSocket handshake, Hello and Identify
 CONNECT_WAIT = 3.0  # how long an action waits for a connection that is (re)starting
+ACTION_DEADLINE = 8.0  # actions with several requests answer within the host's 10 s
+STILL_WORKING = "OBS is still working on it…"
 BACKOFF_FIRST = 0.5
 BACKOFF_MAX = 10.0
-MAX_MESSAGE = 64 << 20
+MAX_MESSAGE = 8 << 20  # obs-websocket answers are small; refuse anything bigger
 RPC_VERSION = 1
 UNKNOWN = "–"
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -214,18 +216,23 @@ class WebSocket:
     def _read_frame(self):
         b0, b1 = self._read(2)
         fin, opcode = bool(b0 & 0x80), b0 & 0x0F
-        masked, n = bool(b1 & 0x80), b1 & 0x7F
+        if b0 & 0x70:
+            raise WebSocketClosed(1002, "the server set reserved frame bits")
+        if b1 & 0x80:
+            raise WebSocketClosed(1002, "the server sent a masked frame")  # RFC 6455 5.1
+        n = b1 & 0x7F
+        if opcode & 0x8:  # control frames: never fragmented, at most 125 bytes (5.5)
+            if not fin:
+                raise WebSocketClosed(1002, "a fragmented control frame")
+            if n > 125:
+                raise WebSocketClosed(1002, "a control frame longer than 125 bytes")
         if n == 126:
             (n,) = struct.unpack("!H", self._read(2))
         elif n == 127:
             (n,) = struct.unpack("!Q", self._read(8))
         if n > MAX_MESSAGE:
             raise WebSocketClosed(1009, "message too big")
-        key = self._read(4) if masked else None
-        payload = self._read(n)
-        if key:
-            payload = mask_bytes(payload, key)
-        return fin, opcode, payload
+        return fin, opcode, self._read(n)
 
     def send_frame(self, opcode, payload, fin=True):
         frame = encode_frame(opcode, payload, fin=fin)
@@ -1137,6 +1144,37 @@ def call(request_type, data=None, timeout=TIMEOUT):
         raise RuntimeError("OBS didn't answer in time") from None
 
 
+def answer_in_time(work, still_working, name, deadline=None):
+    """Run work() on a thread and wait up to ACTION_DEADLINE for it: the host wants an
+    answer within 10 s. Done in time: its result (or its error). Not done: the
+    still_working warning (a string, or a function that makes one) while work()
+    finishes in the background; an error it hits then goes to the log."""
+    box = {}
+    lock = threading.Lock()
+
+    def run():
+        try:
+            result, error = work(), None
+        except Exception as e:
+            result, error = None, e
+        with lock:
+            box.update(done=True, result=result, error=error)
+            late = box.get("late")
+        if late and error is not None:
+            plugin.log(f"{name}: {error}", "warn")
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(ACTION_DEADLINE if deadline is None else deadline)
+    with lock:
+        if not box.get("done"):
+            box["late"] = True
+            return still_working() if callable(still_working) else still_working
+    if box["error"] is not None:
+        raise box["error"]
+    return box["result"]
+
+
 def need(settings, key, what):
     value = str(settings.get(key) or "").strip()
     if not value:
@@ -1238,6 +1276,10 @@ def _restore_transition(previous, duration_ms):
 def transition_now(settings):
     name = str(settings.get("transition") or "").strip()
     duration = optional_number(settings, "duration", "duration", 50, 20000)
+    return answer_in_time(lambda: _transition(name, duration), STILL_WORKING, "transition")
+
+
+def _transition(name, duration):
     previous = None
     if name or duration:
         previous = call("GetCurrentSceneTransition")
@@ -1374,8 +1416,14 @@ def _scene_item(scene, source):
 @plugin.action("source-visibility")
 def source_visibility(settings):
     source = need(settings, "source", "source name")
-    scene = str(settings.get("scene") or "").strip() or current_scene()
     mode = choice(settings, "mode", ("toggle", "show", "hide"), "toggle")
+    return answer_in_time(
+        lambda: _source_visibility(settings, source, mode), STILL_WORKING, f"showing or hiding {source}"
+    )
+
+
+def _source_visibility(settings, source, mode):
+    scene = str(settings.get("scene") or "").strip() or current_scene()
     item = _scene_item(scene, source)
     if mode == "toggle":
         enabled = call("GetSceneItemEnabled", {"sceneName": scene, "sceneItemId": item}).get("sceneItemEnabled")
@@ -1539,7 +1587,16 @@ def profile(settings):
 @plugin.action("scene-collection")
 def scene_collection(settings):
     name = need(settings, "collection", "scene collection name")
-    call("SetCurrentSceneCollection", {"sceneCollectionName": name}, timeout=8)
+    # Switching can take OBS a while with big collections: answer the key in time and
+    # let the request finish (OBS's event updates the value when it's done).
+    def switch():
+        call("SetCurrentSceneCollection", {"sceneCollectionName": name}, timeout=20)
+
+    return answer_in_time(
+        switch,
+        f"OBS is still switching to “{name}”…",
+        f"switching to the scene collection {name}",
+    )
 
 
 @plugin.action("caption")

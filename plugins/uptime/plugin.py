@@ -29,6 +29,7 @@ TIMEOUT = 3
 DEFAULT_INTERVAL = 10
 VALUES = ("up", "ms", "status")
 UNKNOWN = "–"
+ACTION_DEADLINE = 8.0  # the check action answers within the host's 10 s
 
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=16)
 _lock = threading.Lock()
@@ -38,8 +39,9 @@ _check_soon = threading.Event()
 
 
 class Result:
-    def __init__(self, up, status, ms=None):
+    def __init__(self, up, status, ms=None, problem=None):
         self.up, self.status, self.ms = up, str(status), ms
+        self.problem = problem  # why it couldn't be checked properly (logged once)
 
     def values(self):
         return {
@@ -97,15 +99,13 @@ def check_http(url):
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
         reason = getattr(e, "reason", e)
         if isinstance(reason, ssl.SSLCertVerificationError):
-            plugin.log(f"{url}: certificate not trusted (turn on “Skip certificate check” for self-signed ones)", "warn")
+            return Result(False, "down", problem="certificate not trusted (turn on “Skip certificate check” for self-signed ones)")
         return Result(False, "down")
     ms = (time.monotonic() - start) * 1000
     return Result(200 <= code < 400, code, ms)
 
 
-def check(target):
-    """Check one target; never raises."""
-    target = target.strip()
+def _check(target):
     try:
         if target.lower().startswith(("http://", "https://")):
             return check_http(target)
@@ -117,8 +117,36 @@ def check(target):
         result = check_tcp(host, 443)
         return result if result.up else check_tcp(host, 80)
     except Exception as e:
-        plugin.log(f"can't check “{target}”: {e}", "warn")
-        return Result(False, "down")
+        return Result(False, "down", problem=f"can't check it: {e}")
+
+
+def check(target):
+    """Check one target; never raises. A problem is logged once, not on every poll."""
+    target = target.strip()
+    result = _check(target)
+    report(f"“{target}”", result.problem)
+    return result
+
+
+_reported = {}
+_report_lock = threading.Lock()
+
+
+def report(key, error, level="warn"):
+    """Log a repeating problem once per change, not on every poll: report(key, None)
+    once it works again (that is logged too, so the log shows the problem ended)."""
+    with _report_lock:
+        old = _reported.get(key)
+        if old == error:
+            return
+        if error is None:
+            del _reported[key]
+        else:
+            _reported[key] = error
+    if error is not None:
+        plugin.log(f"{key}: {error}", level)
+    else:
+        plugin.log(f"{key}: working again")
 
 
 def watched_targets():
@@ -138,13 +166,18 @@ def publish(target, result):
             plugin.set_value(value, new[value], arg=target)
 
 
-def check_all(targets):
-    """Check targets at the same time and publish; returns {target: Result}."""
-    futures = {t: _pool.submit(check, t) for t in targets}
-    results = {t: f.result() for t, f in futures.items()}
-    for target, result in results.items():
-        publish(target, result)
-    return results
+def check_and_publish(target):
+    result = check(target)
+    publish(target, result)
+    return result
+
+
+def check_all(targets, timeout=None):
+    """Check targets at the same time; each is published when its check ends. Returns
+    {target: Result} for the checks that ended within `timeout` (None: all of them)."""
+    futures = {t: _pool.submit(check_and_publish, t) for t in targets}
+    done, _ = concurrent.futures.wait(futures.values(), timeout=timeout)
+    return {t: f.result() for t, f in futures.items() if f in done}
 
 
 def interval():
@@ -201,11 +234,15 @@ def check_now(settings):
     targets = [target] if target else watched_targets()
     if not targets:
         return "nothing to check: no key shows a target yet"
-    results = check_all(targets)
+    results = check_all(targets, timeout=ACTION_DEADLINE)
     down = [t if r.status == "down" else f"{t} ({r.status})" for t, r in results.items() if not r.up]
+    waiting = [t for t in targets if t not in results]  # still checking; published when done
+    parts = []
     if down:
-        return f"{', '.join(down)} {'is' if len(down) == 1 else 'are'} down"
-    return None
+        parts.append(f"{', '.join(down)} {'is' if len(down) == 1 else 'are'} down")
+    if waiting:
+        parts.append(f"still checking {', '.join(waiting)}…")
+    return "; ".join(parts) or None
 
 
 if __name__ == "__main__":

@@ -4,9 +4,11 @@ Countdown timers, stopwatches and a Pomodoro timer on your keys. Timers and stop
 have names, so you can run several at once ("tea", "pizza", "stream break").
 
 They keep counting while PerritoDeck or the plugin restarts: the state is saved in
-`timer-state.json` in the PerritoDeck config folder (`%APPDATA%\PerritoDeck` on Windows,
-`~/Library/Application Support/PerritoDeck` on macOS, `$XDG_CONFIG_HOME/PerritoDeck` or
-`~/.config/PerritoDeck` on Linux).
+`timer-state.json` in the plugin's data folder, which the host makes for each plugin in
+its settings folder (`perritodeck-host paths` shows the settings folder). State saved by older versions
+in the PerritoDeck config folder (`%APPDATA%\PerritoDeck`, `~/Library/Application
+Support/PerritoDeck` or `~/.config/PerritoDeck`) is moved over the first time the plugin
+starts.
 
 ## Setup
 

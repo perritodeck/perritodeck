@@ -1,29 +1,35 @@
 """Named counters (death counters, tallies). Standard library only.
 
-Counts are kept in counters-state.json in the PerritoDeck config folder. With the
+Counts are kept in counters-state.json in the plugin's data folder (plugin.data_dir,
+which the host gives each plugin); a counters-state.json in the old location (the
+PerritoDeck config folder, see legacy_dir) is read once and moved over. With the
 "Text file folder" setting, each count is also written to <folder>/<name>.txt so OBS
-(or anything else) can show it with a text source that reads from a file.
+(or anything else) can show it with a text source that reads from a file. Every file
+is written atomically (a temp file in the same folder, then os.replace).
 """
 
 import json
 import os
 import re
 import sys
+import tempfile
 import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from perritodeck_plugin import Plugin  # noqa: E402
 
 plugin = Plugin()
 
-STATE_FILE = None  # None means counters-state.json in config_dir(); tests point it elsewhere
+STATE_FILE = None  # None means counters-state.json in plugin.data_dir; tests point it elsewhere
+FILE_NAME = "counters-state.json"
 
 _lock = threading.RLock()
 counts = {}
 
 
-def config_dir():
-    """PerritoDeck's per-user config folder for plugin data."""
+def legacy_dir():
+    """Where older versions kept counters-state.json (read once, as a migration)."""
     if sys.platform.startswith("win"):
         base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
     elif sys.platform == "darwin":
@@ -34,31 +40,64 @@ def config_dir():
 
 
 def state_path():
-    return STATE_FILE or os.path.join(config_dir(), "counters-state.json")
+    return STATE_FILE or os.path.join(plugin.data_dir, FILE_NAME)
 
 
 def load():
     global counts
-    try:
-        with open(state_path(), encoding="utf-8") as f:
-            data = json.load(f)
-        data = data.get("counters") if isinstance(data, dict) else None
-    except (OSError, ValueError):
-        data = None
+    path = state_path()
+    sources = [path]
+    if STATE_FILE is None and not os.path.exists(path):
+        sources.append(os.path.join(legacy_dir(), FILE_NAME))
+    data, migrated = None, False
+    for source in sources:
+        try:
+            with open(source, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        migrated = source != path
+        break
+    data = data.get("counters") if isinstance(data, dict) else None
     with _lock:
         counts = {str(k): int(v) for k, v in (data or {}).items() if isinstance(v, (int, float))}
+        if migrated:
+            plugin.log(f"moved the counters from {sources[-1]} to {path}")
+            save()
 
 
 def save():
-    path = state_path()
+    # Under the lock, so two saves can't interleave or write an older count last.
+    with _lock:
+        try:
+            write_atomic(state_path(), json.dumps({"counters": counts}, indent=1))
+        except OSError as e:
+            plugin.log(f"couldn't save the counters: {e}", "warn")
+
+
+def write_atomic(path, text):
+    """Write text to path all at once: a unique temp file in the same folder, then
+    os.replace, so a crash or a second writer never leaves half a file."""
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix="." + os.path.basename(path) + ".", suffix=".tmp")
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"counters": counts}, f, indent=1)
-        os.replace(tmp, path)
-    except OSError as e:
-        plugin.log(f"couldn't save the counters to {path}: {e}", "warn")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:  # Windows: another program has the file open
+                if attempt == 4:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def file_name(name):
@@ -73,9 +112,7 @@ def write_text_file(name, value):
         return None
     path = os.path.join(os.path.expanduser(folder), file_name(name))
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(str(value))
+        write_atomic(path, str(value))  # OBS never reads a half-written file
     except OSError as e:
         plugin.log(f"couldn't write {path}: {e}", "warn")
         return f"couldn't write the text file: {e.strerror or e}"
@@ -108,9 +145,11 @@ def change(name, fn):
         counts[name] = fn(counts.get(name, 0))
         value = counts[name]
         save()
+        # Still under the lock, so a slower press can't leave an older count in the file.
+        problem = write_text_file(name, value)
     if name in plugin.watched("count"):
         plugin.set_value("count", value, arg=name)
-    return write_text_file(name, value)
+    return problem
 
 
 @plugin.action("increment")
@@ -168,9 +207,8 @@ def configure(settings):
     # A new text file folder gets every count right away.
     if str(settings.get("folder") or "").strip():
         with _lock:
-            snapshot = dict(counts)
-        for name, value in snapshot.items():
-            write_text_file(name, value)
+            for name, value in counts.items():
+                write_text_file(name, value)
 
 
 if __name__ == "__main__":

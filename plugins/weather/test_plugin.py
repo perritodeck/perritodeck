@@ -3,8 +3,10 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 import urllib.parse
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plugin as weather  # noqa: E402
@@ -225,6 +227,30 @@ class WeatherTest(unittest.TestCase):
         weather.plugin.watching = {"temp:Lisbon", "temp:Atlantis"}
         with self.assertRaisesRegex(RuntimeError, "Atlantis: couldn't find"):
             weather.refresh({})
+
+    def test_refresh_answers_in_time_and_finishes_later(self):
+        real = weather.weather
+        release = threading.Event()
+
+        def slow(place):
+            if place == "Slowtown":
+                release.wait(5)
+                return dict.fromkeys(weather.VALUES, "late")
+            return real(place)
+
+        weather.plugin.watching = {"temp:Lisbon", "temp:Slowtown"}
+        with mock.patch.object(weather, "weather", slow), mock.patch.object(weather, "ACTION_DEADLINE", 0.3):
+            began = time.monotonic()
+            answer = weather.refresh({})
+            self.assertLess(time.monotonic() - began, 2)
+            self.assertEqual(answer, "still working on Slowtown…")
+            self.assertEqual(self.published()["temp:Lisbon"], "18°C")
+            release.set()
+            for _ in range(200):
+                if self.published().get("temp:Slowtown") == "late":
+                    break
+                time.sleep(0.01)
+        self.assertEqual(self.published()["temp:Slowtown"], "late")
 
     def test_night_icon_and_unknown_codes(self):
         data = {"current": {"weather_code": 0, "is_day": 0, "temperature_2m": -0.4}, "daily": {}}

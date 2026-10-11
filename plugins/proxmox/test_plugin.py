@@ -98,6 +98,7 @@ class ProxmoxTest(unittest.TestCase):
             "token_secret": "11111111-2222-3333-4444-555555555555",
         }
         pve.plugin.watching = set()
+        pve._reported.clear()
         pve.forget()
         # Don't start refresh timers from actions in tests.
         patcher = mock.patch.object(pve, "refresh_soon", pve.forget)
@@ -217,6 +218,22 @@ class ProxmoxTest(unittest.TestCase):
         self.assertEqual(self.values(), {"status:101": "–", "node_cpu:pve1": "–", "guests_running": "–"})
         self.assertTrue(any(m.get("event") == "log" for m in self.sent))
         self.assertFalse(any("5555" in json.dumps(m) for m in self.sent))  # no secret in logs
+
+    def test_a_repeating_error_is_logged_once(self):
+        good = pve.plugin.settings["url"]
+        pve.plugin.settings["url"] = "http://127.0.0.1:9"
+        pve.plugin.watching = {"status:101"}
+        for _ in range(3):
+            pve.forget()
+            pve.poll()
+        logs = [m for m in self.sent if m.get("event") == "log"]
+        self.assertEqual(len(logs), 1, logs)
+        pve.plugin.settings["url"] = good
+        pve.forget()
+        pve.poll()
+        logs = [m for m in self.sent if m.get("event") == "log"]
+        self.assertEqual(len(logs), 2)
+        self.assertIn("working again", logs[-1]["message"])
 
     def test_resources_are_cached_for_actions(self):
         pve.resources()

@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import socket
 import socketserver
 import struct
 import sys
@@ -126,6 +127,7 @@ class FakeTrueNAS(socketserver.BaseRequestHandler):
         if method == "alert.list":
             return ok(st["alerts"])
         if method == "alert.dismiss":
+            time.sleep(st.get("dismiss_delay", 0))
             for a in st["alerts"]:
                 if a["uuid"] == params[0]:
                     a["dismissed"] = True
@@ -362,10 +364,119 @@ class TrueNASTest(unittest.TestCase):
             "TrueNAS couldn't do x: [EINVAL] bad")
         self.assertIn("isn't allowed", truenas.describe_rpc_error("x", {"data": {"errname": "EACCES", "reason": "no"}}))
 
+    def test_dismiss_alerts_answers_in_time(self):
+        FakeTrueNAS.state["alerts"] += [
+            {"uuid": f"b{i}", "level": "INFO", "dismissed": False, "formatted": "x"} for i in range(3)
+        ]
+        FakeTrueNAS.state["dismiss_delay"] = 0.15
+        with mock.patch.object(truenas, "ACTION_DEADLINE", 0.3):
+            answer = truenas.dismiss_alerts({})
+        self.assertRegex(answer, r"^still dismissing: \d of 5 done…$")
+        self.assertTrue(self.wait_for(lambda: len(self.calls("alert.dismiss")) == 5, 5))
+
+    def test_new_settings_never_wait_for_a_connection_attempt(self):
+        real = truenas.connect
+        entered = threading.Event()
+
+        def slow_connect(*args):
+            entered.set()
+            time.sleep(0.6)
+            return real(*args)
+
+        outcome = {}
+
+        def press():
+            try:
+                outcome["result"] = truenas.client()
+            except Exception as e:
+                outcome["error"] = e
+
+        with mock.patch.object(truenas, "connect", slow_connect):
+            thread = threading.Thread(target=press)
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            began = time.monotonic()
+            truenas.settings_changed(truenas.plugin.settings)
+            self.assertLess(time.monotonic() - began, 0.2)
+            # Polls and other presses don't wait on the state lock either.
+            with truenas._state_lock:
+                pass
+            thread.join(5)
+        # The attempt started before the change is thrown away, not used.
+        self.assertIn("settings changed", str(outcome.get("error")))
+        self.assertIsNone(truenas._conn["conn"])
+        self.assertTrue(self.wait_for(lambda: FakeTrueNAS.state["connections"] == 1))
+        self.assertIsNotNone(truenas.client())
+
     def test_masking_round_trips(self):
         data = os.urandom(1001)
         self.assertEqual(truenas.masked(truenas.masked(data, b"abcd"), b"abcd"), data)
         self.assertEqual(truenas.masked(b"", b"abcd"), b"")
+
+
+
+class FrameRulesTest(unittest.TestCase):
+    """The client refuses frames a server must never send (RFC 6455 5.1, 5.4, 5.5)."""
+
+    def received(self, *frames):
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        self.peer = b
+        ws = truenas.WebSocket.over(a)
+        b.sendall(b"".join(frames))
+        return ws.recv()
+
+    def refused(self, code, *frames):
+        with self.assertRaises(truenas.WebSocketClosed) as caught:
+            self.received(*frames)
+        self.assertEqual(caught.exception.code, code)
+        # The server is told why with a close frame (masked, as from a client).
+        self.peer.settimeout(1)
+        head = self.peer.recv(2)
+        self.assertEqual(head[0], 0x80 | truenas.OP_CLOSE)
+
+    def test_fragments_with_a_ping_between(self):
+        rest = "llo ☕".encode()
+        frames = [bytes([0x01, 2]) + b"he", ws_frame(0x9, b"p"), bytes([0x80, len(rest)]) + rest]
+        self.assertEqual(self.received(*frames), "hello ☕")
+
+    def test_masked_server_frames_are_refused(self):
+        self.refused(1002, bytes([0x81, 0x80 | 2]) + b"\0\0\0\0" + b"hi")
+
+    def test_control_frame_rules(self):
+        self.refused(1002, ws_frame(0x9, b"x" * 126))
+        self.refused(1002, bytes([0x09, 1]) + b"x")  # a ping without FIN
+        self.refused(1002, ws_frame(0xB, b""))
+
+    def test_fragment_ordering(self):
+        self.refused(1002, ws_frame(0x0, b"x"))
+        self.refused(1002, bytes([0x01, 1]) + b"a", ws_frame(0x1, b"b"))
+        self.refused(1002, bytes([0x80 | 0x40 | 0x1, 1]) + b"x")
+        self.refused(1007, ws_frame(0x1, b"\xff"))
+
+    def test_size_limit(self):
+        self.assertLessEqual(truenas.MAX_MESSAGE, 8 << 20)
+        self.refused(1009, bytes([0x81, 127]) + struct.pack("!Q", truenas.MAX_MESSAGE + 1))
+        with mock.patch.object(truenas, "MAX_MESSAGE", 10):
+            self.refused(1009, bytes([0x01, 6]) + b"x" * 6, bytes([0x80, 6]) + b"x" * 6)
+
+    def test_close_wakes_a_blocked_reader(self):
+        a, b = socket.socketpair()
+        self.addCleanup(b.close)
+        ws = truenas.WebSocket.over(a)
+        failed = threading.Event()
+
+        def reader():
+            try:
+                ws.recv()
+            except (ConnectionError, OSError):
+                failed.set()
+
+        threading.Thread(target=reader, daemon=True).start()
+        time.sleep(0.05)
+        ws.close()
+        self.assertTrue(failed.wait(2))
 
 
 if __name__ == "__main__":

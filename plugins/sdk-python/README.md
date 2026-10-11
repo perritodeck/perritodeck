@@ -35,4 +35,9 @@ plugin.run()
 Live values: declare them under `"values"` in the manifest and publish with
 `plugin.set_value("id", "text")`; a key shows one with `{plugin:com.example.hello:id}`.
 
+Keep the plugin's own files in `plugin.data_dir` (a folder the host gives each
+plugin; created on first use). `on_settings` and `on_watch` callbacks run in order
+on one worker thread, so a slow one never delays actions; stdin and stdout are UTF-8
+whatever the locale.
+
 Run the tests with `python3 -m unittest test_sdk.py`.

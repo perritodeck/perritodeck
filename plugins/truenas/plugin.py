@@ -33,6 +33,7 @@ RETRY_SECONDS = 10  # after a failed connection, don't try again sooner
 AUTH_RETRY_SECONDS = 120  # after a refused key: TrueNAS rate-limits logins
 TICK_SECONDS = 15  # apps every tick, pools and alerts every other tick
 REALTIME_PUBLISH_SECONDS = 5
+ACTION_DEADLINE = 8.0  # actions with many calls answer within the host's 10 s
 # Tests run a plain ws:// fake server; real use needs wss://.
 ALLOW_PLAIN_WS = False
 
@@ -52,10 +53,22 @@ class AuthError(TrueNASError):
 
 # --- a minimal WebSocket client (RFC 6455) ------------------------------------------------
 
+OP_CONT, OP_TEXT, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
+MAX_MESSAGE = 8 << 20  # TrueNAS answers are small; refuse anything bigger
+
+
+class WebSocketClosed(ConnectionError):
+    def __init__(self, code=None, reason=""):
+        super().__init__(f"connection closed ({code}{': ' + reason if reason else ''})")
+        self.code = code
+        self.reason = reason
+
 
 class WebSocket:
     """Text messages only; enough for JSON-RPC. Not thread-safe for reading: one
-    reader thread calls recv(); send() may be called from any thread."""
+    reader thread calls recv(); send() may be called from any thread. Frames a server
+    must never send (masked, fragmented control frames, reserved bits, unknown types,
+    a continuation with no message) and messages over MAX_MESSAGE end the connection."""
 
     def __init__(self, url, insecure=False, timeout=TIMEOUT):
         parsed = urllib.parse.urlparse(url)
@@ -65,6 +78,7 @@ class WebSocket:
         path = (parsed.path or "/") + (("?" + parsed.query) if parsed.query else "")
         sock = socket.create_connection((host, port), timeout=timeout)
         try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             if secure:
                 ctx = ssl.create_default_context()
                 if insecure:
@@ -72,13 +86,20 @@ class WebSocket:
                     ctx.verify_mode = ssl.CERT_NONE
                 sock = ctx.wrap_socket(sock, server_hostname=host)
             self.sock = sock
-            self._buf = b""
+            self._buf = bytearray()
             self._send_lock = threading.Lock()
             self._handshake(host, port, secure, path)
         except BaseException:
             sock.close()
             raise
         sock.settimeout(None)  # the reader blocks; calls have their own timeouts
+
+    @classmethod
+    def over(cls, sock):
+        """A WebSocket on an already-upgraded socket (tests)."""
+        ws = cls.__new__(cls)
+        ws.sock, ws._buf, ws._send_lock = sock, bytearray(), threading.Lock()
+        return ws
 
     def _handshake(self, host, port, secure, path):
         key = base64.b64encode(os.urandom(16)).decode()
@@ -104,8 +125,10 @@ class WebSocket:
             self._buf += chunk
             if len(self._buf) > 65536:
                 raise ConnectionError("the server's handshake answer is too long")
-        head, self._buf = self._buf.split(b"\r\n\r\n", 1)
-        lines = head.decode("latin-1").split("\r\n")
+        end = self._buf.index(b"\r\n\r\n")
+        head = bytes(self._buf[:end]).decode("latin-1")
+        del self._buf[: end + 4]
+        lines = head.split("\r\n")
         status = lines[0].split(" ", 2)
         if len(status) < 2 or status[1] != "101":
             raise ConnectionError(f"the server answered {' '.join(status[1:]) or lines[0]} instead of a WebSocket")
@@ -121,64 +144,109 @@ class WebSocket:
         while len(self._buf) < n:
             chunk = self.sock.recv(max(65536, n - len(self._buf)))
             if not chunk:
-                raise ConnectionError("connection closed")
+                raise WebSocketClosed(1006, "connection lost")
             self._buf += chunk
-        data, self._buf = self._buf[:n], self._buf[n:]
-        return data
+        out = bytes(self._buf[:n])
+        del self._buf[:n]
+        return out
 
     def _frame(self):
         b0, b1 = self._read(2)
-        fin, opcode = b0 & 0x80, b0 & 0x0F
+        fin, opcode = bool(b0 & 0x80), b0 & 0x0F
+        if b0 & 0x70:
+            raise WebSocketClosed(1002, "the server set reserved frame bits")
+        if b1 & 0x80:
+            raise WebSocketClosed(1002, "the server sent a masked frame")
         length = b1 & 0x7F
+        if opcode & 0x8:  # control frames: never fragmented, at most 125 bytes
+            if not fin:
+                raise WebSocketClosed(1002, "a fragmented control frame")
+            if length > 125:
+                raise WebSocketClosed(1002, "a control frame longer than 125 bytes")
         if length == 126:
             length = struct.unpack("!H", self._read(2))[0]
         elif length == 127:
             length = struct.unpack("!Q", self._read(8))[0]
-        mask = self._read(4) if b1 & 0x80 else None
-        payload = self._read(length)
-        if mask:
-            payload = masked(payload, mask)
-        return bool(fin), opcode, payload
+        if length > MAX_MESSAGE:
+            raise WebSocketClosed(1009, "message too big")
+        return fin, opcode, self._read(length)
+
+    def _fail(self, error):
+        """Tell the server why (best effort), then pass the error on."""
+        try:
+            self._send_frame(OP_CLOSE, struct.pack("!H", error.code or 1002))
+        except OSError:
+            pass
+        return error
 
     def recv(self):
         """The next text message, as str. Answers pings; raises ConnectionError on close."""
-        parts = []
+        parts, kind, size = [], None, 0
         while True:
-            fin, opcode, payload = self._frame()
-            if opcode == 0x9:  # ping
-                self._send_frame(0xA, payload)
+            try:
+                fin, opcode, payload = self._frame()
+            except WebSocketClosed as e:
+                if e.code in (1002, 1009):
+                    raise self._fail(e) from None
+                raise
+            if opcode == OP_PING:
+                self._send_frame(OP_PONG, payload)
                 continue
-            if opcode == 0xA:  # pong
+            if opcode == OP_PONG:
                 continue
-            if opcode == 0x8:  # close
+            if opcode == OP_CLOSE:
+                code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else 1005
                 try:
-                    self._send_frame(0x8, payload[:2])
+                    self._send_frame(OP_CLOSE, payload[:2])
                 except OSError:
                     pass
-                raise ConnectionError("the server closed the connection")
-            parts.append(payload)
+                raise WebSocketClosed(code, "the server closed the connection")
+            if opcode in (OP_TEXT, OP_BINARY):
+                if kind is not None:
+                    raise self._fail(WebSocketClosed(1002, "a new message started inside a fragmented one"))
+                kind, parts = opcode, [payload]
+            elif opcode == OP_CONT:
+                if kind is None:
+                    raise self._fail(WebSocketClosed(1002, "a continuation frame came with no message"))
+                parts.append(payload)
+            else:
+                raise self._fail(WebSocketClosed(1002, f"unknown frame type {opcode}"))
+            size += len(payload)
+            if size > MAX_MESSAGE:
+                raise self._fail(WebSocketClosed(1009, "message too big"))
             if fin:
-                return b"".join(parts).decode("utf-8")
+                try:
+                    return b"".join(parts).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise self._fail(WebSocketClosed(1007, "a text message that isn't UTF-8")) from None
 
     def _send_frame(self, opcode, payload):
-        header = bytes([0x80 | opcode])
+        header = bytearray([0x80 | opcode])
         n = len(payload)
         if n < 126:
-            header += bytes([0x80 | n])
+            header.append(0x80 | n)
         elif n < 65536:
-            header += bytes([0x80 | 126]) + struct.pack("!H", n)
+            header.append(0x80 | 126)
+            header += struct.pack("!H", n)
         else:
-            header += bytes([0x80 | 127]) + struct.pack("!Q", n)
+            header.append(0x80 | 127)
+            header += struct.pack("!Q", n)
         key = os.urandom(4)
         with self._send_lock:
-            self.sock.sendall(header + key + masked(payload, key))
+            self.sock.sendall(bytes(header) + key + masked(payload, key))
 
     def send(self, text):
-        self._send_frame(0x1, text.encode("utf-8"))
+        self._send_frame(OP_TEXT, text.encode("utf-8"))
 
     def close(self):
         try:
-            self._send_frame(0x8, struct.pack("!H", 1000))
+            self.sock.settimeout(1)  # a server that stopped reading can't hold us up
+            self._send_frame(OP_CLOSE, struct.pack("!H", 1000))
+        except OSError:
+            pass
+        # shutdown() wakes a reader blocked in recv() (close() alone may not, on Linux).
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
         try:
@@ -290,8 +358,10 @@ def describe_rpc_error(method, error):
 
 # --- the connection everyone shares ----------------------------------------------------------------
 
-_state_lock = threading.Lock()
-_conn = {"conn": None, "key": None, "failed_at": 0.0, "error": None, "retry": RETRY_SECONDS}
+_state_lock = threading.Lock()  # guards _conn; never held while connecting
+_connect_lock = threading.Lock()  # one connection attempt at a time
+# gen counts disconnect()s, so a connection that was started before one is thrown away.
+_conn = {"conn": None, "key": None, "failed_at": 0.0, "error": None, "retry": RETRY_SECONDS, "gen": 0}
 
 
 def config():
@@ -380,33 +450,61 @@ def login(conn, username, key):
         raise AuthError("TrueNAS refused the API key (on TrueNAS 25.04 and later, also fill in the user name)")
 
 
+def _usable(settings_key):
+    """With _state_lock held: the open connection for these settings, or None; raises
+    the last error while a failed attempt is still cooling down."""
+    conn = _conn["conn"]
+    if conn is not None and conn.alive and _conn["key"] == settings_key:
+        return conn
+    if _conn["key"] == settings_key and _conn["error"] and time.monotonic() - _conn["failed_at"] < _conn["retry"]:
+        raise TrueNASError(_conn["error"])
+    return None
+
+
 def client():
-    """The shared logged-in connection; connects (at most every RETRY_SECONDS) if needed."""
+    """The shared logged-in connection; connects (at most every RETRY_SECONDS) if needed.
+
+    Connecting happens outside _state_lock (only _connect_lock, so callers queue behind
+    one attempt instead of each logging in), and the new connection is swapped in under
+    the lock afterwards. disconnect() never waits for a connection attempt."""
     settings_key = config()
+    stale = None
     with _state_lock:
-        conn = _conn["conn"]
-        if conn is not None and conn.alive and _conn["key"] == settings_key:
-            return conn
+        conn = _usable(settings_key)
         if conn is not None:
-            conn.close()
-            _conn["conn"] = None
-        if _conn["key"] == settings_key and _conn["error"] and time.monotonic() - _conn["failed_at"] < _conn["retry"]:
-            raise TrueNASError(_conn["error"])
+            return conn
+        stale, _conn["conn"] = _conn["conn"], None
+    if stale is not None:
+        stale.close()
+    with _connect_lock:
+        with _state_lock:
+            conn = _usable(settings_key)  # someone else may have connected meanwhile
+            if conn is not None:
+                return conn
+            gen = _conn["gen"]
         try:
             conn = connect(*settings_key)
         except TrueNASError as e:
-            _conn.update(key=settings_key, failed_at=time.monotonic(), error=str(e),
-                         retry=AUTH_RETRY_SECONDS if isinstance(e, AuthError) else RETRY_SECONDS)
+            with _state_lock:
+                if _conn["gen"] == gen:
+                    _conn.update(key=settings_key, failed_at=time.monotonic(), error=str(e),
+                                 retry=AUTH_RETRY_SECONDS if isinstance(e, AuthError) else RETRY_SECONDS)
             raise
-        _conn.update(conn=conn, key=settings_key, error=None, failed_at=0.0)
-        return conn
+        with _state_lock:
+            if _conn["gen"] == gen:
+                _conn.update(conn=conn, key=settings_key, error=None, failed_at=0.0)
+                return conn
+        conn.close()  # the settings changed while it was connecting
+        raise TrueNASError("the TrueNAS settings changed; press the key again")
 
 
 def disconnect():
+    """Drop the connection (new settings). Returns at once, even mid-connect."""
     with _state_lock:
-        if _conn["conn"] is not None:
-            _conn["conn"].close()
-        _conn.update(conn=None, key=None, error=None, failed_at=0.0)
+        stale = _conn["conn"]
+        _conn.update(conn=None, key=None, error=None, failed_at=0.0, gen=_conn["gen"] + 1)
+    if stale is not None:
+        stale.close()
 
 
 def rpc(method, *params, timeout=TIMEOUT, job=False):
@@ -492,13 +590,58 @@ def scrub(settings):
 
 @plugin.action("dismiss-alerts")
 def dismiss_alerts(settings):
-    active = [a for a in rpc("alert.list") or [] if not a.get("dismissed")]
-    if not active:
-        return "there are no alerts to dismiss"
-    for alert in active:
-        rpc("alert.dismiss", alert["uuid"])
-    safe_poll(apps=False, pools=True)
-    return None
+    progress = {"done": 0, "total": None}
+
+    def work():
+        active = [a for a in rpc("alert.list") or [] if not a.get("dismissed")]
+        progress["total"] = len(active)
+        if not active:
+            return "there are no alerts to dismiss"
+        try:
+            for alert in active:
+                rpc("alert.dismiss", alert["uuid"])
+                progress["done"] += 1
+        finally:
+            safe_poll(apps=False, pools=True)
+        return None
+
+    def still_working():
+        if progress["total"] is None:
+            return "still asking TrueNAS for the alerts…"
+        return f"still dismissing: {progress['done']} of {progress['total']} done…"
+
+    return answer_in_time(work, still_working, "dismissing alerts")
+
+
+def answer_in_time(work, still_working, name, deadline=None):
+    """Run work() on a thread and wait up to ACTION_DEADLINE for it: the host wants an
+    answer within 10 s. Done in time: its result (or its error). Not done: the
+    still_working warning (a string, or a function that makes one) while work()
+    finishes in the background; an error it hits then goes to the log."""
+    box = {}
+    lock = threading.Lock()
+
+    def run():
+        try:
+            result, error = work(), None
+        except Exception as e:
+            result, error = None, e
+        with lock:
+            box.update(done=True, result=result, error=error)
+            late = box.get("late")
+        if late and error is not None:
+            plugin.log(f"{name}: {error}", "warn")
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(ACTION_DEADLINE if deadline is None else deadline)
+    with lock:
+        if not box.get("done"):
+            box["late"] = True
+            return still_working() if callable(still_working) else still_working
+    if box["error"] is not None:
+        raise box["error"]
+    return box["result"]
 
 
 TASK_METHODS = {"cloudsync": "cloudsync.sync", "replication": "replication.run"}

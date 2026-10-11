@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -58,6 +59,7 @@ class UptimeTest(unittest.TestCase):
         uptime._results.clear()
         uptime._check_soon.clear()
         uptime._last_poll = 0.0
+        uptime._reported.clear()
 
     def published(self):
         return {m["id"]: m["value"] for m in self.sent if m.get("event") == "value"}
@@ -152,6 +154,34 @@ class UptimeTest(unittest.TestCase):
         uptime.plugin.watching = {f"up:{bad}", f"up:{self.base}/login"}
         self.assertEqual(uptime.check_now({}), f"{bad}, {self.base}/login (401) are down")
         self.assertEqual(self.published()[f"up:{bad}"], "off")
+
+    def test_check_now_answers_in_time(self):
+        release = threading.Event()
+        real = uptime._check
+
+        def slow(target):
+            if target == "slow.lan:1":
+                release.wait(5)
+                return uptime.Result(True, "up", 1)
+            return real(target)
+
+        uptime.plugin.watching = {"up:slow.lan:1", f"up:{self.base}/ok"}
+        with mock.patch.object(uptime, "_check", slow), mock.patch.object(uptime, "ACTION_DEADLINE", 0.3):
+            self.assertEqual(uptime.check_now({}), "still checking slow.lan:1…")
+            self.assertEqual(self.published()[f"up:{self.base}/ok"], "on")
+            release.set()
+            for _ in range(200):
+                if self.published().get("up:slow.lan:1") == "on":
+                    break
+                time.sleep(0.01)
+        self.assertEqual(self.published()["up:slow.lan:1"], "on")
+
+    def test_a_repeating_problem_is_logged_once(self):
+        for _ in range(3):
+            uptime.check("nas.lan:99999")
+        logs = [m for m in self.sent if m.get("event") == "log"]
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn("isn't a port number", logs[0]["message"])
 
     @unittest.skipUnless(shutil.which("openssl"), "needs openssl to make a test certificate")
     def test_self_signed_certificate_needs_the_setting(self):

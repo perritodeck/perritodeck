@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plugin as mqtt  # noqa: E402
 
 
-def fake_broker(code=0):
+def fake_broker(code=0, split=False):
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
@@ -18,7 +18,13 @@ def fake_broker(code=0):
         conn, _ = srv.accept()
         with conn:
             received.append(conn.recv(1024))  # CONNECT
-            conn.sendall(bytes([0x20, 0x02, 0x00, code]))
+            ack = bytes([0x20, 0x02, 0x00, code])
+            if split:  # the CONNACK arrives in pieces
+                for b in ack:
+                    conn.sendall(bytes([b]))
+                    threading.Event().wait(0.02)
+            else:
+                conn.sendall(ack)
             data = b""
             conn.settimeout(2)
             try:
@@ -62,6 +68,37 @@ class MqttTest(unittest.TestCase):
                 break
             threading.Event().wait(0.05)
         self.assertEqual(received[1], mqtt.publish_packet("cmnd/lamp/Dimmer", "30") + mqtt.DISCONNECT)
+
+    def test_connack_in_pieces(self):
+        port, received = fake_broker(code=4, split=True)
+        with self.assertRaisesRegex(RuntimeError, "user name or password"):
+            mqtt.publish(f"127.0.0.1:{port}", "t", "x")
+        port, received = fake_broker(split=True)
+        mqtt.publish(f"127.0.0.1:{port}", "t", "x")
+
+    def test_short_connack_is_not_a_broker(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def serve():
+            conn, _ = srv.accept()
+            conn.recv(1024)
+            conn.sendall(b"\x20\x02")
+            conn.close()
+            srv.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        with self.assertRaisesRegex(RuntimeError, "isn't an MQTT broker"):
+            mqtt.publish(f"127.0.0.1:{srv.getsockname()[1]}", "t", "x")
+
+    def test_client_ids_are_unique_and_short(self):
+        ids = {mqtt.client_id() for _ in range(1000)}
+        self.assertEqual(len(ids), 1000)
+        self.assertTrue(all(len(i) <= 23 for i in ids))
+        port, received = fake_broker()
+        mqtt.publish(f"127.0.0.1:{port}", "t", "x")
+        self.assertNotIn(f"perritodeck-{os.getpid()}".encode(), received[0])
 
     def test_refused(self):
         port, _ = fake_broker(code=4)

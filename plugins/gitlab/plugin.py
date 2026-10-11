@@ -27,6 +27,7 @@ TIMEOUT = 4  # per request; an action makes at most a few
 POLL_SECONDS = 30
 GITLAB_COM_POLL_SECONDS = 60  # be gentle with the shared service
 REFRESH_AFTER_ACTION = 3.0
+ACTION_DEADLINE = 8.0  # answer the key within the host's 10 s; finish the rest later
 
 PIPELINE_VALUES = ("pipeline", "pipeline_ok", "pipeline_running")
 COUNT_VALUES = ("mrs", "issues")
@@ -158,6 +159,58 @@ def latest_pipeline(project, ref=None):
     return found[0] if found else None
 
 
+def answer_in_time(work, still_working, name, deadline=None):
+    """Run work() on a thread and wait up to ACTION_DEADLINE for it: the host wants an
+    answer within 10 s. Done in time: its result (or its error). Not done: the
+    still_working warning (a string, or a function that makes one) while work()
+    finishes in the background; an error it hits then goes to the log."""
+    box = {}
+    lock = threading.Lock()
+
+    def run():
+        try:
+            result, error = work(), None
+        except Exception as e:
+            result, error = None, e
+        with lock:
+            box.update(done=True, result=result, error=error)
+            late = box.get("late")
+        if late and error is not None:
+            plugin.log(f"{name}: {error}", "warn")
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(ACTION_DEADLINE if deadline is None else deadline)
+    with lock:
+        if not box.get("done"):
+            box["late"] = True
+            return still_working() if callable(still_working) else still_working
+    if box["error"] is not None:
+        raise box["error"]
+    return box["result"]
+
+
+_reported = {}
+_report_lock = threading.Lock()
+
+
+def report(key, error, level="warn"):
+    """Log a repeating problem once per change, not on every poll: report(key, None)
+    once it works again (that is logged too, so the log shows the problem ended)."""
+    with _report_lock:
+        old = _reported.get(key)
+        if old == error:
+            return
+        if error is None:
+            del _reported[key]
+        else:
+            _reported[key] = error
+    if error is not None:
+        plugin.log(f"{key}: {error}", level)
+    else:
+        plugin.log(f"{key}: working again")
+
+
 def refresh_soon():
     timer = threading.Timer(REFRESH_AFTER_ACTION, safe_poll)
     timer.daemon = True
@@ -220,16 +273,30 @@ def retry_pipeline(settings):
 def cancel_pipelines(settings):
     project, ref = split_target(settings.get("project"))
     ref = (settings.get("ref") or "").strip() or ref
-    found = {}
-    for scope in ("running", "pending"):
-        for p in pipelines(project, ref, scope=scope, per_page=20):
-            found[p["id"]] = p
-    if not found:
-        return "no pipeline is running"
-    for pipeline_id in sorted(found):
-        api("POST", f"/projects/{project_id(project)}/pipelines/{pipeline_id}/cancel")
-    refresh_soon()
-    return None
+    progress = {"done": 0, "total": None}
+
+    def work():
+        found = {}
+        for scope in ("running", "pending"):
+            for p in pipelines(project, ref, scope=scope, per_page=20):
+                found[p["id"]] = p
+        progress["total"] = len(found)
+        if not found:
+            return "no pipeline is running"
+        try:
+            for pipeline_id in sorted(found):
+                api("POST", f"/projects/{project_id(project)}/pipelines/{pipeline_id}/cancel")
+                progress["done"] += 1
+        finally:
+            refresh_soon()
+        return None
+
+    def still_working():
+        if progress["total"] is None:
+            return "still looking for running pipelines…"
+        return f"still cancelling: {progress['done']} of {progress['total']} done…"
+
+    return answer_in_time(work, still_working, f"cancelling pipelines of {project}")
 
 
 @plugin.action("open-pipeline")
@@ -281,8 +348,10 @@ def poll():
             project, ref = split_target(arg)
             values = pipeline_values(latest_pipeline(project, ref))
         except GitLabError as e:
-            plugin.log(f"{arg}: {e}", "warn")
+            report(arg, str(e))
             values = dict.fromkeys(PIPELINE_VALUES, NOTHING)
+        else:
+            report(arg, None)
         for value_id in PIPELINE_VALUES:
             if arg in plugin.watched(value_id):
                 plugin.set_value(value_id, values[value_id], arg=arg)
@@ -292,8 +361,10 @@ def poll():
                 project, _ = split_target(arg)
                 value = count(f"/projects/{project_id(project)}/{endpoint}", {"state": "opened"})
             except GitLabError as e:
-                plugin.log(f"{arg}: {e}", "warn")
+                report(f"{arg} ({endpoint.replace('_', ' ')})", str(e))
                 value = NOTHING
+            else:
+                report(f"{arg} ({endpoint.replace('_', ' ')})", None)
             plugin.set_value(value_id, value, arg=arg)
 
 
@@ -313,7 +384,9 @@ def safe_poll():
         _last_poll["at"] = time.monotonic()
         poll()
     except Exception as e:
-        plugin.log(f"poll failed: {e}", "warn")
+        report("poll", f"failed: {e}")
+    else:
+        report("poll", None)
     finally:
         _poll_lock.release()
 

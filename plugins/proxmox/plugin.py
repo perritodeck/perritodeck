@@ -376,9 +376,10 @@ def poll():
     try:
         items = resources()
     except ProxmoxError as e:
-        plugin.log(str(e), "warn")
+        report("Proxmox", str(e))  # once per change, not every 5 s
         publish_unknown()
         return
+    report("Proxmox", None)
     for value_id in GUEST_VALUES:
         for arg in plugin.watched(value_id):
             plugin.set_value(value_id, guest_value(value_id, guest_in(items, arg.strip())), arg=arg)
@@ -395,6 +396,27 @@ def publish_unknown():
     plugin.set_value("guests_running", NOTHING)
 
 
+_reported = {}
+_report_lock = threading.Lock()
+
+
+def report(key, error, level="warn"):
+    """Log a repeating problem once per change, not on every poll: report(key, None)
+    once it works again (that is logged too, so the log shows the problem ended)."""
+    with _report_lock:
+        old = _reported.get(key)
+        if old == error:
+            return
+        if error is None:
+            del _reported[key]
+        else:
+            _reported[key] = error
+    if error is not None:
+        plugin.log(f"{key}: {error}", level)
+    else:
+        plugin.log(f"{key}: working again")
+
+
 _poll_lock = threading.Lock()
 
 
@@ -405,7 +427,7 @@ def safe_poll():
         _last_poll["at"] = time.monotonic()
         poll()
     except Exception as e:  # never let the timer die
-        plugin.log(f"poll failed: {e}", "warn")
+        report("poll", f"failed: {e}")
     finally:
         _poll_lock.release()
 
@@ -419,6 +441,8 @@ def tick():
 
 @plugin.on_settings
 def settings_changed(settings):
+    with _report_lock:
+        _reported.clear()  # new settings: say what's wrong again
     forget()
     _last_poll["at"] = 0.0
 

@@ -15,11 +15,44 @@
 //
 // The host talks to the plugin over stdin/stdout, one JSON object per line (see
 // PROTOCOL.md). Don't write to stdout yourself: use plugin.log or console.error.
+//
+// Ordering: onSettings/onWatch callbacks run one after another in the order the host
+// sent them; `run` messages wait until onSettings/onStart have finished after hello.
+// An every() timer never overlaps itself: the next tick is scheduled `seconds` after
+// the previous one settled. plugin.dataDir is a folder for the plugin's own files
+// (PERRITODECK_PLUGIN_DATA from the host, or a per-user folder when run by hand),
+// created the first time it is read.
 "use strict";
 
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const readline = require("node:readline");
 
 const PROTOCOL = 1;
+const DATA_ENV = "PERRITODECK_PLUGIN_DATA";
+
+/** The plugin id from the manifest next to the main script, or the folder's name. */
+function pluginName(main = process.argv[1]) {
+  const folder = path.dirname(path.resolve(main || "."));
+  try {
+    const id = JSON.parse(fs.readFileSync(path.join(folder, "perritodeck-plugin.json"), "utf8")).id;
+    if (typeof id === "string" && id) return id;
+  } catch {
+    // no manifest: use the folder's name
+  }
+  return path.basename(folder) || "plugin";
+}
+
+/** Where plugin files go when the host didn't say (a plugin run by hand). */
+function defaultDataDir(name, { platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  if (platform === "win32") {
+    const base = env.LOCALAPPDATA || env.APPDATA || path.join(home, "AppData", "Local");
+    return path.join(base, "PerritoDeck", "plugin-data", name);
+  }
+  if (platform === "darwin") return path.join(home, "Library", "Application Support", "PerritoDeck", "plugin-data", name);
+  return path.join(env.XDG_DATA_HOME || path.join(home, ".local", "share"), "perritodeck", "plugin-data", name);
+}
 
 class Plugin {
   constructor({ input = process.stdin, output = process.stdout } = {}) {
@@ -29,6 +62,11 @@ class Plugin {
     this._onWatch = [];
     this._timers = [];
     this._started = false;
+    this._stopped = false;
+    this._timeouts = new Set();
+    this._ready = null; // resolves once hello's callbacks have run
+    this._chain = Promise.resolve(); // hello/settings/watch callbacks, in order
+    this._dataDir = null;
     this._input = input;
     this._output = output;
     this.hostVersion = null;
@@ -54,6 +92,42 @@ class Plugin {
   every(seconds, fn, { now = true } = {}) {
     this._timers.push({ seconds, fn, now });
     return this;
+  }
+
+  /** A folder for the plugin's own files, created if missing (see the top of this file). */
+  get dataDir() {
+    if (this._dataDir === null) {
+      const folder = process.env[DATA_ENV] || defaultDataDir(pluginName());
+      fs.mkdirSync(folder, { recursive: true });
+      this._dataDir = folder;
+    }
+    return this._dataDir;
+  }
+
+  /** Run fn after the callbacks queued before it (they keep the host's order). */
+  _enqueue(fn) {
+    this._chain = this._chain.then(fn).catch((e) => console.error(e));
+    return this._chain;
+  }
+
+  _startTimer({ seconds, fn, now }) {
+    const schedule = (delay) => {
+      if (this._stopped) return;
+      const h = setTimeout(() => {
+        this._timeouts.delete(h);
+        tick();
+      }, delay);
+      h.unref?.();
+      this._timeouts.add(h);
+    };
+    // The next tick is scheduled only after this one settled, so ticks never overlap.
+    const tick = () =>
+      Promise.resolve()
+        .then(fn)
+        .catch((e) => console.error(e))
+        .finally(() => schedule(seconds * 1000));
+    if (now) tick();
+    else schedule(seconds * 1000);
   }
 
   /** The arguments keys use with a value: ["192.168.1.10", …] for up:<host>. */
@@ -127,40 +201,43 @@ class Plugin {
         } catch {
           return;
         }
+        if (!m || typeof m !== "object") return;
         if (m.event === "hello") {
           this.hostVersion = m.host;
           this.settings = m.settings ?? {};
-          await this._call(this._onSettings, this.settings);
-          await this._call(this._onStart);
-          this._send({ event: "ready" });
-          if (!this._started) {
-            this._started = true;
-            for (const t of this._timers) {
-              const tick = () => Promise.resolve().then(t.fn).catch((e) => console.error(e));
-              if (t.now) tick();
-              const h = setInterval(tick, t.seconds * 1000);
-              h.unref?.();
-              this._intervals = [...(this._intervals ?? []), h];
+          const settings = this.settings;
+          this._ready = this._enqueue(async () => {
+            await this._call(this._onSettings, settings);
+            await this._call(this._onStart);
+            this._send({ event: "ready" });
+            if (!this._started) {
+              this._started = true;
+              for (const t of this._timers) this._startTimer(t);
             }
-          }
+          });
         } else if (m.event === "settings") {
           this.settings = m.settings ?? {};
-          this._call(this._onSettings, this.settings);
+          const settings = this.settings;
+          this._enqueue(() => this._call(this._onSettings, settings));
         } else if (m.event === "watch") {
           this.watching = new Set(m.values ?? []);
-          this._call(this._onWatch, [...this.watching].sort());
+          const values = [...this.watching].sort();
+          this._enqueue(() => this._call(this._onWatch, values));
         } else if (m.event === "run") {
-          this._run(m.id, m.action, m.settings);
+          // Actions wait for onStart (a host only sends them after ready, but be safe).
+          Promise.resolve(this._ready).then(() => this._run(m.id, m.action, m.settings));
         } else if (m.event === "shutdown") {
           rl.close();
         }
       });
       rl.on("close", () => {
-        for (const h of this._intervals ?? []) clearInterval(h);
+        this._stopped = true;
+        for (const h of this._timeouts) clearTimeout(h);
+        this._timeouts.clear();
         resolve();
       });
     });
   }
 }
 
-module.exports = { Plugin, PROTOCOL };
+module.exports = { Plugin, PROTOCOL, DATA_ENV, defaultDataDir };

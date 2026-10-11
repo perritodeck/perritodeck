@@ -59,6 +59,22 @@ A plugin is a folder containing `perritodeck-plugin.json`:
 
 Installed plugins live in the host's settings folder under `plugins/<id>/`.
 
+## Environment
+
+The host starts each plugin with its folder as the working directory and these
+environment variables set:
+
+| Variable | Value | Why |
+|---|---|---|
+| `PERRITODECK_PLUGIN_DATA` | A folder for this plugin only, in the host's settings folder; the host creates it. | Keep the plugin's own files here (counters, state, caches), not next to the code: the plugin's folder is replaced on update. The SDKs expose it as `plugin.data_dir` (Python) and `plugin.dataDir` (Node) and fall back to a per-user folder when the plugin runs outside the host. |
+| `PYTHONUTF8` | `1` | Python plugins use UTF-8 for files and pipes whatever the system locale. |
+| `PYTHONIOENCODING` | `utf-8` | The same for stdin/stdout on older Pythons. |
+
+The pipes are always UTF-8, so a plugin in another language should read and write
+UTF-8 explicitly rather than rely on the locale (cp1252 on many Windows machines).
+On Windows the host starts plugins without a console window (`CREATE_NO_WINDOW`), so a
+plugin must not expect one.
+
 ## Messages
 
 Host → plugin:

@@ -2,8 +2,10 @@
 
 Timers and stopwatches have names; key titles pick one with the value's argument,
 e.g. {plugin:dev.perritodeck.timer:remaining:tea}. Everything is kept in
-timer-state.json in the PerritoDeck config folder, with wall-clock end times, so a
-timer keeps counting while the plugin (or the computer's host app) restarts.
+timer-state.json in the plugin's data folder (plugin.data_dir, which the host gives
+each plugin), with wall-clock end times, so a timer keeps counting while the plugin
+(or the computer's host app) restarts. A timer-state.json in the old location (the
+PerritoDeck config folder, see legacy_dir) is read once and moved over.
 """
 
 import json
@@ -11,6 +13,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -19,7 +22,8 @@ from perritodeck_plugin import Plugin  # noqa: E402
 
 plugin = Plugin()
 
-STATE_FILE = None  # None means timer-state.json in config_dir(); tests point it elsewhere
+STATE_FILE = None  # None means timer-state.json in plugin.data_dir; tests point it elsewhere
+FILE_NAME = "timer-state.json"
 clock = time.time  # tests replace this
 
 PHASES = {"idle": "Ready", "work": "Work", "short": "Short break", "long": "Long break"}
@@ -35,8 +39,8 @@ state = {"timers": {}, "stopwatches": {}, "pomodoro": None}  # filled by load()
 # ---------------------------------------------------------------- storage
 
 
-def config_dir():
-    """PerritoDeck's per-user config folder for plugin data."""
+def legacy_dir():
+    """Where older versions kept timer-state.json (read once, as a migration)."""
     if sys.platform.startswith("win"):
         base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
     elif sys.platform == "darwin":
@@ -47,7 +51,25 @@ def config_dir():
 
 
 def state_path():
-    return STATE_FILE or os.path.join(config_dir(), "timer-state.json")
+    return STATE_FILE or os.path.join(plugin.data_dir, FILE_NAME)
+
+
+def read_state():
+    """The saved state, from the data folder or (once) from the old location."""
+    path = state_path()
+    sources = [path]
+    if STATE_FILE is None and not os.path.exists(path):
+        sources.append(os.path.join(legacy_dir(), FILE_NAME))
+    for source in sources:
+        try:
+            with open(source, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if source != path:
+            plugin.log(f"moved the timers from {source} to {path}")
+        return data if isinstance(data, dict) else {}
+    return {}
 
 
 def new_pomodoro(config=None):
@@ -60,13 +82,7 @@ def new_pomodoro(config=None):
 
 def load():
     global state
-    try:
-        with open(state_path(), encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            data = {}
-    except (OSError, ValueError):
-        data = {}
+    data = read_state()
     pomodoro = data.get("pomodoro") if isinstance(data.get("pomodoro"), dict) else None
     with _lock:
         state = {
@@ -74,18 +90,43 @@ def load():
             "stopwatches": dict(data.get("stopwatches") or {}),
             "pomodoro": pomodoro or new_pomodoro(),
         }
+        if not os.path.exists(state_path()) and (state["timers"] or state["stopwatches"] or pomodoro):
+            save()  # finish a migration from the old location
 
 
 def save():
-    path = state_path()
+    # Under the lock, so two saves can't interleave or write an older state last.
+    with _lock:
+        try:
+            path = state_path()
+            write_atomic(path, json.dumps(state, indent=1))
+        except OSError as e:
+            plugin.log(f"couldn't save the timers: {e}", "warn")
+
+
+def write_atomic(path, text):
+    """Write text to path all at once: a unique temp file in the same folder, then
+    os.replace, so a crash or a second writer never leaves half a file."""
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix="." + os.path.basename(path) + ".", suffix=".tmp")
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=1)
-        os.replace(tmp, path)
-    except OSError as e:
-        plugin.log(f"couldn't save the timers to {path}: {e}", "warn")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:  # Windows: another program has the file open
+                if attempt == 4:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------- helpers

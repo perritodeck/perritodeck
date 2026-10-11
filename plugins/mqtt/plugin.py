@@ -1,9 +1,11 @@
 """Publish MQTT messages (MQTT 3.1.1, QoS 0, plain TCP). Standard library only."""
 
+import itertools
 import os
 import socket
 import struct
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from perritodeck_plugin import Plugin  # noqa: E402
@@ -47,6 +49,29 @@ def publish_packet(topic, payload, retain=False):
 
 DISCONNECT = bytes([0xE0, 0x00])
 
+_ids = itertools.count(1)
+_ids_lock = threading.Lock()
+
+
+def client_id():
+    """A client id no other connection uses: a broker drops the older of two connections
+    with the same id, so two quick presses (or two hosts) would cut each other off.
+    At most 23 characters, the length every MQTT 3.1.1 broker must accept."""
+    with _ids_lock:
+        n = next(_ids)
+    return f"pd-{os.urandom(3).hex()}-{os.getpid():x}-{n:x}"[:23]
+
+
+def read_exactly(sock, n):
+    """n bytes from sock, however the network splits them; fewer only at EOF."""
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
 CONNACK_ERRORS = {
     1: "the broker doesn't speak MQTT 3.1.1",
     2: "the broker refused the client id",
@@ -59,8 +84,8 @@ CONNACK_ERRORS = {
 def publish(broker, topic, payload, retain=False, username=None, password=None):
     host, _, port = broker.strip().rpartition(":") if ":" in broker else (broker.strip(), "", "1883")
     with socket.create_connection((host, int(port or 1883)), timeout=TIMEOUT) as s:
-        s.sendall(connect_packet(f"perritodeck-{os.getpid()}", username, password))
-        ack = s.recv(4)
+        s.sendall(connect_packet(client_id(), username, password))
+        ack = read_exactly(s, 4)
         if len(ack) < 4 or ack[0] != 0x20:
             raise RuntimeError("that isn't an MQTT broker")
         if ack[3] != 0:

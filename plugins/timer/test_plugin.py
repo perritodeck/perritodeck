@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -118,6 +119,42 @@ class TimerTest(unittest.TestCase):
         timer.load()
         self.watch("remaining:bread")
         self.assertEqual(self.value("remaining:bread"), "30:00")
+
+    def test_data_dir_and_migration_from_the_old_folder(self):
+        data = os.path.join(self.dir.name, "data")
+        old = os.path.join(self.dir.name, "old")
+        os.makedirs(old)
+        with open(os.path.join(old, "timer-state.json"), "w", encoding="utf-8") as f:
+            json.dump({"timers": {"tea": {"end": None, "left": 180.0, "length": 180.0}}}, f)
+        timer.STATE_FILE = None
+        with mock.patch.object(timer, "legacy_dir", return_value=old), mock.patch.dict(
+            os.environ, {"PERRITODECK_PLUGIN_DATA": data}
+        ):
+            timer.plugin._data_dir = None
+            try:
+                timer.load()
+                self.assertIn("tea", timer.state["timers"])
+                with open(os.path.join(data, "timer-state.json"), encoding="utf-8") as f:
+                    self.assertIn("tea", json.load(f)["timers"])
+                os.remove(os.path.join(old, "timer-state.json"))
+                timer.state["timers"].clear()
+                timer.load()  # now from the data folder
+                self.assertIn("tea", timer.state["timers"])
+            finally:
+                timer.plugin._data_dir = None
+
+    def test_concurrent_saves_leave_one_whole_file(self):
+        def work(i):
+            timer.start({"name": f"t{i}", "minutes": 1})
+
+        threads = [threading.Thread(target=work, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with open(timer.STATE_FILE, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["timers"]), 20)
+        self.assertEqual(os.listdir(os.path.dirname(timer.STATE_FILE)), ["timer-state.json"])
 
     def test_broken_state_file_is_ignored(self):
         os.makedirs(os.path.dirname(timer.STATE_FILE))

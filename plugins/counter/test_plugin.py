@@ -2,7 +2,9 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plugin as counter  # noqa: E402
@@ -54,6 +56,53 @@ class CounterTest(unittest.TestCase):
         counter.started()
         self.assertEqual(counter.counts, {"laps": 3})
         self.assertIn(("count:deaths", "0"), self.published())
+
+    def test_data_dir_and_migration_from_the_old_folder(self):
+        data = os.path.join(self.dir.name, "data")
+        old = os.path.join(self.dir.name, "old", "PerritoDeck")
+        os.makedirs(old)
+        with open(os.path.join(old, "counters-state.json"), "w", encoding="utf-8") as f:
+            json.dump({"counters": {"laps": 9}}, f)
+        counter.STATE_FILE = None
+        with mock.patch.object(counter, "legacy_dir", return_value=old), mock.patch.dict(
+            os.environ, {"PERRITODECK_PLUGIN_DATA": data}
+        ):
+            counter.plugin._data_dir = None
+            try:
+                counter.load()
+                self.assertEqual(counter.counts, {"laps": 9})
+                with open(os.path.join(data, "counters-state.json"), encoding="utf-8") as f:
+                    self.assertEqual(json.load(f), {"counters": {"laps": 9}})
+                # The new file wins from now on; the old one isn't read again.
+                with open(os.path.join(old, "counters-state.json"), "w", encoding="utf-8") as f:
+                    json.dump({"counters": {"laps": 100}}, f)
+                counter.increment({"name": "laps"})
+                counter.load()
+                self.assertEqual(counter.counts, {"laps": 10})
+            finally:
+                counter.plugin._data_dir = None
+
+    def test_saves_are_atomic_and_leave_no_temp_files(self):
+        folder = os.path.join(self.dir.name, "obs")
+        counter.plugin.settings = {"folder": folder}
+        threads = [threading.Thread(target=counter.increment, args=({"name": "deaths"},)) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with open(counter.STATE_FILE, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"counters": {"deaths": 20}})
+        with open(os.path.join(folder, "deaths.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "20")
+        self.assertEqual(os.listdir(folder), ["deaths.txt"])
+        self.assertEqual(os.listdir(os.path.dirname(counter.STATE_FILE)), ["counters-state.json"])
+
+    def test_failed_write_removes_its_temp_file(self):
+        target = os.path.join(self.dir.name, "x", "f.txt")
+        with mock.patch.object(counter.os, "replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                counter.write_atomic(target, "1")
+        self.assertEqual(os.listdir(os.path.dirname(target)), [])
 
     def test_errors(self):
         with self.assertRaisesRegex(ValueError, "name"):

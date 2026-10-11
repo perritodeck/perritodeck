@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 import urllib.parse
 from unittest import mock
@@ -65,6 +66,7 @@ class Fake(http.server.BaseHTTPRequestHandler):
             return self.send_json(201, new)
         parts = rest.split("/")
         if len(parts) == 4 and parts[1] == "pipelines" and self.command == "POST":
+            time.sleep(st.get("slow_cancel", 0) if parts[3] == "cancel" else 0)
             p = next(p for p in st["pipelines"] if p["id"] == int(parts[2]))
             p["status"] = {"retry": "pending", "cancel": "canceled"}[parts[3]]
             return self.send_json(201, p)
@@ -103,6 +105,7 @@ class GitLabTest(unittest.TestCase):
         gitlab.plugin._send = self.sent.append
         gitlab.plugin.settings = {"url": self.base, "token": TOKEN}
         gitlab.plugin.watching = set()
+        gitlab._reported.clear()
         patcher = mock.patch.object(gitlab, "refresh_soon", lambda: None)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -181,6 +184,25 @@ class GitLabTest(unittest.TestCase):
         cancelled = [p for p, _ in self.posts() if p.endswith("/cancel")]
         self.assertEqual(cancelled, [f"/api/v4/projects/{PROJECT}/pipelines/{i}/cancel" for i in (12, 13)])
         self.assertEqual(gitlab.cancel_pipelines({"project": "homelab/infra"}), "no pipeline is running")
+
+    def test_cancel_answers_in_time_and_finishes_later(self):
+        Fake.state["pipelines"] += [pipeline(20 + i, "running") for i in range(4)]
+        Fake.state["slow_cancel"] = 0.15
+        with mock.patch.object(gitlab, "ACTION_DEADLINE", 0.25):
+            answer = gitlab.cancel_pipelines({"project": "homelab/infra"})
+        self.assertRegex(answer, r"^still cancelling: \d of 5 done…$")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and len([p for p, _ in self.posts() if p.endswith("/cancel")]) < 5:
+            time.sleep(0.02)
+        self.assertEqual(len([p for p, _ in self.posts() if p.endswith("/cancel")]), 5)
+
+    def test_a_repeating_poll_error_is_logged_once(self):
+        gitlab.plugin.watching = {"pipeline:nobody/nothing"}
+        for _ in range(3):
+            gitlab.poll()
+        logs = [m for m in self.sent if m.get("event") == "log"]
+        self.assertEqual(len(logs), 1, logs)
+        self.assertIn("nobody/nothing", logs[0]["message"])
 
     def test_open_pipeline(self):
         with mock.patch.object(gitlab.webbrowser, "open", return_value=True) as browser:
