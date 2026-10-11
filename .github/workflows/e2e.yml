@@ -8,6 +8,8 @@ on:
   pull_request:
     paths: ["android/**", "host/**", "protocol/**", ".github/workflows/e2e.yml", "scripts/e2e-android.sh"]
   workflow_dispatch:
+  schedule:
+    - cron: "17 11 * * 1"
 
 # A newer push to the same branch makes older runs pointless.
 concurrency:
@@ -23,16 +25,11 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Pushes run the oldest Android and the Fire 7 stand-in; all four weekly or by hand.
+      # 22 = oldest supported. The test tablet is a Fire 7 (2019, KFMUWI): 1024x600 mdpi,
+      # Fire OS 6 (API 25) or 7 (API 28); the Fire HD 10 is the common larger one.
       matrix:
-        include:
-          # 22 = oldest supported (Fire OS 5 era); 34 = modern.
-          - { name: api22, api-level: 22 }
-          - { name: api34, api-level: 34 }
-          # Stand-ins for Amazon Fire tablets until real hardware is tested. The test
-          # tablet is a Fire 7 (2019, KFMUWI): 1024x600 mdpi, Fire OS 6 (API 25) or 7
-          # (API 28). The Fire HD 10 is the common larger one.
-          - { name: fire7, api-level: 25, screen-size: 1024x600, screen-density: 160 }
-          - { name: firehd10, api-level: 28, screen-size: 1920x1200, screen-density: 224 }
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"name":"api22","api-level":22},{"name":"fire7","api-level":25,"screen-size":"1024x600","screen-density":160}]' || '[{"name":"api22","api-level":22},{"name":"api34","api-level":34},{"name":"fire7","api-level":25,"screen-size":"1024x600","screen-density":160},{"name":"firehd10","api-level":28,"screen-size":"1920x1200","screen-density":224}]') }}
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4

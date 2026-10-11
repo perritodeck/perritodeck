@@ -6,6 +6,10 @@ on:
     paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
   pull_request:
     paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
+  # Linux and macOS cost more minutes (macOS ten times Linux); run them weekly or by hand.
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
 
 # A newer push to the same branch makes older runs pointless.
 concurrency:
@@ -24,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

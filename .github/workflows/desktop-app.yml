@@ -6,6 +6,17 @@ on:
     paths: ["host/**", ".github/workflows/desktop-app.yml"]
   pull_request:
     paths: ["host/**", ".github/workflows/desktop-app.yml"]
+  # Bundles and the real-app test are the expensive part (macOS especially): weekly,
+  # by hand (Actions → Desktop app → Run workflow), or when tagging a release.
+  schedule:
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Bundles to build"
+        default: windows
+        type: choice
+        options: [windows, all]
 
 # A newer push to the same branch makes older runs pointless.
 concurrency:
@@ -46,6 +57,7 @@ jobs:
   # the profile file and the "tablet" both change, undo.
   real-app:
     name: Real app end to end (Linux)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -79,10 +91,11 @@ jobs:
 
   build:
     name: Build (${{ matrix.os }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || inputs.platforms == 'all') && '["windows-latest","ubuntu-22.04","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
