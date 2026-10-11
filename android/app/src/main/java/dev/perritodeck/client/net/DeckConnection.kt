@@ -9,6 +9,7 @@ import dev.perritodeck.client.protocol.Hello
 import dev.perritodeck.client.protocol.KeyEvent
 import dev.perritodeck.client.protocol.Layout
 import dev.perritodeck.client.protocol.Message
+import dev.perritodeck.client.protocol.SliderValue
 import dev.perritodeck.client.protocol.ProtocolException
 import dev.perritodeck.client.protocol.UnsupportedVersionException
 import dev.perritodeck.client.protocol.Welcome
@@ -97,6 +98,42 @@ class DeckConnection(
     fun keyDown(index: Int) = sendKey(Message.KeyDown(KeyEvent(index, nowMs())))
 
     fun keyUp(index: Int) = sendKey(Message.KeyUp(KeyEvent(index, nowMs())))
+
+    private val sliderPending = ConcurrentHashMap<Int, Int>()
+    private val sliderLastSent = ConcurrentHashMap<Int, Long>()
+
+    /**
+     * A slider moved to [value] (0–100). Sent at most every [SLIDER_INTERVAL_MS] while
+     * dragging (the latest value wins), and always when [final] (the finger lifted).
+     */
+    fun sliderChange(index: Int, value: Int, final: Boolean = false) {
+        val v = value.coerceIn(0, 100)
+        setSliderValue(index, v)
+        val now = nanoTime()
+        val last = sliderLastSent[index] ?: 0L
+        if (final || now - last >= SLIDER_INTERVAL_MS * 1_000_000) {
+            sliderPending.remove(index)
+            sendSlider(index, v)
+        } else if (sliderPending.put(index, v) == null) {
+            scope.launch {
+                delay(SLIDER_INTERVAL_MS)
+                sliderPending.remove(index)?.let { sendSlider(index, it) }
+            }
+        }
+    }
+
+    private fun sendSlider(index: Int, value: Int) {
+        val ws = socket ?: return
+        if (_state.value !is ConnState.Connected) return
+        sliderLastSent[index] = nanoTime()
+        ws.send(Codec.encode(Envelope(Message.SliderChange(SliderValue(index, value)))))
+    }
+
+    private fun setSliderValue(index: Int, value: Int) {
+        _layout.value = _layout.value?.let { l ->
+            l.copy(keys = l.keys.map { k -> if (k.index == index && k.isSlider) k.copy(value = value) else k })
+        }
+    }
 
     private fun sendKey(msg: Message) {
         val ws = socket ?: return
@@ -208,6 +245,7 @@ class DeckConnection(
                             }
                             is Message.ShowOk -> _flash.value = Flash(m.payload.keyIndex, true, nanoTime())
                             is Message.ShowAlert -> _flash.value = Flash(m.payload.keyIndex, false, nanoTime())
+                            is Message.SetValue -> setSliderValue(m.payload.keyIndex, m.payload.value.coerceIn(0, 100))
                             is Message.SetImageMsg -> {
                                 val key = m.payload.keyIndex
                                 val decoded = m.payload.image?.let(decodeImage)
@@ -265,6 +303,8 @@ class DeckConnection(
             "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
 
         /** 0.5s, 1s, 2s, 4s, then 8s between attempts. */
+        const val SLIDER_INTERVAL_MS = 50L
+
         fun backoffMs(attempt: Int): Long = (250L shl attempt.coerceIn(1, 5)).coerceAtMost(8_000)
     }
 }

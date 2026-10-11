@@ -204,7 +204,7 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
             platform = Platform.ANDROID,
             osVersion = Build.VERSION.RELEASE ?: "unknown",
             screen = screen(app),
-            capabilities = listOf("keys", "haptics", "multiTouch", "images"),
+            capabilities = listOf("keys", "haptics", "multiTouch", "images", "sliders"),
             deviceSecret = secret,
         )
     }

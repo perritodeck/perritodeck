@@ -13,6 +13,7 @@ import dev.perritodeck.client.protocol.Message
 import dev.perritodeck.client.protocol.Platform
 import dev.perritodeck.client.protocol.Screen
 import dev.perritodeck.client.protocol.SetTitle
+import dev.perritodeck.client.protocol.SliderValue
 import dev.perritodeck.client.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +119,38 @@ class DeckConnectionTest {
 
         conn.disconnect()
         assertEquals(ConnState.Idle, conn.state.value)
+    }
+
+    @Test
+    fun slidersThrottleAndFollowTheHost() = runBlocking {
+        val layout = Layout(1, 1, listOf(KeySpec(0, "Vol", "#000000", "#FFFFFF", control = "slider", value = 50)))
+        var hostWs: WebSocket? = null
+        server.enqueue(MockResponse().withWebSocketUpgrade(fakeHost { ws ->
+            hostWs = ws
+            ws.send(Codec.encode(Envelope(Message.WelcomeMsg(Welcome("fake", "0", 1, 2000)))))
+            ws.send(Codec.encode(Envelope(Message.LayoutMsg(layout))))
+        }))
+        val conn = DeckConnection(http, scope)
+        conn.connect(url(), hello)
+        nextReceived() // hello
+        withTimeout(5_000) { conn.layout.first { it?.keys?.firstOrNull()?.isSlider == true } }
+
+        // A quick drag: many moves, few messages, and the final value always arrives.
+        for (v in 0..40) conn.sliderChange(0, v)
+        conn.sliderChange(0, 77, final = true)
+        val values = mutableListOf<Int>()
+        while (true) {
+            val env = received.poll(500, TimeUnit.MILLISECONDS) ?: break
+            (env.msg as? Message.SliderChange)?.let { values += it.payload.value }
+        }
+        assertTrue("throttled: $values", values.size < 10)
+        assertEquals(77, values.last())
+        assertEquals(77, conn.layout.value!!.keys[0].value)
+
+        // The host moves it (volume changed on the computer).
+        hostWs!!.send(Codec.encode(Envelope(Message.SetValue(SliderValue(0, 12)))))
+        withTimeout(5_000) { conn.layout.first { it?.keys?.get(0)?.value == 12 } }
+        conn.disconnect()
     }
 
     @Test

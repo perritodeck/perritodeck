@@ -106,6 +106,7 @@ private fun PerritoApp(vm: DeckViewModel) {
                 onKeyDown = vm.connection::keyDown,
                 onKeyUp = vm.connection::keyUp,
                 onDisconnect = vm::disconnect,
+                onSlider = vm.connection::sliderChange,
             )
         }
     }

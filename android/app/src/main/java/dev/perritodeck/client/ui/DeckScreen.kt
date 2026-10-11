@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -64,6 +66,8 @@ fun DeckScreen(
     onKeyDown: (Int) -> Unit,
     onKeyUp: (Int) -> Unit,
     onDisconnect: () -> Unit,
+    /** A slider moved: index, value 0–100, and whether the finger lifted. */
+    onSlider: (Int, Int, Boolean) -> Unit = { _, _, _ -> },
 ) {
     Box(
         Modifier
@@ -71,7 +75,7 @@ fun DeckScreen(
             .background(Background)
     ) {
         if (layout != null) {
-            KeyGrid(layout, images, flash, onKeyDown, onKeyUp)
+            KeyGrid(layout, images, flash, onKeyDown, onKeyUp, onSlider)
         }
 
         // Small status line; stays out of the way of the grid.
@@ -122,6 +126,7 @@ private fun KeyGrid(
     flash: DeckConnection.Flash?,
     onKeyDown: (Int) -> Unit,
     onKeyUp: (Int) -> Unit,
+    onSlider: (Int, Int, Boolean) -> Unit,
 ) {
     val byIndex = remember(layout) { layout.keys.associateBy { it.index } }
     BoxWithConstraints(
@@ -145,7 +150,12 @@ private fun KeyGrid(
                     for (c in 0 until cols) {
                         if (c > 0) Spacer(Modifier.size(gap))
                         val index = r * cols + c
-                        DeckKey(index, byIndex[index], images[index] as? ImageBitmap, flash, cell, onKeyDown, onKeyUp)
+                        val spec = byIndex[index]
+                        if (spec?.isSlider == true) {
+                            DeckSlider(index, spec, flash, cell, onSlider)
+                        } else {
+                            DeckKey(index, spec, images[index] as? ImageBitmap, flash, cell, onKeyDown, onKeyUp)
+                        }
                     }
                 }
             }
@@ -178,6 +188,8 @@ private fun DeckKey(
     var badge by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(flash) {
         if (flash != null && flash.keyIndex == index) {
+            // A problem gets a longer buzz than a key press.
+            if (!flash.ok) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             badge = flash.ok
             delay(1_200)
             badge = null
@@ -241,6 +253,103 @@ private fun DeckKey(
                     fontWeight = FontWeight.Bold,
                 )
             }
+        }
+    }
+}
+
+/**
+ * A slider filling one cell: drag up and down. The level shows as a fill from the
+ * bottom; while the finger is down the slider follows it, otherwise it follows the
+ * host (which reports changes made on the computer).
+ */
+@Composable
+private fun DeckSlider(
+    index: Int,
+    spec: KeySpec,
+    flash: DeckConnection.Flash?,
+    size: Dp,
+    onSlider: (Int, Int, Boolean) -> Unit,
+) {
+    val view = LocalView.current
+    val changed by rememberUpdatedState(onSlider)
+    var dragging by remember { mutableStateOf<Int?>(null) }
+    val value = (dragging ?: spec.value ?: 0).coerceIn(0, 100)
+    val bg = parseColor(spec.bgColor)?.let(::Color) ?: SurfaceColor
+    val fg = parseColor(spec.textColor)?.let(::Color) ?: OnSurface
+    val fontSize = with(LocalDensity.current) { (size.toPx() * 0.14f).toSp() }
+    val description = stringResource(R.string.slider_description, spec.title, value)
+
+    var alert by remember { mutableStateOf(false) }
+    LaunchedEffect(flash) {
+        if (flash != null && flash.keyIndex == index && !flash.ok) {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            alert = true
+            delay(1_200)
+            alert = false
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.14f))
+            .background(bg.copy(alpha = 0.35f))
+            .semantics { contentDescription = description }
+            .pointerInput(index) {
+                fun at(y: Float): Int = ((1f - y / this.size.height) * 100f).toInt().coerceIn(0, 100)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    var v = at(down.position.y)
+                    dragging = v
+                    changed(index, v, false)
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+                            val next = at(change.position.y)
+                            if (next != v) {
+                                // A tick at each tenth, like detents.
+                                if (next / 10 != v / 10) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                v = next
+                                dragging = v
+                                changed(index, v, false)
+                            }
+                        }
+                    } finally {
+                        changed(index, v, true)
+                        dragging = null
+                    }
+                }
+            },
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(value / 100f)
+                .background(bg)
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = size * 0.08f)) {
+            Text(
+                text = spec.title,
+                color = fg,
+                fontSize = fontSize,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (alert) "⚠" else "$value",
+                color = fg,
+                fontSize = fontSize * 1.4f,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }

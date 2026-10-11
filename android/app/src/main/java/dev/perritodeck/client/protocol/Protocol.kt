@@ -64,7 +64,22 @@ data class Welcome(
 )
 
 @Serializable
-data class KeySpec(val index: Int, val title: String, val bgColor: String, val textColor: String)
+data class KeySpec(
+    val index: Int,
+    val title: String,
+    val bgColor: String,
+    val textColor: String,
+    /** "slider" for a slider; null (or "key") for an ordinary key. */
+    val control: String? = null,
+    /** A slider's position, 0–100. */
+    val value: Int? = null,
+) {
+    val isSlider: Boolean get() = control == "slider"
+}
+
+/** Payload of sliderChange (client → host) and setValue (host → client). */
+@Serializable
+data class SliderValue(val keyIndex: Int, val value: Int)
 
 @Serializable
 data class Layout(val cols: Int, val rows: Int, val keys: List<KeySpec>)
@@ -121,6 +136,8 @@ sealed interface Message {
     data class SetImageMsg(val payload: SetImage) : Message { override val type = "setImage" }
     data class ShowOk(val payload: KeyFeedback) : Message { override val type = "showOk" }
     data class ShowAlert(val payload: KeyFeedback) : Message { override val type = "showAlert" }
+    data class SliderChange(val payload: SliderValue) : Message { override val type = "sliderChange" }
+    data class SetValue(val payload: SliderValue) : Message { override val type = "setValue" }
     data class Error(val payload: ErrorMessage) : Message { override val type = "error" }
 }
 
@@ -146,7 +163,7 @@ object Codec {
 
     val knownTypes = setOf(
         "hello", "pair", "paired", "welcome", "layout", "keyDown", "keyUp", "keyAck",
-        "heartbeat", "heartbeatAck", "setTitle", "setImage", "showOk", "showAlert", "error",
+        "heartbeat", "heartbeatAck", "setTitle", "setImage", "showOk", "showAlert", "sliderChange", "setValue", "error",
     )
 
     fun encode(env: Envelope): String = json.encodeToString(JsonObject.serializer(), toJson(env))
@@ -173,6 +190,8 @@ object Codec {
         is Message.SetImageMsg -> json.encodeToJsonElement(SetImage.serializer(), m.payload)
         is Message.ShowOk -> json.encodeToJsonElement(KeyFeedback.serializer(), m.payload)
         is Message.ShowAlert -> json.encodeToJsonElement(KeyFeedback.serializer(), m.payload)
+        is Message.SliderChange -> json.encodeToJsonElement(SliderValue.serializer(), m.payload)
+        is Message.SetValue -> json.encodeToJsonElement(SliderValue.serializer(), m.payload)
         is Message.Error -> json.encodeToJsonElement(ErrorMessage.serializer(), m.payload)
     }
 
@@ -212,6 +231,8 @@ object Codec {
                 "setImage" -> Message.SetImageMsg(p(SetImage.serializer(), payload))
                 "showOk" -> Message.ShowOk(p(KeyFeedback.serializer(), payload))
                 "showAlert" -> Message.ShowAlert(p(KeyFeedback.serializer(), payload))
+                "sliderChange" -> Message.SliderChange(p(SliderValue.serializer(), payload))
+                "setValue" -> Message.SetValue(p(SliderValue.serializer(), payload))
                 "error" -> Message.Error(p(ErrorMessage.serializer(), payload))
                 else -> error("unreachable: $type")
             }
