@@ -1,0 +1,174 @@
+{
+  "id": "dev.perritodeck.spotify",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "description": "Play, pause, skip, like and change the volume in Spotify on any of your devices, and show what's playing. Uses your Spotify account; controlling playback needs Spotify Premium.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "client_id",
+      "label": "Client ID of your Spotify app (from developer.spotify.com/dashboard)",
+      "type": "text",
+      "placeholder": "3f8a1c0e9b7d4e2a8c6f5b1d0e9a7c3b"
+    },
+    {
+      "id": "port",
+      "label": "Sign-in port (must match the redirect address of your Spotify app)",
+      "type": "number",
+      "default": 47123,
+      "placeholder": "47123"
+    }
+  ],
+  "actions": [
+    {
+      "id": "sign-in",
+      "name": "Sign in to Spotify",
+      "description": "Opens Spotify's sign-in page in your web browser. Do this once after filling in the client ID."
+    },
+    {
+      "id": "sign-out",
+      "name": "Sign out of Spotify",
+      "description": "Forgets the sign-in on this computer."
+    },
+    { "id": "play-pause", "name": "Play or pause" },
+    { "id": "next", "name": "Next track" },
+    { "id": "previous", "name": "Previous track" },
+    {
+      "id": "shuffle",
+      "name": "Shuffle",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Shuffle",
+          "type": "select",
+          "default": "toggle",
+          "options": [
+            { "value": "toggle", "label": "Turn on or off" },
+            { "value": "on", "label": "Turn on" },
+            { "value": "off", "label": "Turn off" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repeat",
+      "name": "Repeat",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Repeat",
+          "type": "select",
+          "default": "cycle",
+          "options": [
+            { "value": "cycle", "label": "Next mode (off, all, one)" },
+            { "value": "off", "label": "Off" },
+            { "value": "context", "label": "Repeat all" },
+            { "value": "track", "label": "Repeat one track" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "volume",
+      "name": "Spotify volume",
+      "description": "Sets the volume of the device Spotify plays on.",
+      "slider": true
+    },
+    {
+      "id": "volume-up",
+      "name": "Volume up",
+      "fields": [
+        { "id": "step", "label": "By how much (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "volume-down",
+      "name": "Volume down",
+      "fields": [
+        { "id": "step", "label": "By how much (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "like",
+      "name": "Like the current track",
+      "description": "Saves the track that's playing to your Liked Songs, or removes it.",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Like",
+          "type": "select",
+          "default": "toggle",
+          "options": [
+            { "value": "toggle", "label": "Like or unlike" },
+            { "value": "on", "label": "Like" },
+            { "value": "off", "label": "Unlike" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "play",
+      "name": "Play a playlist, album or track",
+      "description": "Paste a link from Spotify's Share → Copy link, or a spotify: URI.",
+      "fields": [
+        {
+          "id": "uri",
+          "label": "Spotify link",
+          "type": "text",
+          "placeholder": "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+        },
+        {
+          "id": "device",
+          "label": "On device (optional)",
+          "type": "text",
+          "placeholder": "Living room speaker"
+        }
+      ]
+    },
+    {
+      "id": "add-to-playlist",
+      "name": "Add the current track to a playlist",
+      "fields": [
+        {
+          "id": "playlist",
+          "label": "Playlist link",
+          "type": "text",
+          "placeholder": "https://open.spotify.com/playlist/3cEYpjA9oz9GiPac4AsH4n"
+        }
+      ]
+    },
+    {
+      "id": "transfer",
+      "name": "Play on another device",
+      "description": "Moves playback to a device by its name, as the Spotify app shows it.",
+      "fields": [
+        {
+          "id": "device",
+          "label": "Device name",
+          "type": "text",
+          "placeholder": "Kitchen"
+        },
+        {
+          "id": "play",
+          "label": "Keep playing there",
+          "type": "checkbox",
+          "default": true
+        }
+      ]
+    }
+  ],
+  "values": [
+    { "id": "track", "name": "Track" },
+    { "id": "artist", "name": "Artist" },
+    { "id": "album", "name": "Album" },
+    { "id": "playing", "name": "Playing (on/off)" },
+    { "id": "shuffle", "name": "Shuffle (on/off)" },
+    { "id": "repeat", "name": "Repeat (off/all/one)" },
+    { "id": "liked", "name": "Track is liked (on/off)" },
+    { "id": "volume", "name": "Volume (0–100)" },
+    { "id": "progress", "name": "Position (1:23 / 3:45)" },
+    { "id": "device", "name": "Device playing" }
+  ]
+}

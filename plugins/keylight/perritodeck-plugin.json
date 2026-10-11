@@ -1,0 +1,92 @@
+{
+  "id": "dev.perritodeck.keylight",
+  "name": "Elgato Key Light",
+  "version": "1.0.0",
+  "description": "Turn lights for Elgato Key Light, Key Light Air and Ring Light on and off, and set their brightness and shade of white, over your network.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "power",
+      "name": "Turn a light on or off",
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" },
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "default": "toggle",
+          "options": [
+            { "value": "toggle", "label": "Switch on or off" },
+            { "value": "on", "label": "Turn on" },
+            { "value": "off", "label": "Turn off" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "brightness",
+      "name": "Set the brightness",
+      "description": "On a slider, the slider sets the brightness; 0 turns the light off.",
+      "slider": true,
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" }
+      ]
+    },
+    {
+      "id": "brightness-up",
+      "name": "Brighter",
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" },
+        { "id": "step", "label": "By (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "brightness-down",
+      "name": "Dimmer",
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" },
+        { "id": "step", "label": "By (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "temperature",
+      "name": "Set the shade of white",
+      "description": "On a slider: warm (2900 K) at the bottom, cool (7000 K) at the top.",
+      "slider": true,
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" }
+      ]
+    },
+    {
+      "id": "warmer",
+      "name": "Warmer white",
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" },
+        { "id": "step", "label": "By (K)", "type": "number", "default": 300, "placeholder": "300" }
+      ]
+    },
+    {
+      "id": "cooler",
+      "name": "Cooler white",
+      "fields": [
+        { "id": "light", "label": "Light (blank for all)", "type": "text", "placeholder": "192.168.1.50" },
+        { "id": "step", "label": "By (K)", "type": "number", "default": 300, "placeholder": "300" }
+      ]
+    }
+  ],
+  "values": [
+    { "id": "on", "name": "On or off", "arg": "Light (or all)" },
+    { "id": "brightness", "name": "Brightness (0–100)", "arg": "Light (or all)" },
+    { "id": "temperature", "name": "Shade of white (e.g. 4700 K)", "arg": "Light (or all)" }
+  ],
+  "settings": [
+    {
+      "id": "lights",
+      "label": "Your lights' addresses, separated by commas",
+      "type": "text",
+      "placeholder": "192.168.1.50, key-light-left.local"
+    }
+  ]
+}

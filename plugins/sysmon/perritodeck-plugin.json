@@ -1,0 +1,30 @@
+{
+  "id": "dev.perritodeck.sysmon",
+  "name": "System monitor",
+  "version": "1.0.0",
+  "description": "Shows CPU, memory, disk, network, GPU, temperatures, uptime and battery on keys and sliders, updated every 2 seconds.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "open",
+      "name": "Open the system monitor",
+      "description": "Opens Task Manager, Activity Monitor or your desktop's system monitor."
+    }
+  ],
+  "values": [
+    { "id": "cpu", "name": "CPU in use (%)" },
+    { "id": "ram", "name": "Memory in use (%)" },
+    { "id": "ram_used", "name": "Memory in use (e.g. 11.2 GB)" },
+    { "id": "disk", "name": "Disk full (%)", "arg": "Drive or folder (C: or /home)" },
+    { "id": "net_down", "name": "Download speed (e.g. 1.4 MB/s)" },
+    { "id": "net_up", "name": "Upload speed" },
+    { "id": "gpu", "name": "GPU in use (%, NVIDIA)" },
+    { "id": "gpu_temp", "name": "GPU temperature (°C, NVIDIA)" },
+    { "id": "vram", "name": "GPU memory in use (%, NVIDIA)" },
+    { "id": "cpu_temp", "name": "CPU temperature (°C, Linux)" },
+    { "id": "uptime", "name": "Time since start-up (e.g. 3d 4h)" },
+    { "id": "battery", "name": "Battery (%)" }
+  ]
+}

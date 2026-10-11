@@ -1,0 +1,85 @@
+{
+  "id": "dev.perritodeck.clipboard",
+  "name": "Clipboard snippets",
+  "version": "1.0.0",
+  "description": "Paste a saved piece of text with one press, and keep numbered slots you can save the clipboard into and paste back later.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "paste",
+      "name": "Paste text",
+      "description": "Puts the text on the clipboard and pastes it into the app in front.",
+      "fields": [
+        { "id": "text", "label": "Text", "type": "text", "placeholder": "Thanks, talk soon!" },
+        { "id": "restore", "label": "Put back what was on the clipboard afterwards", "type": "checkbox", "default": true },
+        {
+          "id": "keys",
+          "label": "Paste with",
+          "type": "select",
+          "default": "ctrl+v",
+          "options": [
+            { "value": "ctrl+v", "label": "Ctrl+V (most apps; ⌘V on a Mac)" },
+            { "value": "ctrl+shift+v", "label": "Ctrl+Shift+V (terminals)" },
+            { "value": "shift+insert", "label": "Shift+Insert" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "copy",
+      "name": "Copy text",
+      "description": "Puts the text on the clipboard without pasting it.",
+      "fields": [
+        { "id": "text", "label": "Text", "type": "text", "placeholder": "https://perritodeck.dev" }
+      ]
+    },
+    {
+      "id": "save-slot",
+      "name": "Save the clipboard to a slot",
+      "description": "Keeps the text on the clipboard in a numbered slot, even after a restart.",
+      "fields": [
+        { "id": "slot", "label": "Slot number", "type": "number", "default": 1, "placeholder": "1" }
+      ]
+    },
+    {
+      "id": "paste-slot",
+      "name": "Paste a slot",
+      "fields": [
+        { "id": "slot", "label": "Slot number", "type": "number", "default": 1, "placeholder": "1" },
+        { "id": "restore", "label": "Put back what was on the clipboard afterwards", "type": "checkbox", "default": true },
+        {
+          "id": "keys",
+          "label": "Paste with",
+          "type": "select",
+          "default": "ctrl+v",
+          "options": [
+            { "value": "ctrl+v", "label": "Ctrl+V (most apps; ⌘V on a Mac)" },
+            { "value": "ctrl+shift+v", "label": "Ctrl+Shift+V (terminals)" },
+            { "value": "shift+insert", "label": "Shift+Insert" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "copy-slot",
+      "name": "Copy a slot",
+      "description": "Puts a slot's text on the clipboard without pasting it.",
+      "fields": [
+        { "id": "slot", "label": "Slot number", "type": "number", "default": 1, "placeholder": "1" }
+      ]
+    }
+  ],
+  "values": [
+    { "id": "slot", "name": "What's in a slot (first 20 characters)", "arg": "Slot number" }
+  ],
+  "settings": [
+    {
+      "id": "restore_after",
+      "label": "Wait before putting the clipboard back (seconds)",
+      "type": "number",
+      "default": 0.5
+    }
+  ]
+}

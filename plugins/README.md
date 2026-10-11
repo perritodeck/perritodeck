@@ -20,6 +20,17 @@ starts and talks to over stdin/stdout (see [PROTOCOL.md](PROTOCOL.md)).
 | [`proxmox/`](proxmox/) | First-party: Proxmox VE guests: power, snapshots, status |
 | [`truenas/`](truenas/) | First-party: TrueNAS pools, alerts, apps, scrubs, tasks (JSON-RPC API) |
 | [`gitlab/`](gitlab/) | First-party: GitLab pipelines, merge requests, issues |
+| [`soundboard/`](soundboard/) | First-party: play and stop sound files |
+| [`audio/`](audio/) | First-party: mic mute, volume, output/input device switching, per-app volume |
+| [`windows/`](windows/) | First-party: focus, launch, minimize, maximize, close and quit apps; show the desktop |
+| [`screenshot/`](screenshot/) | First-party: screenshots of the screen, an area or a window |
+| [`clipboard/`](clipboard/) | First-party: paste text snippets, clipboard slots |
+| [`sysmon/`](sysmon/) | First-party: CPU, memory, disk, network, GPU, temperatures, battery |
+| [`clock/`](clock/) | First-party: world clocks, countdowns to a date, days until |
+| [`hue/`](hue/) | First-party: Philips Hue lights, rooms and scenes (local bridge API) |
+| [`keylight/`](keylight/) | First-party: Elgato Key Light and Light Strip (local API) |
+| [`spotify/`](spotify/) | First-party: Spotify playback, likes, playlists, devices (Web API) |
+| [`twitch/`](twitch/) | First-party: Twitch stream, chat, moderation, ads, channel points, polls, predictions, live events |
 
 Everything in this folder is MIT-licensed (see [LICENSE](LICENSE)) so plugin authors
 can use the SDKs under any license.

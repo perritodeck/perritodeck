@@ -1,0 +1,62 @@
+{
+  "id": "dev.perritodeck.clock",
+  "name": "Clocks",
+  "version": "1.0.0",
+  "description": "The time and date here or anywhere in the world, countdowns, days until a date and the week number.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [],
+  "values": [
+    {
+      "id": "time",
+      "name": "Time (here, or in a time zone)",
+      "arg": "Time zone, e.g. Asia/Tokyo or UTC+5:30"
+    },
+    {
+      "id": "date",
+      "name": "Date (here, or in a time zone)",
+      "arg": "Time zone, e.g. America/New_York"
+    },
+    {
+      "id": "week",
+      "name": "Week number",
+      "arg": "Time zone, e.g. Europe/Berlin"
+    },
+    {
+      "id": "countdown",
+      "name": "Countdown to a date and time (e.g. 12d 4h)",
+      "arg": "Date and time, e.g. 2026-12-24T18:00"
+    },
+    {
+      "id": "days_until",
+      "name": "Days until a date",
+      "arg": "Date, e.g. 2026-12-24, or 12-24 for every year"
+    }
+  ],
+  "settings": [
+    {
+      "id": "format",
+      "label": "Time format",
+      "type": "select",
+      "default": "24h",
+      "options": [
+        { "value": "24h", "label": "24-hour (15:07)" },
+        { "value": "12h", "label": "12-hour (3:07 PM)" }
+      ]
+    },
+    {
+      "id": "date_format",
+      "label": "Date format",
+      "type": "select",
+      "default": "short",
+      "options": [
+        { "value": "short", "label": "Sun 11 Oct" },
+        { "value": "long", "label": "11 Oct 2026" },
+        { "value": "iso", "label": "2026-10-11" },
+        { "value": "us", "label": "10/11/2026" },
+        { "value": "eu", "label": "11/10/2026" }
+      ]
+    }
+  ]
+}

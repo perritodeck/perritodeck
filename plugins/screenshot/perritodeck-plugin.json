@@ -1,0 +1,45 @@
+{
+  "id": "dev.perritodeck.screenshot",
+  "name": "Screenshot",
+  "version": "1.0.0",
+  "description": "Take a screenshot of the whole screen, an area you pick or the window in front, save it with the date and time in its name, and copy it to the clipboard if you like.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "capture",
+      "name": "Take a screenshot",
+      "description": "Saves a PNG in the screenshot folder. Picking an area waits for you to drag one out on the computer.",
+      "fields": [
+        {
+          "id": "what",
+          "label": "What to capture",
+          "type": "select",
+          "default": "screen",
+          "options": [
+            { "value": "screen", "label": "The whole screen" },
+            { "value": "region", "label": "An area I pick" },
+            { "value": "window", "label": "The window in front" }
+          ]
+        },
+        { "id": "copy", "label": "Also copy it to the clipboard", "type": "checkbox", "default": false }
+      ]
+    },
+    {
+      "id": "open-folder",
+      "name": "Open the screenshot folder"
+    }
+  ],
+  "values": [
+    { "id": "last", "name": "Last screenshot (file name)" }
+  ],
+  "settings": [
+    {
+      "id": "folder",
+      "label": "Save screenshots in (empty: Pictures/Screenshots)",
+      "type": "text",
+      "placeholder": "~/Pictures/Screenshots"
+    }
+  ]
+}

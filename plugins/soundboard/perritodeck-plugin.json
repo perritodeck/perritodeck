@@ -1,0 +1,62 @@
+{
+  "id": "dev.perritodeck.soundboard",
+  "name": "Soundboard",
+  "version": "1.0.0",
+  "description": "Play sound files (WAV, MP3 and more) from a key, and stop them again. Uses the players your computer already has.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "play",
+      "name": "Play a sound",
+      "description": "Plays a sound file on the computer running PerritoDeck.",
+      "fields": [
+        {
+          "id": "file",
+          "label": "Sound file",
+          "type": "text",
+          "placeholder": "C:\\Users\\Me\\Music\\airhorn.mp3"
+        },
+        {
+          "id": "volume",
+          "label": "Volume (0–100)",
+          "type": "number",
+          "default": 100
+        },
+        {
+          "id": "mode",
+          "label": "When it's already playing",
+          "type": "select",
+          "options": [
+            { "value": "play", "label": "Let it finish (do nothing)" },
+            { "value": "toggle", "label": "Stop it" },
+            { "value": "restart", "label": "Start it again from the beginning" },
+            { "value": "overlap", "label": "Play it again on top" }
+          ],
+          "default": "play"
+        }
+      ]
+    },
+    {
+      "id": "stop-all",
+      "name": "Stop all sounds",
+      "description": "Stops every sound this plugin is playing."
+    }
+  ],
+  "values": [
+    {
+      "id": "playing",
+      "name": "Is playing (on/off)",
+      "arg": "Sound file"
+    }
+  ],
+  "settings": [
+    {
+      "id": "device",
+      "label": "Output device (optional, Linux only)",
+      "type": "text",
+      "placeholder": "alsa_output.usb-Generic_USB_Audio-00.analog-stereo"
+    }
+  ]
+}

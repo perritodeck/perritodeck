@@ -1,0 +1,99 @@
+{
+  "id": "dev.perritodeck.hue",
+  "name": "Philips Hue",
+  "version": "1.0.0",
+  "description": "Turn Hue lights and rooms on and off, dim them, change their colour and start scenes, through the Hue Bridge on your network.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "pair",
+      "name": "Pair with the bridge",
+      "description": "Press the round link button on top of the Hue Bridge, then press this key within 30 seconds. You only need to do this once."
+    },
+    {
+      "id": "power",
+      "name": "Turn a light or room on or off",
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Living room" },
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "default": "toggle",
+          "options": [
+            { "value": "toggle", "label": "Switch on or off" },
+            { "value": "on", "label": "Turn on" },
+            { "value": "off", "label": "Turn off" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "brightness",
+      "name": "Set the brightness",
+      "description": "On a slider, the slider sets the brightness; 0 turns the light off.",
+      "slider": true,
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Desk lamp" }
+      ]
+    },
+    {
+      "id": "brightness-up",
+      "name": "Brighter",
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Living room" },
+        { "id": "step", "label": "By (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "brightness-down",
+      "name": "Dimmer",
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Living room" },
+        { "id": "step", "label": "By (%)", "type": "number", "default": 10, "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "color",
+      "name": "Set a colour",
+      "description": "Only for colour lights.",
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Living room" },
+        { "id": "color", "label": "Colour", "type": "text", "placeholder": "#ff8800" }
+      ]
+    },
+    {
+      "id": "temperature",
+      "name": "Set a shade of white",
+      "description": "Warm white is around 2700 K, daylight around 6500 K.",
+      "fields": [
+        { "id": "light", "label": "Light or room (blank for all lights)", "type": "text", "placeholder": "Office" },
+        { "id": "kelvin", "label": "Colour temperature (K)", "type": "number", "default": 2700, "placeholder": "2700" }
+      ]
+    },
+    {
+      "id": "scene",
+      "name": "Start a scene",
+      "fields": [
+        { "id": "room", "label": "Room", "type": "text", "placeholder": "Living room" },
+        { "id": "scene", "label": "Scene", "type": "text", "placeholder": "Relax" }
+      ]
+    }
+  ],
+  "values": [
+    { "id": "on", "name": "On or off", "arg": "Light or room (or all)" },
+    { "id": "brightness", "name": "Brightness (0–100)", "arg": "Light or room (or all)" }
+  ],
+  "settings": [
+    { "id": "bridge", "label": "Bridge address (blank to find it)", "type": "text", "placeholder": "192.168.1.20" },
+    { "id": "https", "label": "Connect with HTTPS", "type": "checkbox", "default": false },
+    {
+      "id": "insecure",
+      "label": "Skip certificate check (the bridge's HTTPS certificate is signed by Philips, not a public authority)",
+      "type": "checkbox",
+      "default": false
+    }
+  ]
+}

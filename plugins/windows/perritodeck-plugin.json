@@ -1,0 +1,57 @@
+{
+  "id": "dev.perritodeck.windows",
+  "name": "Windows and apps",
+  "version": "1.0.0",
+  "description": "Switch to an app (or open it), minimize, maximize, close or quit it, show the desktop, and show which app is in front. Windows, macOS and Linux (X11, Sway, Hyprland).",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "focus",
+      "name": "Switch to an app",
+      "description": "Brings the app's window to the front, or opens the app if it isn't running. Press again to go through its other windows.",
+      "fields": [
+        { "id": "app", "label": "App name or part of a window title", "type": "text", "placeholder": "firefox" },
+        { "id": "launch", "label": "Command to open it (optional)", "type": "text", "placeholder": "C:\\Program Files\\Mozilla Firefox\\firefox.exe" }
+      ]
+    },
+    {
+      "id": "window",
+      "name": "Minimize, maximize or close a window",
+      "description": "Acts on the window in front, or on an app's window if you name one.",
+      "fields": [
+        {
+          "id": "do",
+          "label": "What to do",
+          "type": "select",
+          "default": "minimize",
+          "options": [
+            { "value": "minimize", "label": "Minimize" },
+            { "value": "maximize", "label": "Maximize" },
+            { "value": "restore", "label": "Restore (un-maximize or bring back)" },
+            { "value": "close", "label": "Close the window" }
+          ]
+        },
+        { "id": "app", "label": "App or window title (empty: the window in front)", "type": "text", "placeholder": "Spotify" }
+      ]
+    },
+    {
+      "id": "quit",
+      "name": "Quit an app",
+      "description": "Asks the app to close all its windows, as if you clicked their X buttons, so it can still ask to save.",
+      "fields": [
+        { "id": "app", "label": "App name", "type": "text", "placeholder": "Discord" }
+      ]
+    },
+    {
+      "id": "desktop",
+      "name": "Show the desktop",
+      "description": "Moves every window out of the way. On Windows and X11 a second press brings them back."
+    }
+  ],
+  "values": [
+    { "id": "running", "name": "Is the app running (on/off)", "arg": "App name" },
+    { "id": "focused_app", "name": "App in front" }
+  ]
+}

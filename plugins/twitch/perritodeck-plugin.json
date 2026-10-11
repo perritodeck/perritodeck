@@ -1,0 +1,1204 @@
+{
+  "id": "dev.perritodeck.twitch",
+  "name": "Twitch",
+  "version": "1.1.0",
+  "description": "Run your Twitch stream: markers, ads, clips, chat, title and category, moderation, raids, channel points, polls and predictions; show live status, viewers, followers, subs, the latest events and more.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "settings": [
+    {
+      "id": "client_id",
+      "label": "Client ID of your Twitch app (from dev.twitch.tv/console, client type Public)",
+      "type": "text",
+      "placeholder": "wbmytr93xzw8zbg0p1izqyzzc5mbiz"
+    },
+    {
+      "id": "group_ads",
+      "label": "Ads: run and snooze ads, ad schedule (sign in again after changing these)",
+      "type": "checkbox",
+      "default": true
+    },
+    {
+      "id": "group_moderation",
+      "label": "Moderation: chat modes, bans, raids, shoutouts, announcements, VIPs and mods",
+      "type": "checkbox",
+      "default": true
+    },
+    {
+      "id": "group_points",
+      "label": "Channel points: rewards and redemptions",
+      "type": "checkbox",
+      "default": true
+    },
+    {
+      "id": "group_polls",
+      "label": "Polls and predictions",
+      "type": "checkbox",
+      "default": true
+    },
+    {
+      "id": "group_events",
+      "label": "Events and totals: followers, subs, cheers, hype trains, redemptions",
+      "type": "checkbox",
+      "default": true
+    },
+    {
+      "id": "preset_1",
+      "label": "Preset 1: title | category | tags",
+      "type": "text",
+      "placeholder": "Speedrunning all evening! | Super Mario 64 | Speedrun, English"
+    },
+    {
+      "id": "preset_2",
+      "label": "Preset 2: title | category | tags",
+      "type": "text",
+      "placeholder": "Chill chat and coffee | Just Chatting | Cozy"
+    },
+    {
+      "id": "preset_3",
+      "label": "Preset 3: title | category | tags",
+      "type": "text",
+      "placeholder": "Building a base | Minecraft"
+    },
+    {
+      "id": "preset_4",
+      "label": "Preset 4: title | category | tags",
+      "type": "text",
+      "placeholder": "Title | Category | tag1, tag2"
+    },
+    {
+      "id": "preset_5",
+      "label": "Preset 5: title | category | tags",
+      "type": "text",
+      "placeholder": "Title | Category | tag1, tag2"
+    }
+  ],
+  "actions": [
+    {
+      "id": "sign-in",
+      "name": "Sign in to Twitch",
+      "description": "Shows a code and opens twitch.tv/activate in your web browser; enter the code there. Do this after filling in the client ID, and again after changing which features are on."
+    },
+    {
+      "id": "sign-out",
+      "name": "Sign out of Twitch",
+      "description": "Forgets the sign-in on this computer."
+    },
+    {
+      "id": "marker",
+      "name": "Add a stream marker",
+      "description": "Marks this moment of your live stream, to find it later in the video.",
+      "fields": [
+        {
+          "id": "description",
+          "label": "Note (optional)",
+          "type": "text",
+          "placeholder": "Great play"
+        }
+      ]
+    },
+    {
+      "id": "clip",
+      "name": "Make a clip",
+      "description": "Clips the last moments of a live stream.",
+      "fields": [
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        },
+        {
+          "id": "open",
+          "label": "Open the clip editor in the browser",
+          "type": "checkbox",
+          "default": false
+        }
+      ]
+    },
+    {
+      "id": "open-last-clip",
+      "name": "Open the last clip",
+      "description": "Opens the last clip made from the deck in your web browser.",
+      "fields": [
+        {
+          "id": "editor",
+          "label": "Open the clip editor instead",
+          "type": "checkbox",
+          "default": false
+        }
+      ]
+    },
+    {
+      "id": "set-info",
+      "name": "Set the stream title or category",
+      "description": "Leave a field empty to keep it as it is.",
+      "fields": [
+        {
+          "id": "title",
+          "label": "Title",
+          "type": "text",
+          "placeholder": "Speedrunning all evening!"
+        },
+        {
+          "id": "category",
+          "label": "Category (its exact name on Twitch)",
+          "type": "text",
+          "placeholder": "Just Chatting"
+        }
+      ]
+    },
+    {
+      "id": "preset",
+      "name": "Use a stream preset",
+      "description": "Sets the title, category and tags saved as a preset on the Plugins page.",
+      "fields": [
+        {
+          "id": "preset",
+          "label": "Preset",
+          "type": "select",
+          "options": [
+            {
+              "value": "1",
+              "label": "Preset 1"
+            },
+            {
+              "value": "2",
+              "label": "Preset 2"
+            },
+            {
+              "value": "3",
+              "label": "Preset 3"
+            },
+            {
+              "value": "4",
+              "label": "Preset 4"
+            },
+            {
+              "value": "5",
+              "label": "Preset 5"
+            }
+          ],
+          "default": "1"
+        }
+      ]
+    },
+    {
+      "id": "tags",
+      "name": "Stream tags",
+      "description": "Up to 10 tags, letters and digits only.",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            {
+              "value": "set",
+              "label": "Replace all tags"
+            },
+            {
+              "value": "add",
+              "label": "Add tags"
+            },
+            {
+              "value": "remove",
+              "label": "Remove tags"
+            }
+          ],
+          "default": "set"
+        },
+        {
+          "id": "tags",
+          "label": "Tags, separated by commas",
+          "type": "text",
+          "placeholder": "Speedrun, English"
+        }
+      ]
+    },
+    {
+      "id": "label",
+      "name": "Content label",
+      "description": "Turns a content classification label on or off for your stream.",
+      "fields": [
+        {
+          "id": "label",
+          "label": "Label",
+          "type": "select",
+          "options": [
+            {
+              "value": "politics",
+              "label": "Politics and sensitive social issues"
+            },
+            {
+              "value": "drugs",
+              "label": "Drugs, intoxication or excessive tobacco use"
+            },
+            {
+              "value": "gambling",
+              "label": "Gambling"
+            },
+            {
+              "value": "profanity",
+              "label": "Significant profanity or vulgarity"
+            },
+            {
+              "value": "sexual",
+              "label": "Sexual themes"
+            },
+            {
+              "value": "violence",
+              "label": "Violent and graphic depictions"
+            }
+          ]
+        },
+        {
+          "id": "state",
+          "label": "Turn",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "On or off"
+            },
+            {
+              "value": "on",
+              "label": "On"
+            },
+            {
+              "value": "off",
+              "label": "Off"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "branded",
+      "name": "Branded content",
+      "description": "Marks your stream as branded content (sponsored) or not.",
+      "fields": [
+        {
+          "id": "state",
+          "label": "Turn",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "On or off"
+            },
+            {
+              "value": "on",
+              "label": "On"
+            },
+            {
+              "value": "off",
+              "label": "Off"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "ad",
+      "name": "Run an ad",
+      "description": "Starts an ad break on your channel. Only for affiliates and partners, while live.",
+      "fields": [
+        {
+          "id": "length",
+          "label": "Length",
+          "type": "select",
+          "options": [
+            {
+              "value": "30",
+              "label": "30 seconds"
+            },
+            {
+              "value": "60",
+              "label": "1 minute"
+            },
+            {
+              "value": "90",
+              "label": "1 minute 30"
+            },
+            {
+              "value": "120",
+              "label": "2 minutes"
+            },
+            {
+              "value": "150",
+              "label": "2 minutes 30"
+            },
+            {
+              "value": "180",
+              "label": "3 minutes"
+            }
+          ],
+          "default": "30"
+        }
+      ]
+    },
+    {
+      "id": "snooze-ad",
+      "name": "Snooze the next ad",
+      "description": "Pushes the next scheduled ad back 5 minutes, if you have snoozes left."
+    },
+    {
+      "id": "chat",
+      "name": "Send a chat message",
+      "fields": [
+        {
+          "id": "message",
+          "label": "Message",
+          "type": "text",
+          "placeholder": "Thanks for watching! Socials: perritodeck.dev"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "chat-saved",
+      "name": "Send a saved chat message",
+      "description": "Sends one of several messages: the next one each press, or one at random.",
+      "fields": [
+        {
+          "id": "messages",
+          "label": "Messages, separated by |",
+          "type": "text",
+          "placeholder": "Follow for more! | Join the Discord: perritodeck.dev | Hydrate!"
+        },
+        {
+          "id": "order",
+          "label": "Order",
+          "type": "select",
+          "options": [
+            {
+              "value": "cycle",
+              "label": "One after the other"
+            },
+            {
+              "value": "random",
+              "label": "At random"
+            }
+          ],
+          "default": "cycle"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "chat-color",
+      "name": "Chat name colour",
+      "fields": [
+        {
+          "id": "color",
+          "label": "Colour (blue, coral, hot_pink… or #RRGGBB with Turbo or Prime)",
+          "type": "text",
+          "placeholder": "blue_violet"
+        }
+      ]
+    },
+    {
+      "id": "announce",
+      "name": "Chat announcement",
+      "description": "Posts a highlighted announcement in chat.",
+      "fields": [
+        {
+          "id": "message",
+          "label": "Announcement",
+          "type": "text",
+          "placeholder": "Giveaway starts in 5 minutes!"
+        },
+        {
+          "id": "color",
+          "label": "Colour",
+          "type": "select",
+          "options": [
+            {
+              "value": "primary",
+              "label": "Channel colour"
+            },
+            {
+              "value": "blue",
+              "label": "Blue"
+            },
+            {
+              "value": "green",
+              "label": "Green"
+            },
+            {
+              "value": "orange",
+              "label": "Orange"
+            },
+            {
+              "value": "purple",
+              "label": "Purple"
+            }
+          ],
+          "default": "primary"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "chat-mode",
+      "name": "Chat mode",
+      "description": "Turns emote-only, followers-only, slow, subscribers-only, unique chat or the chat delay on or off. You must be the broadcaster or a moderator.",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Mode",
+          "type": "select",
+          "options": [
+            {
+              "value": "emote",
+              "label": "Emote-only"
+            },
+            {
+              "value": "followers",
+              "label": "Followers-only"
+            },
+            {
+              "value": "slow",
+              "label": "Slow mode"
+            },
+            {
+              "value": "subscribers",
+              "label": "Subscribers-only"
+            },
+            {
+              "value": "unique",
+              "label": "Unique chat (no repeated messages)"
+            },
+            {
+              "value": "delay",
+              "label": "Delay chat for non-moderators"
+            }
+          ],
+          "default": "emote"
+        },
+        {
+          "id": "state",
+          "label": "Turn",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "On or off"
+            },
+            {
+              "value": "on",
+              "label": "On"
+            },
+            {
+              "value": "off",
+              "label": "Off"
+            }
+          ],
+          "default": "toggle"
+        },
+        {
+          "id": "duration",
+          "label": "Slow mode seconds, minutes followed for followers-only, or delay seconds (2, 4 or 6) (optional)",
+          "type": "number",
+          "placeholder": "30"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "shield",
+      "name": "Shield mode",
+      "description": "Turns Twitch's Shield Mode on or off, for a raid of unwanted chatters.",
+      "fields": [
+        {
+          "id": "state",
+          "label": "Turn",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "On or off"
+            },
+            {
+              "value": "on",
+              "label": "On"
+            },
+            {
+              "value": "off",
+              "label": "Off"
+            }
+          ],
+          "default": "toggle"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "ban",
+      "name": "Ban or time out a user",
+      "fields": [
+        {
+          "id": "user",
+          "label": "User name",
+          "type": "text",
+          "placeholder": "someviewer"
+        },
+        {
+          "id": "duration",
+          "label": "For",
+          "type": "select",
+          "options": [
+            {
+              "value": "60",
+              "label": "1 minute"
+            },
+            {
+              "value": "300",
+              "label": "5 minutes"
+            },
+            {
+              "value": "600",
+              "label": "10 minutes"
+            },
+            {
+              "value": "1800",
+              "label": "30 minutes"
+            },
+            {
+              "value": "3600",
+              "label": "1 hour"
+            },
+            {
+              "value": "86400",
+              "label": "1 day"
+            },
+            {
+              "value": "604800",
+              "label": "1 week"
+            },
+            {
+              "value": "0",
+              "label": "Ban (no end)"
+            }
+          ],
+          "default": "600"
+        },
+        {
+          "id": "reason",
+          "label": "Reason (optional)",
+          "type": "text",
+          "placeholder": "Spam"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "unban",
+      "name": "Unban a user",
+      "description": "Lifts a ban or a timeout.",
+      "fields": [
+        {
+          "id": "user",
+          "label": "User name",
+          "type": "text",
+          "placeholder": "someviewer"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "warn",
+      "name": "Warn a user",
+      "description": "The user must acknowledge the warning before chatting again.",
+      "fields": [
+        {
+          "id": "user",
+          "label": "User name",
+          "type": "text",
+          "placeholder": "someviewer"
+        },
+        {
+          "id": "reason",
+          "label": "Reason (shown to the user)",
+          "type": "text",
+          "placeholder": "Please keep it friendly"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "clear-chat",
+      "name": "Clear chat",
+      "description": "Deletes all messages in chat.",
+      "fields": [
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "raid",
+      "name": "Raid a channel",
+      "description": "Starts a raid; it goes out after about 90 seconds unless cancelled.",
+      "fields": [
+        {
+          "id": "channel",
+          "label": "Channel to raid",
+          "type": "text",
+          "placeholder": "friendlystreamer"
+        }
+      ]
+    },
+    {
+      "id": "cancel-raid",
+      "name": "Cancel the raid"
+    },
+    {
+      "id": "shoutout",
+      "name": "Shout out a channel",
+      "description": "Twitch's /shoutout: a card in chat to follow that channel.",
+      "fields": [
+        {
+          "id": "channel",
+          "label": "Channel",
+          "type": "text",
+          "placeholder": "friendlystreamer"
+        }
+      ]
+    },
+    {
+      "id": "automod",
+      "name": "AutoMod level",
+      "fields": [
+        {
+          "id": "level",
+          "label": "Level",
+          "type": "select",
+          "options": [
+            {
+              "value": "0",
+              "label": "0: off"
+            },
+            {
+              "value": "1",
+              "label": "1: some filtering"
+            },
+            {
+              "value": "2",
+              "label": "2: more filtering"
+            },
+            {
+              "value": "3",
+              "label": "3: even more filtering"
+            },
+            {
+              "value": "4",
+              "label": "4: most filtering"
+            }
+          ],
+          "default": "1"
+        },
+        {
+          "id": "channel",
+          "label": "Channel (empty for yours)",
+          "type": "text",
+          "placeholder": "yourchannel"
+        }
+      ]
+    },
+    {
+      "id": "vip",
+      "name": "VIP",
+      "description": "Gives or takes VIP status on your channel.",
+      "fields": [
+        {
+          "id": "user",
+          "label": "User name",
+          "type": "text",
+          "placeholder": "someviewer"
+        },
+        {
+          "id": "change",
+          "label": "Change",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Add or remove"
+            },
+            {
+              "value": "add",
+              "label": "Add"
+            },
+            {
+              "value": "remove",
+              "label": "Remove"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "mod",
+      "name": "Moderator",
+      "description": "Makes a user a moderator of your channel, or not.",
+      "fields": [
+        {
+          "id": "user",
+          "label": "User name",
+          "type": "text",
+          "placeholder": "someviewer"
+        },
+        {
+          "id": "change",
+          "label": "Change",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle",
+              "label": "Add or remove"
+            },
+            {
+              "value": "add",
+              "label": "Add"
+            },
+            {
+              "value": "remove",
+              "label": "Remove"
+            }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "reward-create",
+      "name": "Create a channel points reward",
+      "description": "Twitch lets the plugin change only rewards it made: make the rewards you want to control here.",
+      "fields": [
+        {
+          "id": "title",
+          "label": "Title",
+          "type": "text",
+          "placeholder": "Hydrate!"
+        },
+        {
+          "id": "cost",
+          "label": "Cost (points)",
+          "type": "number",
+          "placeholder": "500",
+          "default": 100
+        },
+        {
+          "id": "prompt",
+          "label": "Description (optional)",
+          "type": "text",
+          "placeholder": "Make me drink some water"
+        },
+        {
+          "id": "input",
+          "label": "Viewers type a message",
+          "type": "checkbox",
+          "default": false
+        }
+      ]
+    },
+    {
+      "id": "reward",
+      "name": "Channel points reward",
+      "description": "Pauses, enables or prices a reward made with \"Create a channel points reward\".",
+      "fields": [
+        {
+          "id": "reward",
+          "label": "Reward title",
+          "type": "text",
+          "placeholder": "Hydrate!"
+        },
+        {
+          "id": "change",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            {
+              "value": "toggle-pause",
+              "label": "Pause or unpause"
+            },
+            {
+              "value": "pause",
+              "label": "Pause"
+            },
+            {
+              "value": "unpause",
+              "label": "Unpause"
+            },
+            {
+              "value": "toggle-enable",
+              "label": "Turn on or off"
+            },
+            {
+              "value": "enable",
+              "label": "Turn on"
+            },
+            {
+              "value": "disable",
+              "label": "Turn off"
+            },
+            {
+              "value": "cost",
+              "label": "Set the cost"
+            }
+          ],
+          "default": "toggle-pause"
+        },
+        {
+          "id": "cost",
+          "label": "New cost (for Set the cost)",
+          "type": "number",
+          "placeholder": "1000"
+        }
+      ]
+    },
+    {
+      "id": "redemption",
+      "name": "Complete a redemption",
+      "description": "Fulfils or refunds the oldest waiting redemption of a reward.",
+      "fields": [
+        {
+          "id": "reward",
+          "label": "Reward title",
+          "type": "text",
+          "placeholder": "Hydrate!"
+        },
+        {
+          "id": "outcome",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            {
+              "value": "fulfil",
+              "label": "Mark as done"
+            },
+            {
+              "value": "cancel",
+              "label": "Reject and refund the points"
+            }
+          ],
+          "default": "fulfil"
+        }
+      ]
+    },
+    {
+      "id": "poll-start",
+      "name": "Start a poll",
+      "fields": [
+        {
+          "id": "title",
+          "label": "Question (up to 60 characters)",
+          "type": "text",
+          "placeholder": "Which game next?"
+        },
+        {
+          "id": "choices",
+          "label": "2 to 5 choices, separated by commas",
+          "type": "text",
+          "placeholder": "Mario, Zelda, Metroid"
+        },
+        {
+          "id": "duration",
+          "label": "Seconds (15 to 1800)",
+          "type": "number",
+          "placeholder": "60",
+          "default": 60
+        }
+      ]
+    },
+    {
+      "id": "poll-end",
+      "name": "End the poll",
+      "fields": [
+        {
+          "id": "how",
+          "label": "How",
+          "type": "select",
+          "options": [
+            {
+              "value": "end",
+              "label": "End and show the results"
+            },
+            {
+              "value": "archive",
+              "label": "End and hide it"
+            }
+          ],
+          "default": "end"
+        }
+      ]
+    },
+    {
+      "id": "prediction-start",
+      "name": "Start a prediction",
+      "fields": [
+        {
+          "id": "title",
+          "label": "Question (up to 45 characters)",
+          "type": "text",
+          "placeholder": "Will we beat the boss?"
+        },
+        {
+          "id": "outcomes",
+          "label": "2 to 10 outcomes, separated by commas",
+          "type": "text",
+          "placeholder": "Yes, No"
+        },
+        {
+          "id": "window",
+          "label": "Seconds to predict (30 to 1800)",
+          "type": "number",
+          "placeholder": "120",
+          "default": 120
+        }
+      ]
+    },
+    {
+      "id": "prediction-lock",
+      "name": "Lock the prediction",
+      "description": "Stops new predictions; resolve it later."
+    },
+    {
+      "id": "prediction-resolve",
+      "name": "Resolve the prediction",
+      "description": "Pays out the points to the winning outcome.",
+      "fields": [
+        {
+          "id": "outcome",
+          "label": "Winning outcome (its name or number)",
+          "type": "text",
+          "placeholder": "Yes"
+        }
+      ]
+    },
+    {
+      "id": "prediction-cancel",
+      "name": "Cancel the prediction",
+      "description": "Refunds everyone's points."
+    }
+  ],
+  "values": [
+    {
+      "id": "live",
+      "name": "Live (on/off)",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "viewers",
+      "name": "Viewers",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "uptime",
+      "name": "Time live",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "title",
+      "name": "Stream title",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "category",
+      "name": "Category",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "tags",
+      "name": "Tags",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "followers",
+      "name": "Followers",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "subscribers",
+      "name": "Subscribers (your channel)",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "chatters",
+      "name": "People in chat (where you moderate)",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "chat_mode",
+      "name": "Chat mode is on (on/off)",
+      "arg": "emote, followers, slow, subscribers, unique or delay (add @channel for another channel)"
+    },
+    {
+      "id": "next_ad",
+      "name": "Time to the next ad",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "ad_snoozes",
+      "name": "Ad snoozes left",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "preroll_free",
+      "name": "Pre-roll free time left",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "ad_live",
+      "name": "Ad playing (on/off)",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "reward_enabled",
+      "name": "Reward is on (on/off)",
+      "arg": "Reward title"
+    },
+    {
+      "id": "reward_paused",
+      "name": "Reward is paused (on/off)",
+      "arg": "Reward title"
+    },
+    {
+      "id": "reward_pending",
+      "name": "Redemptions waiting",
+      "arg": "Reward title"
+    },
+    {
+      "id": "poll",
+      "name": "Poll question",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "poll_leader",
+      "name": "Poll: leading choice",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "poll_time",
+      "name": "Poll: time left",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "prediction",
+      "name": "Prediction question",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "prediction_leader",
+      "name": "Prediction: leading outcome",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "prediction_time",
+      "name": "Prediction: time left",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_follower",
+      "name": "Latest follower",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_subscriber",
+      "name": "Latest subscriber",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_gift",
+      "name": "Latest gifted subs",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_cheer",
+      "name": "Latest cheer",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_raid",
+      "name": "Latest raid",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_redemption",
+      "name": "Latest channel points redemption",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "hype_train",
+      "name": "Hype train",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "session_follows",
+      "name": "Follows since PerritoDeck started",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "session_subs",
+      "name": "Subs since PerritoDeck started",
+      "arg": "Channel name, or me"
+    },
+    {
+      "id": "last_clip",
+      "name": "Time of the last clip made from the deck"
+    },
+    {
+      "id": "last_marker",
+      "name": "Last stream marker (stream time)"
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "id": "dev.perritodeck.audio",
+  "name": "Audio devices",
+  "version": "1.0.0",
+  "description": "Mute the microphone, change the volume, switch speakers and headsets, and set the volume of one app. Works on Windows, macOS and Linux.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "mic-mute",
+      "name": "Mute the microphone",
+      "description": "Mutes or unmutes the default microphone.",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            { "value": "toggle", "label": "Mute or unmute" },
+            { "value": "mute", "label": "Mute" },
+            { "value": "unmute", "label": "Unmute" }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "output-mute",
+      "name": "Mute the sound",
+      "description": "Mutes or unmutes the speakers or headphones you're listening on.",
+      "fields": [
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            { "value": "toggle", "label": "Mute or unmute" },
+            { "value": "mute", "label": "Mute" },
+            { "value": "unmute", "label": "Unmute" }
+          ],
+          "default": "toggle"
+        }
+      ]
+    },
+    {
+      "id": "volume-up",
+      "name": "Volume up",
+      "fields": [
+        { "id": "step", "label": "By (out of 100)", "type": "number", "default": 5 }
+      ]
+    },
+    {
+      "id": "volume-down",
+      "name": "Volume down",
+      "fields": [
+        { "id": "step", "label": "By (out of 100)", "type": "number", "default": 5 }
+      ]
+    },
+    {
+      "id": "volume",
+      "name": "Volume",
+      "description": "The slider sets the volume, from silent (0) to full (100).",
+      "slider": true
+    },
+    {
+      "id": "output-device",
+      "name": "Switch speakers or headphones",
+      "description": "Makes this device the one sound plays on. Give several names, separated by commas, and each press moves to the next one.",
+      "fields": [
+        {
+          "id": "devices",
+          "label": "Device name (or several, separated by commas)",
+          "type": "text",
+          "placeholder": "Speakers, Headphones"
+        }
+      ]
+    },
+    {
+      "id": "input-device",
+      "name": "Switch microphone",
+      "description": "Makes this microphone the default one. Give several names, separated by commas, and each press moves to the next one.",
+      "fields": [
+        {
+          "id": "devices",
+          "label": "Microphone name (or several, separated by commas)",
+          "type": "text",
+          "placeholder": "Yeti, Webcam"
+        }
+      ]
+    },
+    {
+      "id": "app-volume",
+      "name": "Volume of an app",
+      "description": "The slider sets one app's volume (Windows and Linux). The app has to be playing sound.",
+      "slider": true,
+      "fields": [
+        { "id": "app", "label": "App (its program name)", "type": "text", "placeholder": "Spotify" }
+      ]
+    },
+    {
+      "id": "app-mute",
+      "name": "Mute an app",
+      "description": "Mutes or unmutes one app (Windows and Linux). The app has to be playing sound.",
+      "fields": [
+        { "id": "app", "label": "App (its program name)", "type": "text", "placeholder": "Discord" },
+        {
+          "id": "mode",
+          "label": "Do",
+          "type": "select",
+          "options": [
+            { "value": "toggle", "label": "Mute or unmute" },
+            { "value": "mute", "label": "Mute" },
+            { "value": "unmute", "label": "Unmute" }
+          ],
+          "default": "toggle"
+        }
+      ]
+    }
+  ],
+  "values": [
+    { "id": "mic_muted", "name": "Microphone muted (on/off)" },
+    { "id": "output_muted", "name": "Sound muted (on/off)" },
+    { "id": "volume", "name": "Volume (0–100)" },
+    { "id": "output_device", "name": "Speakers or headphones in use" },
+    { "id": "input_device", "name": "Microphone in use" },
+    { "id": "app_volume", "name": "Volume of an app (0–100)", "arg": "App (its program name)" }
+  ]
+}
