@@ -1,6 +1,19 @@
 // Plain-language names for actions, shared by the editor and the mock host.
 
-import type { ActionSpec, KeyFields, KeyKind, NavSpec } from "./types";
+import type { ActionSpec, KeyFields, KeyKind, NavSpec, SliderSpec } from "./types";
+
+export function describeSlider(s: SliderSpec): string {
+  switch (s.type) {
+    case "volume":
+      return "volume";
+    case "homeAssistant":
+      return `brightness of ${s.entity}`;
+    case "obs":
+      return `OBS volume of ${s.input}`;
+    case "command":
+      return `runs ${s.program}`;
+  }
+}
 
 export const DEFAULT_BG = "#1E1E2E";
 export const DEFAULT_FG = "#CDD6F4";
@@ -56,6 +69,7 @@ export function describeAction(a: ActionSpec): string {
 }
 
 export function kindOf(f: KeyFields, states: number): { kind: KeyKind; detail: string } {
+  if (f.slider) return { kind: "slider", detail: `slider: ${describeSlider(f.slider)}` };
   const nav: NavSpec | null = f.nav;
   if (nav && typeof nav === "object") return { kind: "page", detail: `opens ${nav.page}` };
   if (nav === "back") return { kind: "back", detail: "back" };

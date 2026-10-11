@@ -33,7 +33,7 @@ let devices: DeviceInfo[] = [
 ];
 
 function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?: Partial<KeyView>): KeyView {
-  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, icon: null, ...f };
+  const fields: KeyFields = { title: null, bg: null, fg: null, action: null, nav: null, icon: null, slider: null, ...f };
   return {
     row,
     col,
@@ -87,6 +87,7 @@ const starter: ProfileView = {
       keys: [
         key(0, 0, { title: "‹ Back", bg: "#CBA6F7", fg: dark, nav: "back" }),
         key(0, 1, { title: "Run a\ncommand", action: { type: "command", program: "hostname" } }),
+        key(0, 4, { title: "Volume", bg: "#89B4FA", fg: dark, slider: { type: "volume" } }),
         key(0, 2, {
           title: "Select all\n+ copy",
           action: {

@@ -500,7 +500,8 @@
           class:selected={isSel}
           class:drop={dragOver === `${at[0]}-${at[1]}`}
           data-cell="{at[0]}-{at[1]}"
-          style={k ? `background: ${k.bg}; color: ${k.fg}` : ""}
+          class:slider={k?.kind === "slider"}
+          style={k ? (k.kind === "slider" ? `color: ${k.fg}` : `background: ${k.bg}; color: ${k.fg}`) : ""}
           aria-label={k ? `${live(k.title).replaceAll("\n", " ") || "Untitled"}: ${k.detail}` : `Empty, row ${at[0] + 1} column ${at[1] + 1}`}
           aria-pressed={isSel}
           draggable={!!k}
@@ -523,7 +524,10 @@
             if (from && (from[0] !== at[0] || from[1] !== at[1])) move(from, at);
           }}
         >
-          {#if k}
+          {#if k?.kind === "slider"}
+            <span class="slider-fill" style="background: {k.bg}"></span>
+            <span class="slider-title">{live(k.title)}</span>
+          {:else if k}
             {#if k.iconData}<img class="icon" class:with-title={!!k.title} src={k.iconData} alt="" />{/if}
             {#if k.title}<span>{live(k.title)}</span>{/if}
           {:else}<span class="plus" aria-hidden="true">+</span>{/if}
@@ -716,6 +720,16 @@
   .key.empty:focus-visible { opacity: 0.8; color: #fff; }
   .key.drop { outline: 3px dashed var(--apricot); outline-offset: 2px; }
   .plus { font: 400 1.6rem/1 var(--display); }
+  .key.slider {
+    position: relative;
+    background: color-mix(in srgb, var(--deck) 70%, #fff);
+    place-items: start center;
+  }
+  .slider-fill {
+    position: absolute;
+    inset: 50% 0 0 0;
+  }
+  .slider-title { position: relative; padding-top: 6%; }
   .key:has(.icon) { place-items: center; align-content: center; gap: 4%; }
   .icon { width: 62%; height: 62%; object-fit: contain; pointer-events: none; }
   .icon.with-title { width: 48%; height: 48%; }

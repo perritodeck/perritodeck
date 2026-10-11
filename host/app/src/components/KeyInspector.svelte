@@ -3,7 +3,7 @@
   import { DEFAULT_BG, DEFAULT_FG, mediaKeys, obsOps } from "../lib/describe";
   import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
-  import type { ActionSpec, KeyFields, KeyView, MediaKey, NavSpec, Pos } from "../lib/types";
+  import type { ActionSpec, KeyFields, KeyView, MediaKey, NavSpec, Pos, SliderSpec } from "../lib/types";
 
   let {
     key,
@@ -36,12 +36,14 @@
     | "command"
     | "obs"
     | "homeAssistant"
-    | "multi";
+    | "multi"
+    | "slider";
 
   // The draft starts from the key once; the inspector is re-created when the selection
   // (or the key underneath it) changes from outside.
   const initial = untrack(() => ({ key, page, pageNames }));
-  const f = initial.key?.fields ?? { title: null, bg: null, fg: null, action: null, nav: null, icon: null };
+  const f = initial.key?.fields ?? { title: null, bg: null, fg: null, action: null, nav: null, icon: null, slider: null };
+  const sl = f.slider;
   const a = f.action;
   const nav = f.nav;
 
@@ -50,7 +52,11 @@
   let iconPreview = $state(initial.key?.iconData ?? null);
   let bg = $state(f.bg);
   let fg = $state(f.fg);
-  const initialChoice: Choice = nav ? (typeof nav === "object" ? "page" : nav) : a ? a.type : "none";
+  const initialChoice: Choice = sl ? "slider" : nav ? (typeof nav === "object" ? "page" : nav) : a ? a.type : "none";
+  let sliderKind = $state<SliderSpec["type"]>(sl?.type ?? "volume");
+  let sliderTarget = $state(sl?.type === "homeAssistant" ? sl.entity : sl?.type === "obs" ? sl.input : "");
+  let sliderProgram = $state(sl?.type === "command" ? sl.program : "");
+  let sliderArgs = $state(sl?.type === "command" ? (sl.args ?? []).join("\n") : "{value}");
   let choice = $state<Choice>(initialChoice);
   let targetPage = $state(
     nav && typeof nav === "object" ? nav.page : (initial.pageNames.find((p) => p !== initial.page) ?? ""),
@@ -78,6 +84,7 @@
   function build(): KeyFields | string {
     let action: ActionSpec | null = null;
     let navOut: NavSpec | null = null;
+    let slider: SliderSpec | null = null;
     const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
     switch (choice) {
       case "none":
@@ -152,8 +159,21 @@
       case "multi":
         action = key?.fields.action ?? null;
         break;
+      case "slider":
+        if (sliderKind === "volume") slider = { type: "volume" };
+        else if (sliderKind === "homeAssistant") {
+          if (!/^light\.[a-z0-9_]+$/.test(sliderTarget.trim())) return "Enter a light like light.desk";
+          slider = { type: "homeAssistant", entity: sliderTarget.trim() };
+        } else if (sliderKind === "obs") {
+          if (!sliderTarget.trim()) return "Enter the audio source's name as OBS shows it.";
+          slider = { type: "obs", input: sliderTarget.trim() };
+        } else {
+          if (!sliderProgram.trim()) return "Enter the program to run.";
+          slider = { type: "command", program: sliderProgram.trim(), args: lines(sliderArgs) };
+        }
+        break;
     }
-    return { title: title === "" ? null : title, bg, fg, action, nav: navOut, icon };
+    return { title: title === "" ? null : title, bg, fg, action, nav: navOut, icon, slider };
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -190,7 +210,7 @@
   // "Try it": run the action now. Keyboard actions wait a moment so the person can switch
   // to the window that should receive them.
   let trying = $state<null | { countdown: number } | { result: string; ok: boolean }>(null);
-  const tryable = $derived(!["none", "page", "back", "next", "previous"].includes(choice));
+  const tryable = $derived(!["none", "page", "back", "next", "previous", "slider"].includes(choice));
   async function tryIt() {
     const out = build();
     if (typeof out === "string" || !out.action) {
@@ -335,6 +355,9 @@
         <option value="launch">Start a program</option>
         <option value="command">Run a command</option>
       </optgroup>
+      <optgroup label="Slider (drag on the tablet)">
+        <option value="slider">Slider</option>
+      </optgroup>
       <optgroup label="Integrations">
         <option value="obs">OBS Studio</option>
         <option value="homeAssistant">Home Assistant</option>
@@ -345,7 +368,40 @@
     </select>
   </div>
 
-  {#if choice === "page"}
+  {#if choice === "slider"}
+    <div class="field">
+      <label for="slider-kind">Slider sets</label>
+      <select id="slider-kind" bind:value={sliderKind} onchange={() => changed(0)}>
+        <option value="volume">The computer's volume</option>
+        <option value="homeAssistant">A Home Assistant light's brightness</option>
+        <option value="obs">An OBS audio source's volume</option>
+        <option value="command">A program, with the value</option>
+      </select>
+    </div>
+    {#if sliderKind === "homeAssistant" || sliderKind === "obs"}
+      <div class="field">
+        <label for="slider-target">{sliderKind === "obs" ? "Audio source" : "Light"}</label>
+        <input
+          id="slider-target"
+          bind:value={sliderTarget}
+          oninput={() => changed()}
+          spellcheck="false"
+          placeholder={sliderKind === "obs" ? "Mic/Aux" : "light.desk"}
+        />
+      </div>
+    {:else if sliderKind === "command"}
+      <div class="field">
+        <label for="slider-program">Program</label>
+        <input id="slider-program" bind:value={sliderProgram} oninput={() => changed()} spellcheck="false" placeholder="brightnessctl" />
+      </div>
+      <div class="field">
+        <label for="slider-args">Arguments, one per line</label>
+        <textarea id="slider-args" rows="3" bind:value={sliderArgs} oninput={() => changed()} spellcheck="false"></textarea>
+        <small><code>{"{value}"}</code> becomes the slider's position, 0 to 100.</small>
+      </div>
+    {/if}
+    <small>Tablets with an older Perrito show this as an ordinary key.</small>
+  {:else if choice === "page"}
     <div class="field">
       <label for="f3">Page</label>
       <select id="f3" bind:value={targetPage} onchange={() => changed(0)}>

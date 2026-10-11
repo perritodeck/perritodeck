@@ -107,7 +107,7 @@ test.describe("editing", () => {
         op: "setKey",
         page: "Main",
         at: [1, 1],
-        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null, icon: null },
+        key: { title: "Copy all", bg: null, fg: null, action: { type: "hotkey", keys: "Ctrl+C" }, nav: null, icon: null, slider: null },
       },
     ]);
 
@@ -234,6 +234,18 @@ test.describe("editing", () => {
     await expect(key(page, /^Paste:/)).toHaveCount(2);
   });
 
+  test("makes a slider", async ({ page }) => {
+    await key(page, "Empty, row 3 column 3").click();
+    await page.getByLabel("Title").fill("Mic");
+    await page.getByLabel("When pressed").selectOption("slider");
+    await page.getByLabel("Slider sets").selectOption("obs");
+    await expect(page.getByText("Enter the audio source's name as OBS shows it.")).toBeVisible();
+    await page.getByLabel("Audio source").fill("Mic/Aux");
+    await expect(key(page, /^Mic: slider: OBS volume of Mic\/Aux/)).toBeVisible();
+    await expect.poll(async () => (await lastEdits(page))[0].key.slider).toEqual({ type: "obs", input: "Mic/Aux" });
+    await expect(page.getByRole("button", { name: "Try it" })).toHaveCount(0);
+  });
+
   test("toggle keys are edited in the file", async ({ page }) => {
     await key(page, /^Mic live/).click();
     await expect(page.getByText(/toggle with 2 states/)).toBeVisible();
@@ -263,7 +275,7 @@ test.describe("profiles, tablets and switching", () => {
     await key(page, "Empty, row 1 column 1").click();
     await page.getByLabel("Title").fill("GG");
     await expect.poll(() => lastEdits(page)).toEqual([
-      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null, icon: null } },
+      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null, icon: null, slider: null } },
     ]);
 
     await page.getByRole("button", { name: "Profile options" }).click();

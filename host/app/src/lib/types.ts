@@ -84,6 +84,13 @@ export type ActionSpec =
   | { type: "homeAssistant"; service: string; entity?: string; data?: unknown }
   | { type: "none" };
 
+// Mirrors perritodeck_actions::SliderSpec.
+export type SliderSpec =
+  | { type: "volume" }
+  | { type: "homeAssistant"; entity: string }
+  | { type: "obs"; input: string }
+  | { type: "command"; program: string; args?: string[] };
+
 export type NavSpec = "back" | "next" | "previous" | { page: string };
 
 /** What the editor changes on a key. `null` means "not set" (defaults apply). */
@@ -95,6 +102,8 @@ export interface KeyFields {
   nav: NavSpec | null;
   /** Image file relative to the profiles folder, e.g. "icons/3fa907c2d41e.png". */
   icon: string | null;
+  /** Makes the key a slider. */
+  slider: SliderSpec | null;
 }
 
 export type Pos = [number, number];
@@ -111,7 +120,7 @@ export type Edit =
   | { op: "removePage"; name: string }
   | { op: "movePage"; name: string; index: number };
 
-export type KeyKind = "action" | "page" | "back" | "next" | "previous" | "toggle" | "label";
+export type KeyKind = "action" | "page" | "back" | "next" | "previous" | "toggle" | "slider" | "label";
 
 export interface KeyView {
   row: number;
