@@ -29,6 +29,7 @@ data class Grid(val cols: Int, val rows: Int)
 @Serializable
 enum class Platform {
     @SerialName("android") ANDROID,
+    @SerialName("ios") IOS,
     @SerialName("web") WEB,
     @SerialName("other") OTHER,
 }

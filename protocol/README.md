@@ -1,6 +1,6 @@
 # PerritoDeck protocol v1
 
-How the Android client and the desktop host talk. The machine-readable source of truth is [`schema/v1.schema.json`](schema/v1.schema.json); [`fixtures/`](fixtures/) holds one golden example per message, and both the Rust and Kotlin test suites decode and re-encode every fixture to prove they agree.
+How the tablet apps (Android and iOS) and the desktop host talk. The machine-readable source of truth is [`schema/v1.schema.json`](schema/v1.schema.json); [`fixtures/`](fixtures/) holds one golden example per message, and the Rust, Kotlin and Swift test suites decode and re-encode every fixture to prove they agree.
 
 ## Transport
 
@@ -69,7 +69,7 @@ client                                   host
 | `keyAck` | H → C | `keyIndex`, `hostProcessingUs` |
 | `heartbeat` / `heartbeatAck` | C → H / H → C | `seq`, `sentAtMs` |
 | `setTitle` | H → C | `keyIndex`, `title` |
-| `setImage` | H → C | `keyIndex`, `image` (PNG/WebP data URL, or `null`). Defined now, implemented in Phase 2. |
+| `setImage` | H → C | `keyIndex`, `image` (PNG/WebP data URL, or `null`). |
 | `showOk` / `showAlert` | H → C | `keyIndex`, `message?` — flash ✓ or ⚠ on the key |
 | `sliderChange` | C → H | `keyIndex`, `value` (0–100). At most ~20 a second while dragging, then once on release; no reply |
 | `setValue` | H → C | `keyIndex`, `value` — move a slider to match a change made elsewhere |

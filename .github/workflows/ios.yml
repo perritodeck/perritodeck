@@ -1,0 +1,52 @@
+name: iOS
+
+# macOS runners cost ten times Linux minutes, so the iOS client builds only weekly
+# (Mondays, after the other weekly jobs) or by hand (Actions → iOS → Run workflow).
+on:
+  schedule:
+    - cron: "17 12 * * 1"
+  workflow_dispatch:
+
+# A newer run on the same branch makes older runs pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version && swift --version
+
+      # Protocol models, pairing links, pinning, layout maths and throttling; the
+      # protocol fixtures are read from ../../protocol/fixtures.
+      - name: PerritoKit tests
+        working-directory: ios/PerritoKit
+        run: swift test
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build the app for the simulator (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Perrito.xcodeproj \
+            -scheme Perrito \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build

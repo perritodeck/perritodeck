@@ -244,6 +244,7 @@
         "platform": {
           "enum": [
             "android",
+            "ios",
             "web",
             "other"
           ]
@@ -276,7 +277,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "description": "Known: keys, haptics, multiTouch, images, dials, touchStrip. Unknown values are ignored."
+            "description": "Known: keys, haptics, multiTouch, images, sliders, dials, touchStrip. Unknown values are ignored."
           }
         },
         "requestedGrid": {
