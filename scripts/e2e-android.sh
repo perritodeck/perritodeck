@@ -21,8 +21,11 @@ args=(-Pandroid.testInstrumentationRunnerArguments.pairCode=424242 -Pandroid.inj
 if [ -n "${HOST_FINGERPRINT:-}" ]; then
   args+=("-Pandroid.testInstrumentationRunnerArguments.hostFingerprint=${HOST_FINGERPRINT}")
 fi
-(cd "$root/android" && timeout 1500 ./gradlew --no-daemon connectedDebugAndroidTest "${args[@]}") 2>&1 | tee "$out/gradle.txt"
-status=${PIPESTATUS[0]}
+# Not piped through tee: if Gradle hangs, the timeout must be able to end it (a pipe
+# would stay open in its child processes).
+(cd "$root/android" && timeout --kill-after=30 1500 ./gradlew --no-daemon connectedDebugAndroidTest "${args[@]}") > "$out/gradle.txt" 2>&1
+status=$?
+cat "$out/gradle.txt"
 
 timeout 60 adb logcat -d > "$out/logcat.txt" 2>&1 || true
 # Latency and other measurements from the test, as notes on the run summary.

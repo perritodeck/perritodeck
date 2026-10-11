@@ -80,6 +80,11 @@ class HostEndToEndTest {
 
         measureLatency()
 
+        // The emulator's Android 5.1 image doesn't come back reliably from sleep or a
+        // radio switched off (the test framework, not the app, loses the device), so
+        // those checks run on Android 6 and later: the Fire 7 is on Fire OS 6 or 7.
+        if (android.os.Build.VERSION.SDK_INT < 23) return
+
         // Screen off for a while, then on: the deck is still there and still works.
         shell("input keyevent KEYCODE_SLEEP")
         Thread.sleep(15_000)

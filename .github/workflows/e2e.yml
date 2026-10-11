@@ -23,10 +23,11 @@ jobs:
           # 22 = oldest supported (Fire OS 5 era); 34 = modern.
           - { name: api22, api-level: 22 }
           - { name: api34, api-level: 34 }
-          # Stand-ins for Amazon Fire tablets until real hardware is tested: Fire OS 5 is
-          # API 22. Smallest current Fire (Fire 7) and the common Fire HD 10.
-          - { name: fire7, api-level: 22, screen-size: 1024x600, screen-density: 160 }
-          - { name: firehd10, api-level: 22, screen-size: 1920x1200, screen-density: 224 }
+          # Stand-ins for Amazon Fire tablets until real hardware is tested. The test
+          # tablet is a Fire 7 (2019, KFMUWI): 1024x600 mdpi, Fire OS 6 (API 25) or 7
+          # (API 28). The Fire HD 10 is the common larger one.
+          - { name: fire7, api-level: 25, screen-size: 1024x600, screen-density: 160 }
+          - { name: firehd10, api-level: 28, screen-size: 1920x1200, screen-density: 224 }
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
