@@ -307,3 +307,72 @@ async fn presses_on_empty_or_unknown_keys_are_ignored() {
     assert!(sent.take().is_empty());
     assert!(keys.0.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn devices_can_show_different_profiles() {
+    let (deck, sent, _) = setup();
+    connect(&deck, false);
+    let other = Profile::parse(&PROFILE.replace("Copy", "Other copy")).unwrap();
+    deck.load_profile("streaming", other, None);
+    assert_eq!(deck.profile_ids(), ["default", "streaming"]);
+    sent.take();
+
+    // Assigning switches the tablet now and on later connects.
+    assert!(deck.assign("tab", Some("streaming")));
+    match sent.take().as_slice() {
+        [Message::Layout(l)] => assert!(l.keys.iter().any(|k| k.title == "Other copy")),
+        other => panic!("expected a redraw, got {other:?}"),
+    }
+    assert_eq!(deck.device_profile("tab"), "streaming");
+    assert_eq!(
+        deck.initial_layout(&hello())
+            .keys
+            .iter()
+            .filter(|k| k.title == "Other copy")
+            .count(),
+        1
+    );
+    assert!(!deck.assign("tab", Some("nope")));
+
+    // Editing the other profile redraws only devices showing it.
+    deck.reload(Profile::parse(&PROFILE.replace("Copy", "Default copy")).unwrap());
+    assert!(sent.take().is_empty());
+
+    // Removing it sends the tablet back to the default.
+    assert!(deck.remove_profile("streaming"));
+    assert!(!deck.remove_profile("default"));
+    match sent.take().as_slice() {
+        [Message::Layout(l)] => assert!(l.keys.iter().any(|k| k.title == "Default copy")),
+        other => panic!("expected a redraw, got {other:?}"),
+    }
+    assert_eq!(deck.device_profile("tab"), "default");
+}
+
+#[tokio::test]
+async fn paused_keys_do_nothing_but_say_so() {
+    let (deck, sent, keys) = setup();
+    connect(&deck, false);
+    sent.take();
+    deck.set_paused(true);
+    deck.key_down("tab", 0);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(keys.0.lock().unwrap().is_empty());
+    assert!(matches!(sent.take().as_slice(), [Message::ShowAlert(f)] if f.key_index == 0));
+    deck.set_paused(false);
+    deck.key_down("tab", 0);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!keys.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn profile_ids_come_from_file_names() {
+    use crate::watch::profile_id;
+    use std::path::Path;
+    assert_eq!(
+        profile_id(Path::new("/x/streaming.toml")).as_deref(),
+        Some("streaming")
+    );
+    assert_eq!(profile_id(Path::new("/x/.default.toml.saving")), None);
+    assert_eq!(profile_id(Path::new("/x/.hidden.toml")), None);
+    assert_eq!(profile_id(Path::new("/x/notes.txt")), None);
+}

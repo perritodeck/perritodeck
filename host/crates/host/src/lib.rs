@@ -1,15 +1,20 @@
 //! The running host, as a library: shared by the `perritodeck-host` command line and
 //! the PerritoDeck desktop app.
 //!
-//! [`Host::start`] loads the identity, paired devices, profile and integrations, starts
+//! [`Host::start`] loads the identity, paired devices, profiles and integrations, starts
 //! the TLS server and mDNS advertisement, and wires server events to the deck. The
 //! returned [`Host`] answers the questions a UI asks (who's paired, open a pairing
-//! window, what's on each page) and broadcasts [`HostEvent`]s.
+//! window, what's on each page), edits profiles, and broadcasts [`HostEvent`]s.
+
+pub mod focus;
+pub mod settings;
+pub mod views;
 
 use std::{
+    collections::VecDeque,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -24,14 +29,17 @@ use perritodeck_core::{
     pairing::{PairingStore, DEFAULT_OFFER_TTL},
     HostIdentity, Security, Server, ServerConfig, ServerEvent, ServerHandle,
 };
-use perritodeck_deck::{watch::watch_profile, Deck, Outbox};
-pub use perritodeck_actions::ActionSpec;
-pub use perritodeck_profile::edit::{Edit, KeyFields};
-use perritodeck_profile::{NavSpec, Profile, SimpleNav};
+use perritodeck_deck::{watch, Deck, Outbox};
+use perritodeck_profile::Profile;
 use perritodeck_protocol::{Message, DEFAULT_PORT};
 use serde::Serialize;
 use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::{info, warn};
+
+pub use perritodeck_actions::ActionSpec;
+pub use perritodeck_profile::edit::{Edit, KeyFields};
+pub use settings::{AppSettings, AutoSwitch, SwitchRule};
+pub use views::{view_of, KeyView, PageView, ProfileSummary, ProfileView};
 
 #[derive(Debug, Clone)]
 pub struct HostOptions {
@@ -39,9 +47,12 @@ pub struct HostOptions {
     pub port: u16,
     pub heartbeat: Duration,
     pub data_dir: PathBuf,
+    /// The default profile's file. Other profiles live next to it.
     pub profile: Option<PathBuf>,
     pub insecure: bool,
     pub mdns: bool,
+    /// Watch which app is in front, for auto-switching profiles.
+    pub watch_focus: bool,
     /// Fixed pairing codes (tests only).
     pub pair_codes: Vec<String>,
 }
@@ -56,6 +67,7 @@ impl HostOptions {
             profile: None,
             insecure: false,
             mdns: true,
+            watch_focus: true,
             pair_codes: Vec::new(),
         }
     }
@@ -74,6 +86,10 @@ pub fn devices_path(dir: &Path) -> PathBuf {
 
 pub fn integrations_path(dir: &Path) -> PathBuf {
     dir.join("integrations.toml")
+}
+
+pub fn settings_path(dir: &Path) -> PathBuf {
+    dir.join("app-settings.json")
 }
 
 pub fn default_profile_path(dir: &Path) -> PathBuf {
@@ -98,8 +114,12 @@ pub enum HostEvent {
     },
     #[serde(rename_all = "camelCase")]
     KeyPressed { device_id: String, key_index: u32 },
-    /// The profile file was reloaded, or an edit to it was rejected.
+    /// A profile was loaded, reloaded, removed or rejected, a tablet switched profile,
+    /// or keys were paused or resumed.
     ProfileChanged,
+    /// A different app came to the front.
+    #[serde(rename_all = "camelCase")]
+    ForegroundApp { app: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -110,6 +130,10 @@ pub struct DeviceInfo {
     /// Unix seconds.
     pub last_seen: Option<u64>,
     pub connected: bool,
+    /// The profile it shows now (or will show when it connects).
+    pub profile: String,
+    /// The profile chosen for it; `None` means the default.
+    pub assigned_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,48 +158,11 @@ pub struct HostStatus {
     pub insecure: bool,
     pub data_dir: String,
     pub profile_path: String,
+    pub profiles_dir: String,
     pub integrations: Vec<String>,
-}
-
-/// A read-only view of the profile for UIs.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileView {
-    pub name: String,
-    pub cols: u32,
-    pub rows: u32,
-    /// True when the profile fixes the grid size; otherwise it follows each tablet.
-    pub fixed_grid: bool,
-    pub pages: Vec<PageView>,
-    pub reload_error: Option<String>,
-    pub can_undo: bool,
-    pub can_redo: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageView {
-    pub name: String,
-    pub keys: Vec<KeyView>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyView {
-    pub row: u32,
-    pub col: u32,
-    pub title: String,
-    pub bg: String,
-    pub fg: String,
-    /// "action", "page", "back", "next", "previous", "toggle" or "label".
-    pub kind: String,
-    /// Short description of what it does, e.g. "hotkey Ctrl+C".
-    pub detail: String,
-    /// The key's own settings, as the editor changes them.
-    pub fields: KeyFields,
-    /// Toggle states (0 for an ordinary key). Toggles are edited in the file for now.
-    pub states: usize,
-    pub has_icon: bool,
+    pub paused: bool,
+    /// False where the desktop doesn't tell apps which app is in front (Wayland).
+    pub auto_switch_supported: bool,
 }
 
 /// Outbox that forwards to the server handle once it exists.
@@ -188,20 +175,76 @@ impl Outbox for LateOutbox {
     }
 }
 
-/// Edits made through the app, as (file before, file after) pairs.
+/// One edit made through the app: the file, and its text before and after.
+struct Change {
+    path: PathBuf,
+    before: String,
+    after: String,
+}
+
+/// Edits made through the app.
 #[derive(Default)]
 struct History {
-    undo: Vec<(String, String)>,
-    redo: Vec<(String, String)>,
+    undo: Vec<Change>,
+    redo: Vec<Change>,
 }
 
 const HISTORY_LIMIT: usize = 200;
+const RECENT_APPS: usize = 12;
+
+/// State the background tasks share with [`Host`].
+struct Shared {
+    deck: Arc<Deck>,
+    settings: Mutex<AppSettings>,
+    settings_path: PathBuf,
+    foreground: Mutex<Option<String>>,
+    recent_apps: Mutex<VecDeque<String>>,
+    events: broadcast::Sender<HostEvent>,
+}
+
+impl Shared {
+    /// Show each connected tablet the profile it should have right now: a matching
+    /// auto-switch rule's, else its assigned one, else the default.
+    fn apply_auto_switch(&self) {
+        let settings = self.settings.lock().expect("settings poisoned").clone();
+        let app = self.foreground.lock().expect("focus poisoned").clone();
+        let loaded = self.deck.profile_ids();
+        let default = self.deck.default_profile_id();
+        for (device, showing) in self.deck.connected_devices() {
+            let wanted = settings
+                .auto_switch
+                .profile_for(app.as_deref(), &device)
+                .filter(|p| loaded.iter().any(|l| l == p))
+                .map(str::to_owned)
+                .or_else(|| {
+                    settings
+                        .device_profiles
+                        .get(&device)
+                        .filter(|p| loaded.contains(p))
+                        .cloned()
+                })
+                .unwrap_or_else(|| default.clone());
+            if wanted != showing {
+                self.deck.show_profile(&device, &wanted);
+            }
+        }
+    }
+
+    fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        settings
+            .save(&self.settings_path)
+            .map_err(|e| format!("Couldn't save {}: {e}", self.settings_path.display()))
+    }
+}
 
 pub struct Host {
     pub host_name: String,
     pub addr: SocketAddr,
     pub lan: Vec<IpAddr>,
+    /// The default profile's file.
     pub profile_path: PathBuf,
+    /// Where every profile lives (the default profile's folder).
+    pub profiles_dir: PathBuf,
     pub data_dir: PathBuf,
     pub identity: Option<HostIdentity>,
     pub store: Option<Arc<PairingStore>>,
@@ -209,8 +252,8 @@ pub struct Host {
     pub deck: Arc<Deck>,
     insecure: bool,
     integrations: Vec<String>,
-    events: broadcast::Sender<HostEvent>,
-    history: std::sync::Mutex<History>,
+    shared: Arc<Shared>,
+    history: Mutex<History>,
     executor: Executor,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
@@ -260,11 +303,12 @@ impl Host {
             info!("created a starter profile: {}", profile_path.display());
         }
         let profile = perritodeck_profile::load(&profile_path)?;
-        let base_dir = profile_path
+        let profiles_dir = profile_path
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_default();
-        for m in profile.missing_icons(&base_dir) {
+        let default_id = watch::profile_id(&profile_path).unwrap_or_else(|| "default".into());
+        for m in profile.missing_icons(&profiles_dir) {
             warn!("icon not found: {}", m.display());
         }
 
@@ -298,7 +342,23 @@ impl Host {
         let test_executor = executor.clone();
 
         let outbox = Arc::new(LateOutbox::default());
-        let deck = Deck::new(profile, base_dir, outbox.clone(), executor);
+        let deck = Deck::with_default(
+            &default_id,
+            profile,
+            profiles_dir.clone(),
+            outbox.clone(),
+            executor,
+        );
+        watch::load_all(&profiles_dir, &deck);
+
+        let settings_file = settings_path(&dir);
+        let settings = AppSettings::load(&settings_file);
+        for (device, profile) in &settings.device_profiles {
+            if !deck.assign(device, Some(profile)) {
+                warn!("{device} was set to show profile {profile}, which isn't there; showing the default");
+            }
+        }
+
         let layout_deck = deck.clone();
         let mut config = ServerConfig::new(
             host_name.clone(),
@@ -310,11 +370,11 @@ impl Host {
         let handle = server.handle();
         let _ = outbox.0.set(handle.clone());
 
-        let watcher = watch_profile(profile_path.clone(), deck.clone())
+        let watcher = watch::watch_profiles(profiles_dir.clone(), deck.clone())
             .map_err(|e| {
                 warn!(
                     "won't notice edits to {} until restart: {e}",
-                    profile_path.display()
+                    profiles_dir.display()
                 )
             })
             .ok();
@@ -331,7 +391,18 @@ impl Host {
         };
 
         let (events, _) = broadcast::channel(64);
-        spawn_event_loop(deck.clone(), server_events, events.clone());
+        let shared = Arc::new(Shared {
+            deck: deck.clone(),
+            settings: Mutex::new(settings),
+            settings_path: settings_file,
+            foreground: Mutex::new(None),
+            recent_apps: Mutex::new(VecDeque::new()),
+            events: events.clone(),
+        });
+        spawn_event_loop(shared.clone(), server_events);
+        if opts.watch_focus && focus::supported() {
+            spawn_focus_watch(shared.clone());
+        }
         let server = tokio::spawn(server.run());
 
         Ok(Self {
@@ -339,6 +410,7 @@ impl Host {
             addr,
             lan,
             profile_path,
+            profiles_dir,
             data_dir: dir,
             identity,
             store,
@@ -346,7 +418,7 @@ impl Host {
             deck,
             insecure: opts.insecure,
             integrations,
-            events,
+            shared,
             history: Default::default(),
             executor: test_executor,
             server,
@@ -356,7 +428,7 @@ impl Host {
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HostEvent> {
-        self.events.subscribe()
+        self.shared.events.subscribe()
     }
 
     /// Resolves when the server stops (it normally runs until the process exits).
@@ -385,7 +457,10 @@ impl Host {
             insecure: self.insecure,
             data_dir: self.data_dir.display().to_string(),
             profile_path: self.profile_path.display().to_string(),
+            profiles_dir: self.profiles_dir.display().to_string(),
             integrations: self.integrations.clone(),
+            paused: self.deck.paused(),
+            auto_switch_supported: focus::supported(),
         }
     }
 
@@ -428,27 +503,37 @@ impl Host {
 
     pub fn devices(&self) -> Vec<DeviceInfo> {
         let online = self.handle.devices();
+        let assigned = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .device_profiles
+            .clone();
+        let info = |id: String, name: String, last_seen, connected| DeviceInfo {
+            profile: self.deck.device_profile(&id),
+            assigned_profile: assigned.get(&id).cloned(),
+            id,
+            name,
+            last_seen,
+            connected,
+        };
         let Some(store) = &self.store else {
             return online
                 .into_iter()
-                .map(|id| DeviceInfo {
-                    name: id.clone(),
-                    id,
-                    last_seen: None,
-                    connected: true,
-                })
+                .map(|id| info(id.clone(), id, None, true))
                 .collect();
         };
-        store
+        let mut list: Vec<DeviceInfo> = store
             .devices()
             .into_iter()
-            .map(|(id, d)| DeviceInfo {
-                connected: online.contains(&id),
-                id,
-                name: d.name,
-                last_seen: d.last_seen,
+            .map(|(id, d)| {
+                let connected = online.contains(&id);
+                info(id, d.name, d.last_seen, connected)
             })
-            .collect()
+            .collect();
+        list.sort_by(|a, b| b.connected.cmp(&a.connected).then(a.name.cmp(&b.name)));
+        list
     }
 
     /// Forget a device and disconnect it now.
@@ -456,41 +541,247 @@ impl Host {
         let removed = self.store.as_ref().is_some_and(|s| s.revoke(device_id));
         if removed {
             self.handle.kick(device_id);
+            let mut settings = self.shared.settings.lock().expect("settings poisoned");
+            if settings.device_profiles.remove(device_id).is_some() {
+                let _ = self.shared.save_settings(&settings);
+            }
         }
         removed
     }
 
-    pub fn profile_view(&self) -> ProfileView {
-        let profile = self.deck.profile();
-        let mut view = view_of(&profile, self.deck.reload_error());
+    pub fn rename_device(&self, device_id: &str, name: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("A tablet needs a name.".into());
+        }
+        let store = self
+            .store
+            .as_ref()
+            .ok_or("Pairing is off in development mode.")?;
+        if !store.rename(device_id, name) {
+            return Err("That tablet isn't paired.".into());
+        }
+        Ok(())
+    }
+
+    /// Choose the profile a tablet shows; `None` for the default. Remembered.
+    pub fn assign_profile(&self, device_id: &str, profile_id: Option<&str>) -> Result<(), String> {
+        if !self.deck.assign(device_id, profile_id) {
+            return Err(format!(
+                "There's no profile called {}.",
+                profile_id.unwrap_or_default()
+            ));
+        }
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        match profile_id {
+            Some(p) if p != self.deck.default_profile_id() => {
+                settings
+                    .device_profiles
+                    .insert(device_id.to_owned(), p.to_owned());
+            }
+            _ => {
+                settings.device_profiles.remove(device_id);
+            }
+        }
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        self.shared.apply_auto_switch();
+        Ok(())
+    }
+
+    /// Stop running actions (keys show a "paused" warning) until resumed.
+    pub fn set_paused(&self, paused: bool) {
+        self.deck.set_paused(paused);
+        info!("keys {}", if paused { "paused" } else { "resumed" });
+    }
+
+    pub fn paused(&self) -> bool {
+        self.deck.paused()
+    }
+
+    pub fn auto_switch(&self) -> AutoSwitch {
+        self.shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .auto_switch
+            .clone()
+    }
+
+    pub fn set_auto_switch(&self, auto: AutoSwitch) -> Result<(), String> {
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.auto_switch = auto;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        self.shared.apply_auto_switch();
+        Ok(())
+    }
+
+    /// Apps seen in front recently, newest first, for making auto-switch rules.
+    pub fn recent_apps(&self) -> Vec<String> {
+        self.shared
+            .recent_apps
+            .lock()
+            .expect("apps poisoned")
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn foreground_app(&self) -> Option<String> {
+        self.shared
+            .foreground
+            .lock()
+            .expect("focus poisoned")
+            .clone()
+    }
+
+    // ---- Profiles ----
+
+    fn path_of(&self, id: &str) -> PathBuf {
+        self.profiles_dir.join(format!("{id}.toml"))
+    }
+
+    pub fn profiles(&self) -> Vec<ProfileSummary> {
+        let default = self.deck.default_profile_id();
+        let mut list: Vec<ProfileSummary> = self
+            .deck
+            .profile_ids()
+            .into_iter()
+            .filter_map(|id| {
+                let p = self.deck.profile_by_id(&id)?;
+                Some(ProfileSummary {
+                    is_default: id == default,
+                    has_error: self.deck.reload_error_of(&id).is_some(),
+                    name: p.name,
+                    pages: p.pages.len(),
+                    id,
+                })
+            })
+            .collect();
+        list.sort_by(|a, b| {
+            b.is_default
+                .cmp(&a.is_default)
+                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        list
+    }
+
+    /// A profile as the editor shows it; `None` for the default.
+    pub fn profile_view(&self, id: Option<&str>) -> Result<ProfileView, String> {
+        let id = id
+            .map(str::to_owned)
+            .unwrap_or_else(|| self.deck.default_profile_id());
+        let profile = self
+            .deck
+            .profile_by_id(&id)
+            .ok_or_else(|| format!("There's no profile called {id}."))?;
+        let mut view = view_of(&id, &profile, self.deck.reload_error_of(&id));
         let history = self.history.lock().expect("history poisoned");
         view.can_undo = !history.undo.is_empty();
         view.can_redo = !history.redo.is_empty();
-        view
+        Ok(view)
     }
 
-    /// Change the profile file and show the result on the tablets right away.
-    pub fn edit_profile(&self, edits: &[Edit]) -> Result<ProfileView, String> {
-        let before = self.read_profile_text()?;
+    /// Change a profile's file and show the result on the tablets right away.
+    pub fn edit_profile(&self, id: &str, edits: &[Edit]) -> Result<ProfileView, String> {
+        if self.deck.profile_by_id(id).is_none() {
+            return Err(format!("There's no profile called {id}."));
+        }
+        let path = self.path_of(id);
+        let before = read_text(&path)?;
         let after = perritodeck_profile::edit::apply(&before, edits).map_err(|e| e.to_string())?;
         if after != before {
-            self.write_profile_text(&after)?;
-            let mut history = self.history.lock().expect("history poisoned");
-            history.undo.push((before, after));
-            if history.undo.len() > HISTORY_LIMIT {
-                history.undo.remove(0);
-            }
-            history.redo.clear();
+            self.write_profile(&path, &after)?;
+            self.record(Change {
+                path,
+                before,
+                after,
+            });
         }
-        Ok(self.profile_view())
+        self.profile_view(Some(id))
+    }
+
+    fn record(&self, change: Change) {
+        let mut history = self.history.lock().expect("history poisoned");
+        history.undo.push(change);
+        if history.undo.len() > HISTORY_LIMIT {
+            history.undo.remove(0);
+        }
+        history.redo.clear();
+    }
+
+    /// Make a new profile, empty or as a copy of another. Returns its id.
+    pub fn create_profile(&self, name: &str, copy_of: Option<&str>) -> Result<String, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("A profile needs a name.".into());
+        }
+        let text = match copy_of {
+            Some(src) => {
+                let text = read_text(&self.path_of(src))?;
+                perritodeck_profile::edit::apply(
+                    &text,
+                    &[Edit::SetName {
+                        name: name.to_owned(),
+                    }],
+                )
+                .map_err(|e| e.to_string())?
+            }
+            None => blank_profile(name),
+        };
+        let id = unique_id(&slug(name), |id| self.path_of(id).exists());
+        self.write_profile(&self.path_of(&id), &text)?;
+        Ok(id)
+    }
+
+    /// Delete a profile (the default can't be). Its file is kept in the settings
+    /// folder's `deleted-profiles`, in case.
+    pub fn delete_profile(&self, id: &str) -> Result<(), String> {
+        if id == self.deck.default_profile_id() {
+            return Err("The default profile can't be deleted.".into());
+        }
+        let path = self.path_of(id);
+        let keep = self.data_dir.join("deleted-profiles");
+        std::fs::create_dir_all(&keep).map_err(|e| e.to_string())?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        std::fs::rename(&path, keep.join(format!("{id}-{stamp}.toml")))
+            .or_else(|_| std::fs::remove_file(&path))
+            .map_err(|e| format!("Couldn't delete {}: {e}", path.display()))?;
+        self.deck.remove_profile(id);
+        // Rules and tablets that used it fall back to the default.
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.device_profiles.retain(|_, p| p != id);
+        settings.auto_switch.rules.retain(|r| r.profile != id);
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        let mut history = self.history.lock().expect("history poisoned");
+        history.undo.retain(|c| c.path != path);
+        history.redo.retain(|c| c.path != path);
+        Ok(())
     }
 
     /// Run an action now, as if its key were pressed. `Ok` carries a note to show when
     /// the action ran but reported a problem (a command that failed, say).
-    pub async fn test_action(
-        &self,
-        spec: &perritodeck_actions::ActionSpec,
-    ) -> Result<Option<String>, String> {
+    pub async fn test_action(&self, spec: &ActionSpec) -> Result<Option<String>, String> {
         match self.executor.run(spec).await {
             Ok(perritodeck_actions::Outcome::Ok) => Ok(None),
             Ok(perritodeck_actions::Outcome::Alert(note)) => Ok(Some(note)),
@@ -498,7 +789,8 @@ impl Host {
         }
     }
 
-    /// Step back through the app's edits. Edits made in a text editor aren't undone here.
+    /// Step back through the app's edits (across profiles). Edits made in a text
+    /// editor aren't undone here. Returns the profile that changed.
     pub fn undo(&self) -> Result<ProfileView, String> {
         self.step(true)
     }
@@ -514,41 +806,36 @@ impl Host {
         } else {
             history.redo.pop()
         };
-        let Some((before, after)) = entry else {
+        let Some(change) = entry else {
             return Err(format!(
                 "Nothing to {}.",
                 if back { "undo" } else { "redo" }
             ));
         };
         let (expected, target) = if back {
-            (&after, &before)
+            (&change.after, &change.before)
         } else {
-            (&before, &after)
+            (&change.before, &change.after)
         };
-        if self.read_profile_text()? != *expected {
+        if read_text(&change.path)? != *expected {
             history.undo.clear();
             history.redo.clear();
             return Err("The profile file was changed outside PerritoDeck, so earlier edits can't be undone.".into());
         }
-        self.write_profile_text(target)?;
+        self.write_profile(&change.path, target)?;
+        let id = watch::profile_id(&change.path).unwrap_or_default();
         if back {
-            history.redo.push((before, after));
+            history.redo.push(change);
         } else {
-            history.undo.push((before, after));
+            history.undo.push(change);
         }
         drop(history);
-        Ok(self.profile_view())
+        self.profile_view(Some(&id))
     }
 
-    fn read_profile_text(&self) -> Result<String, String> {
-        std::fs::read_to_string(&self.profile_path)
-            .map_err(|e| format!("Couldn't read {}: {e}", self.profile_path.display()))
-    }
-
-    /// Save atomically (so a crash never leaves half a file), then reload the deck now
-    /// rather than waiting for the file watcher.
-    fn write_profile_text(&self, text: &str) -> Result<(), String> {
-        let path = &self.profile_path;
+    /// Save atomically (so a crash never leaves half a file), then load it into the
+    /// deck now rather than waiting for the file watcher.
+    fn write_profile(&self, path: &Path, text: &str) -> Result<(), String> {
         let profile = Profile::parse(text).map_err(|e| e.to_string())?;
         let name = path
             .file_name()
@@ -561,128 +848,64 @@ impl Host {
                 let _ = std::fs::remove_file(&tmp);
                 format!("Couldn't save {}: {e}", path.display())
             })?;
-        self.deck.reload(profile);
+        if let Some(id) = watch::profile_id(path) {
+            self.deck
+                .load_profile(&id, profile, Some(self.profiles_dir.clone()));
+        }
         Ok(())
     }
 }
 
-pub fn view_of(profile: &Profile, reload_error: Option<String>) -> ProfileView {
-    let (cols, rows) = profile.grid.map(|g| (g.cols, g.rows)).unwrap_or_else(|| {
-        // Sized per tablet; preview the most common tablet grid.
-        let max_c = profile
-            .pages
-            .iter()
-            .flat_map(|p| p.keys.iter().map(|k| k.at[1] + 1))
-            .max()
-            .unwrap_or(1);
-        let max_r = profile
-            .pages
-            .iter()
-            .flat_map(|p| p.keys.iter().map(|k| k.at[0] + 1))
-            .max()
-            .unwrap_or(1);
-        (max_c.max(5), max_r.max(3))
-    });
-    let pages = profile
-        .pages
-        .iter()
-        .map(|p| PageView {
-            name: p.name.clone(),
-            keys: p
-                .keys
-                .iter()
-                .map(|k| {
-                    let look = k.look(0);
-                    let (kind, detail) = match (&k.nav, k.states.len() >= 2, k.action(0)) {
-                        (Some(NavSpec::Page { page }), _, _) => ("page", format!("opens {page}")),
-                        (Some(NavSpec::Simple(SimpleNav::Back)), _, _) => {
-                            ("back", "back".to_owned())
-                        }
-                        (Some(NavSpec::Simple(SimpleNav::Next)), _, _) => {
-                            ("next", "next page".to_owned())
-                        }
-                        (Some(NavSpec::Simple(SimpleNav::Previous)), _, _) => {
-                            ("previous", "previous page".to_owned())
-                        }
-                        (None, true, a) => (
-                            "toggle",
-                            format!(
-                                "{} states{}",
-                                k.states.len(),
-                                a.map(|a| format!(", {}", describe(a))).unwrap_or_default()
-                            ),
-                        ),
-                        (None, false, Some(a)) => ("action", describe(a)),
-                        (None, false, None) => ("label", "no action".to_owned()),
-                    };
-                    KeyView {
-                        row: k.at[0],
-                        col: k.at[1],
-                        title: look.title,
-                        bg: look.bg,
-                        fg: look.fg,
-                        kind: kind.to_owned(),
-                        detail,
-                        fields: KeyFields {
-                            title: k.title.clone(),
-                            bg: k.bg.clone(),
-                            fg: k.fg.clone(),
-                            action: k.action.clone(),
-                            nav: k.nav.clone(),
-                        },
-                        states: k.states.len(),
-                        has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),
-                    }
-                })
-                .collect(),
-        })
-        .collect();
-    ProfileView {
-        name: profile.name.clone(),
-        cols,
-        rows,
-        fixed_grid: profile.grid.is_some(),
-        pages,
-        reload_error,
-        can_undo: false,
-        can_redo: false,
+fn read_text(path: &Path) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| format!("Couldn't read {}: {e}", path.display()))
+}
+
+fn blank_profile(name: &str) -> String {
+    let mut doc = toml_edit::DocumentMut::new();
+    doc["schema_version"] = toml_edit::value(i64::from(perritodeck_profile::SCHEMA_VERSION));
+    doc["name"] = toml_edit::value(name);
+    let mut page = toml_edit::Table::new();
+    page["name"] = toml_edit::value("Main");
+    let mut pages = toml_edit::ArrayOfTables::new();
+    pages.push(page);
+    doc["pages"] = toml_edit::Item::ArrayOfTables(pages);
+    format!("# PerritoDeck profile. Edit it in the app, or by hand; see the default profile for every option.\n{doc}")
+}
+
+/// A file-name-safe id from a name: "Streaming (OBS)" → "streaming-obs".
+fn slug(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    let out = out.trim_end_matches('-').to_owned();
+    if out.is_empty() {
+        "profile".into()
+    } else {
+        out
     }
 }
 
-fn describe(a: &perritodeck_actions::ActionSpec) -> String {
-    use perritodeck_actions::ActionSpec as A;
-    match a {
-        A::Hotkey { keys } => format!("hotkey {keys}"),
-        A::Text { text } => format!("types {:?}", text.chars().take(24).collect::<String>()),
-        A::Media { key } => format!("media {key:?}"),
-        A::OpenUrl { url } => format!("opens {url}"),
-        A::OpenPath { path } => format!("opens {}", path.display()),
-        A::Launch { program, .. } => format!("starts {program}"),
-        A::Command { program, .. } => format!("runs {program}"),
-        A::Multi { steps } => format!("{} steps", steps.len()),
-        A::Obs(o) => format!("OBS {o:?}"),
-        A::HomeAssistant {
-            service, entity, ..
-        } => {
-            format!(
-                "Home Assistant {service}{}",
-                entity
-                    .as_deref()
-                    .map(|e| format!(" {e}"))
-                    .unwrap_or_default()
-            )
-        }
-        A::None => "nothing".to_owned(),
+fn unique_id(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_owned();
     }
+    (2..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|id| !taken(id))
+        .expect("unbounded")
 }
 
 /// Feed server events to the deck, keep live titles ticking, and tell subscribers.
 fn spawn_event_loop(
-    deck: Arc<Deck>,
+    shared: Arc<Shared>,
     mut server_events: tokio::sync::mpsc::UnboundedReceiver<ServerEvent>,
-    out: broadcast::Sender<HostEvent>,
 ) {
-    let ticker = deck.clone();
+    let ticker = shared.deck.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -690,20 +913,21 @@ fn spawn_event_loop(
             ticker.tick();
         }
     });
-    let (watched, notify) = (deck.clone(), out.clone());
+    let watched = shared.clone();
     tokio::spawn(async move {
-        let mut seen = watched.revision();
+        let mut seen = watched.deck.revision();
         let mut every = tokio::time::interval(Duration::from_millis(200));
         loop {
             every.tick().await;
-            let now = watched.revision();
+            let now = watched.deck.revision();
             if now != seen {
                 seen = now;
-                let _ = notify.send(HostEvent::ProfileChanged);
+                let _ = watched.events.send(HostEvent::ProfileChanged);
             }
         }
     });
     tokio::spawn(async move {
+        let deck = shared.deck.clone();
         while let Some(event) = server_events.recv().await {
             let ui = match event {
                 ServerEvent::Connected {
@@ -715,6 +939,7 @@ fn spawn_event_loop(
                     ..
                 } => {
                     deck.connected(&device_id, grid, screen, &capabilities);
+                    shared.apply_auto_switch();
                     Some(HostEvent::Connected {
                         device_id,
                         device_name,
@@ -745,168 +970,45 @@ fn spawn_event_loop(
                 _ => None,
             };
             if let Some(e) = ui {
-                let _ = out.send(e);
+                let _ = shared.events.send(e);
             }
         }
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn starts_and_answers_ui_questions() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut opts = HostOptions::new(dir.path().to_owned());
-        opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        opts.port = 0;
-        opts.mdns = false;
-        let host = Host::start(opts).await.unwrap();
-
-        let status = host.status();
-        assert!(status.fingerprint.is_some());
-        assert_eq!(
-            status.addresses,
-            vec![format!("127.0.0.1:{}", host.addr.port())]
-        );
-        assert!(
-            Path::new(&status.profile_path).exists(),
-            "starter profile written"
-        );
-
-        let offer = host.new_pairing_offer().unwrap();
-        assert_eq!(offer.code.len(), 6);
-        assert!(offer.uri.starts_with("perritodeck://pair?"));
-        assert!(offer.qr_svg.contains("<svg"));
-
-        assert!(host.devices().is_empty());
-        assert!(!host.revoke("nobody"));
-
-        let view = host.profile_view();
-        assert!(!view.pages.is_empty());
-        assert!(view.pages[0].keys.iter().any(|k| k.kind == "page"));
-        assert!(view.reload_error.is_none());
-
-        // A broken edit is reported to subscribers and in the view.
-        let mut events = host.subscribe();
-        std::fs::write(&status.profile_path, "this is not toml [").unwrap();
-        let got = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Ok(HostEvent::ProfileChanged) = events.recv().await {
-                    break;
-                }
-            }
-        })
-        .await;
-        assert!(got.is_ok(), "no ProfileChanged event");
-        assert!(host.profile_view().reload_error.is_some());
-    }
-
-    #[tokio::test]
-    async fn edits_save_reload_and_undo() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut opts = HostOptions::new(dir.path().to_owned());
-        opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        opts.port = 0;
-        opts.mdns = false;
-        let host = Host::start(opts).await.unwrap();
-        let original = std::fs::read_to_string(&host.profile_path).unwrap();
-        let title = |v: &ProfileView| {
-            v.pages[0]
-                .keys
-                .iter()
-                .find(|k| k.row == 1 && k.col == 1)
-                .map(|k| k.title.clone())
-        };
-
-        let edit = Edit::SetKey {
-            page: "Main".into(),
-            at: [1, 1],
-            key: KeyFields {
-                title: Some("Copied".into()),
-                ..Default::default()
-            },
-        };
-        let view = host.edit_profile(std::slice::from_ref(&edit)).unwrap();
-        assert_eq!(title(&view).as_deref(), Some("Copied"));
-        assert!(view.can_undo && !view.can_redo);
-        // Saved to disk and already live in the deck (no waiting for the watcher).
-        assert!(std::fs::read_to_string(&host.profile_path)
-            .unwrap()
-            .contains("\"Copied\""));
-        assert_eq!(
-            title(&view_of(&host.deck.profile(), None)).as_deref(),
-            Some("Copied")
-        );
-
-        let view = host.undo().unwrap();
-        assert_eq!(title(&view).as_deref(), Some("Copy"));
-        assert_eq!(
-            std::fs::read_to_string(&host.profile_path).unwrap(),
-            original
-        );
-        assert!(!view.can_undo && view.can_redo);
-        let view = host.redo().unwrap();
-        assert_eq!(title(&view).as_deref(), Some("Copied"));
-
-        // A bad edit changes nothing.
-        let bad = Edit::SetKey {
-            page: "Main".into(),
-            at: [0, 0],
-            key: KeyFields {
-                bg: Some("red".into()),
-                ..Default::default()
-            },
-        };
-        assert!(host.edit_profile(&[bad]).is_err());
-        assert_eq!(title(&host.profile_view()).as_deref(), Some("Copied"));
-
-        // Actions can be tried from the editor.
-        let ok = perritodeck_actions::ActionSpec::Command {
-            program: "true".into(),
-            args: vec![],
-            cwd: None,
-            timeout_ms: None,
-        };
-        if cfg!(unix) {
-            assert_eq!(host.test_action(&ok).await, Ok(None));
-            let fails = perritodeck_actions::ActionSpec::Command {
-                program: "false".into(),
-                args: vec![],
-                cwd: None,
-                timeout_ms: None,
-            };
-            assert!(host.test_action(&fails).await.unwrap().is_some());
-        }
-        let bad = perritodeck_actions::ActionSpec::OpenUrl {
-            url: "file:///etc/passwd".into(),
-        };
-        assert!(host.test_action(&bad).await.is_err());
-
-        // After a hand edit, undo refuses rather than overwrite it.
-        std::fs::write(&host.profile_path, &original).unwrap();
-        assert!(host.undo().unwrap_err().contains("outside"));
-        assert!(!host.profile_view().can_undo);
-    }
-
-    #[tokio::test]
-    async fn insecure_needs_loopback() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut opts = HostOptions::new(dir.path().to_owned());
-        opts.insecure = true;
-        assert!(Host::start(opts).await.is_err());
-    }
-
-    #[test]
-    fn events_serialize_for_the_ui() {
-        let e = HostEvent::KeyPressed {
-            device_id: "d".into(),
-            key_index: 3,
-        };
-        assert_eq!(
-            serde_json::to_string(&e).unwrap(),
-            r#"{"kind":"keyPressed","deviceId":"d","keyIndex":3}"#
-        );
-    }
+/// Names our own windows go by; they never count as "the app in front".
+fn is_us(app: &str) -> bool {
+    let a = app.to_ascii_lowercase();
+    a.starts_with("perritodeck")
 }
+
+/// Poll which app is in front and switch profiles when it changes.
+fn spawn_focus_watch(shared: Arc<Shared>) {
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(Duration::from_millis(700));
+        let mut last: Option<String> = None;
+        loop {
+            every.tick().await;
+            let Ok(app) = tokio::task::spawn_blocking(focus::foreground_app).await else {
+                continue;
+            };
+            // Clicking over to PerritoDeck itself shouldn't switch the tablets away.
+            if app.as_deref().is_some_and(is_us) || app == last {
+                continue;
+            }
+            last.clone_from(&app);
+            if let Some(a) = &app {
+                let mut recent = shared.recent_apps.lock().expect("apps poisoned");
+                recent.retain(|r| !r.eq_ignore_ascii_case(a));
+                recent.push_front(a.clone());
+                recent.truncate(RECENT_APPS);
+            }
+            *shared.foreground.lock().expect("focus poisoned") = app.clone();
+            shared.apply_auto_switch();
+            let _ = shared.events.send(HostEvent::ForegroundApp { app });
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests;

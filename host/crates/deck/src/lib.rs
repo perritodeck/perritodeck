@@ -1,8 +1,10 @@
 //! The deck runtime: shows a [`Profile`] on every connected tablet and turns key
 //! presses into actions, page changes and toggles.
 //!
-//! Each device has its own current page (and Back history). Toggle states belong to
-//! the profile, so a "Mic muted" key looks the same on every tablet.
+//! Several profiles can be loaded at once; each device shows one of them (the default
+//! unless assigned another). Each device has its own current page (and Back history).
+//! Toggle states belong to the profile, so a "Mic muted" key looks the same on every
+//! tablet showing it.
 
 mod templates;
 pub mod watch;
@@ -35,6 +37,8 @@ impl Outbox for ServerHandle {
 }
 
 struct DeviceView {
+    /// Which profile this device is showing.
+    profile: String,
     grid: Grid,
     screen: Screen,
     /// Key image size in pixels, if the device wants host-rendered images.
@@ -45,10 +49,10 @@ struct DeviceView {
     sent: HashMap<u32, KeySpec>,
 }
 
-struct State {
+/// One loaded profile and everything that belongs to it.
+struct Slot {
     profile: Profile,
     base_dir: PathBuf,
-    devices: HashMap<String, DeviceView>,
     /// Toggle state per (page, position).
     toggles: HashMap<(usize, [u32; 2]), usize>,
     icons: HashMap<PathBuf, Option<Vec<u8>>>,
@@ -56,11 +60,65 @@ struct State {
     reload_error: Option<String>,
 }
 
+impl Slot {
+    fn new(profile: Profile, base_dir: PathBuf) -> Self {
+        Self {
+            profile,
+            base_dir,
+            toggles: HashMap::new(),
+            icons: HashMap::new(),
+            reload_error: None,
+        }
+    }
+}
+
+struct State {
+    slots: HashMap<String, Slot>,
+    /// The profile devices show unless told otherwise.
+    default: String,
+    /// Device id → profile id, for devices that show something else.
+    assignments: HashMap<String, String>,
+    devices: HashMap<String, DeviceView>,
+}
+
+impl State {
+    /// The profile a device should show (falls back to the default).
+    fn profile_for(&self, device_id: &str) -> String {
+        self.assignments
+            .get(device_id)
+            .filter(|id| self.slots.contains_key(*id))
+            .cloned()
+            .unwrap_or_else(|| self.default.clone())
+    }
+
+    fn slot(&self, id: &str) -> &Slot {
+        self.slots
+            .get(id)
+            .or_else(|| self.slots.get(&self.default))
+            .expect("the default profile is always loaded")
+    }
+
+    fn slot_mut(&mut self, id: &str) -> &mut Slot {
+        let key = if self.slots.contains_key(id) {
+            id.to_owned()
+        } else {
+            self.default.clone()
+        };
+        self.slots
+            .get_mut(&key)
+            .expect("the default profile is always loaded")
+    }
+}
+
+/// The id of the profile a single-profile deck starts with.
+pub const DEFAULT_PROFILE: &str = "default";
+
 pub struct Deck {
     state: Mutex<State>,
     outbox: Arc<dyn Outbox>,
     executor: Executor,
     revision: std::sync::atomic::AtomicU64,
+    paused: std::sync::atomic::AtomicBool,
 }
 
 /// Default grid when the profile doesn't fix one: sized to the device's screen.
@@ -75,28 +133,42 @@ fn device_grid(profile: &Profile, hello_grid: Grid) -> Grid {
 }
 
 impl Deck {
+    /// A deck with one profile, called [`DEFAULT_PROFILE`].
     pub fn new(
         profile: Profile,
         base_dir: impl Into<PathBuf>,
         outbox: Arc<dyn Outbox>,
         executor: Executor,
     ) -> Arc<Self> {
+        Self::with_default(DEFAULT_PROFILE, profile, base_dir, outbox, executor)
+    }
+
+    /// A deck whose default profile has the id `default_id`.
+    pub fn with_default(
+        default_id: &str,
+        profile: Profile,
+        base_dir: impl Into<PathBuf>,
+        outbox: Arc<dyn Outbox>,
+        executor: Executor,
+    ) -> Arc<Self> {
+        let mut slots = HashMap::new();
+        slots.insert(default_id.to_owned(), Slot::new(profile, base_dir.into()));
         Arc::new(Self {
             state: Mutex::new(State {
-                profile,
-                base_dir: base_dir.into(),
+                slots,
+                default: default_id.to_owned(),
+                assignments: HashMap::new(),
                 devices: HashMap::new(),
-                toggles: HashMap::new(),
-                icons: HashMap::new(),
-                reload_error: None,
             }),
             outbox,
             executor,
             revision: Default::default(),
+            paused: Default::default(),
         })
     }
 
-    /// Goes up whenever the profile is reloaded or a reload fails, so UIs can refresh.
+    /// Goes up whenever a profile is loaded, reloaded, removed or fails to reload, or a
+    /// device switches profile, so UIs can refresh.
     pub fn revision(&self) -> u64 {
         self.revision.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -110,11 +182,23 @@ impl Deck {
         self.state.lock().expect("deck state poisoned")
     }
 
+    /// Stop (or resume) running anything when keys are pressed.
+    pub fn set_paused(&self, paused: bool) {
+        self.paused
+            .store(paused, std::sync::atomic::Ordering::Relaxed);
+        self.bump();
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// The first layout a device sees (used as the server's layout provider).
     pub fn initial_layout(&self, hello: &Hello) -> Layout {
         let st = self.lock();
-        let grid = device_grid(&st.profile, demo::grid_for(hello));
-        page_layout(&st, 0, grid)
+        let slot = st.slot(&st.profile_for(&hello.device_id));
+        let grid = device_grid(&slot.profile, demo::grid_for(hello));
+        page_layout(slot, 0, grid)
     }
 
     /// A device finished its handshake; it already has `initial_layout`.
@@ -124,11 +208,13 @@ impl Deck {
             .iter()
             .any(|c| c == "images")
             .then(|| perritodeck_render::key_pixel_size(&screen, grid));
-        let layout = page_layout(&st, 0, grid);
+        let profile = st.profile_for(device_id);
+        let layout = page_layout(st.slot(&profile), 0, grid);
         let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
         st.devices.insert(
             device_id.to_owned(),
             DeviceView {
+                profile,
                 grid,
                 screen,
                 image_px,
@@ -146,34 +232,91 @@ impl Deck {
         self.lock().devices.remove(device_id);
     }
 
-    /// The profile currently shown on the tablets.
+    /// The default profile.
     pub fn profile(&self) -> Profile {
-        self.lock().profile.clone()
+        let st = self.lock();
+        st.slot(&st.default).profile.clone()
     }
 
-    /// Why the last edit to the profile file was rejected (cleared by a good reload).
+    pub fn default_profile_id(&self) -> String {
+        self.lock().default.clone()
+    }
+
+    /// A loaded profile by id.
+    pub fn profile_by_id(&self, id: &str) -> Option<Profile> {
+        self.lock().slots.get(id).map(|s| s.profile.clone())
+    }
+
+    /// Ids of every loaded profile, sorted.
+    pub fn profile_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.lock().slots.keys().cloned().collect();
+        ids.sort();
+        ids
+    }
+
+    /// Why the last edit to the default profile's file was rejected (cleared by a good reload).
     pub fn reload_error(&self) -> Option<String> {
-        self.lock().reload_error.clone()
+        let st = self.lock();
+        st.slot(&st.default).reload_error.clone()
+    }
+
+    pub fn reload_error_of(&self, id: &str) -> Option<String> {
+        self.lock()
+            .slots
+            .get(id)
+            .and_then(|s| s.reload_error.clone())
     }
 
     pub fn set_reload_error(&self, error: String) {
-        self.lock().reload_error = Some(error);
+        let id = self.default_profile_id();
+        self.set_reload_error_of(&id, error);
+    }
+
+    pub fn set_reload_error_of(&self, id: &str, error: String) {
+        if let Some(s) = self.lock().slots.get_mut(id) {
+            s.reload_error = Some(error);
+        }
         self.bump();
     }
 
-    /// Swap in a new profile (after the file changed) and redraw every device.
+    /// Swap in a new default profile (after its file changed) and redraw.
     pub fn reload(&self, profile: Profile) {
+        let id = self.default_profile_id();
+        self.load_profile(&id, profile, None);
+    }
+
+    /// Add a profile, or replace it after its file changed, and redraw every device
+    /// showing it. `base_dir` (for icons) defaults to the existing one.
+    pub fn load_profile(&self, id: &str, profile: Profile, base_dir: Option<PathBuf>) {
         self.bump();
         let mut st = self.lock();
-        st.reload_error = None;
         let pages = profile.pages.len();
-        st.profile = profile;
-        st.icons.clear();
-        st.toggles.retain(|(page, _), _| *page < pages);
-        let fixed_grid = st.profile.grid;
-        let ids: Vec<String> = st.devices.keys().cloned().collect();
-        for id in ids {
-            if let Some(d) = st.devices.get_mut(&id) {
+        match st.slots.get_mut(id) {
+            Some(slot) => {
+                slot.reload_error = None;
+                slot.profile = profile;
+                slot.icons.clear();
+                slot.toggles.retain(|(page, _), _| *page < pages);
+                if let Some(dir) = base_dir {
+                    slot.base_dir = dir;
+                }
+            }
+            None => {
+                st.slots.insert(
+                    id.to_owned(),
+                    Slot::new(profile, base_dir.unwrap_or_default()),
+                );
+            }
+        }
+        let fixed_grid = st.slots[id].profile.grid;
+        let ids: Vec<String> = st
+            .devices
+            .iter()
+            .filter(|(_, d)| d.profile == id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for dev in ids {
+            if let Some(d) = st.devices.get_mut(&dev) {
                 if let Some(g) = fixed_grid {
                     d.grid = Grid {
                         cols: g.cols,
@@ -189,9 +332,107 @@ impl Deck {
                 }
                 d.back.retain(|p| *p < pages);
             }
-            self.show_page(&mut st, &id);
+            self.show_page(&mut st, &dev);
         }
-        info!("profile reloaded: {} page(s)", pages);
+        info!("profile {id} loaded: {pages} page(s)");
+    }
+
+    /// Unload a profile (its file was deleted). Devices showing it go to the default.
+    /// The default profile can't be removed.
+    pub fn remove_profile(&self, id: &str) -> bool {
+        let mut st = self.lock();
+        if id == st.default || st.slots.remove(id).is_none() {
+            return false;
+        }
+        st.assignments.retain(|_, p| p != id);
+        let default = st.default.clone();
+        let moved: Vec<String> = st
+            .devices
+            .iter()
+            .filter(|(_, d)| d.profile == id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for dev in moved {
+            self.switch_device(&mut st, &dev, &default);
+        }
+        drop(st);
+        self.bump();
+        true
+    }
+
+    /// Which profile a device shows (or will show when it connects).
+    pub fn device_profile(&self, device_id: &str) -> String {
+        let st = self.lock();
+        st.devices
+            .get(device_id)
+            .map(|d| d.profile.clone())
+            .unwrap_or_else(|| st.profile_for(device_id))
+    }
+
+    /// Show `profile_id` on a device from now on (and next time it connects).
+    /// `None` returns it to the default profile. False if there's no such profile.
+    pub fn assign(&self, device_id: &str, profile_id: Option<&str>) -> bool {
+        let mut st = self.lock();
+        match profile_id {
+            Some(id) if !st.slots.contains_key(id) => return false,
+            Some(id) => {
+                st.assignments.insert(device_id.to_owned(), id.to_owned());
+            }
+            None => {
+                st.assignments.remove(device_id);
+            }
+        }
+        let target = st.profile_for(device_id);
+        self.switch_device(&mut st, device_id, &target);
+        drop(st);
+        self.bump();
+        true
+    }
+
+    /// Show a profile on a connected device for now, without changing its assignment
+    /// (used by auto-switching). False if there's no such profile or device.
+    pub fn show_profile(&self, device_id: &str, profile_id: &str) -> bool {
+        let mut st = self.lock();
+        if !st.slots.contains_key(profile_id) || !st.devices.contains_key(device_id) {
+            return false;
+        }
+        self.switch_device(&mut st, device_id, profile_id);
+        true
+    }
+
+    /// Device ids connected right now, with the profile each shows.
+    pub fn connected_devices(&self) -> Vec<(String, String)> {
+        self.lock()
+            .devices
+            .iter()
+            .map(|(id, d)| (id.clone(), d.profile.clone()))
+            .collect()
+    }
+
+    fn switch_device(&self, st: &mut State, device_id: &str, profile_id: &str) {
+        let Some(d) = st.devices.get(device_id) else {
+            return;
+        };
+        if d.profile == profile_id {
+            return;
+        }
+        let fixed = st.slot(profile_id).profile.grid;
+        if let Some(d) = st.devices.get_mut(device_id) {
+            d.profile = profile_id.to_owned();
+            d.page = 0;
+            d.back.clear();
+            if let Some(g) = fixed {
+                d.grid = Grid {
+                    cols: g.cols,
+                    rows: g.rows,
+                };
+                if d.image_px.is_some() {
+                    d.image_px = Some(perritodeck_render::key_pixel_size(&d.screen, d.grid));
+                }
+            }
+        }
+        info!(device = device_id, "showing profile {profile_id}");
+        self.show_page(st, device_id);
     }
 
     /// Refresh keys whose titles contain live values like `{time}`.
@@ -199,16 +440,23 @@ impl Deck {
         let mut st = self.lock();
         let ids: Vec<String> = st.devices.keys().cloned().collect();
         for id in ids {
-            let (page, grid) = match st.devices.get(&id) {
-                Some(d) => (d.page, d.grid),
+            let (profile, page, grid) = match st.devices.get(&id) {
+                Some(d) => (d.profile.clone(), d.page, d.grid),
                 None => continue,
             };
-            let indexes: Vec<u32> = st.profile.pages[page]
-                .keys
-                .iter()
-                .filter(|k| in_grid(k, grid) && has_template(k))
-                .map(|k| k.at[0] * grid.cols + k.at[1])
-                .collect();
+            let indexes: Vec<u32> = st
+                .slot(&profile)
+                .profile
+                .pages
+                .get(page)
+                .map(|p| {
+                    p.keys
+                        .iter()
+                        .filter(|k| in_grid(k, grid) && has_template(k))
+                        .map(|k| k.at[0] * grid.cols + k.at[1])
+                        .collect()
+                })
+                .unwrap_or_default();
             for index in indexes {
                 self.refresh_key(&mut st, &id, index);
             }
@@ -221,35 +469,50 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let (page, grid) = (d.page, d.grid);
+        let (profile, page, grid) = (d.profile.clone(), d.page, d.grid);
         let at = [key_index / grid.cols.max(1), key_index % grid.cols.max(1)];
-        let Some(key) = st.profile.pages[page]
-            .keys
-            .iter()
-            .find(|k| k.at == at)
+        let Some(key) = st
+            .slot(&profile)
+            .profile
+            .pages
+            .get(page)
+            .and_then(|p| p.keys.iter().find(|k| k.at == at))
             .cloned()
         else {
             return;
         };
 
+        if self.paused() {
+            self.outbox.send(
+                device_id,
+                Message::ShowAlert(KeyFeedback {
+                    key_index,
+                    message: Some("Keys are paused on the computer".into()),
+                }),
+            );
+            return;
+        }
+
         if let Some(nav) = &key.nav {
             let mut d = st.devices.remove(device_id).expect("checked above");
-            d.page = navigate(&st.profile, &mut d, page, nav);
+            d.page = navigate(&st.slot(&profile).profile, &mut d, page, nav);
             st.devices.insert(device_id.to_owned(), d);
             self.show_page(&mut st, device_id);
             return;
         }
 
-        let state = st.toggles.get(&(page, at)).copied().unwrap_or(0);
+        let slot = st.slot(&profile);
+        let state = slot.toggles.get(&(page, at)).copied().unwrap_or(0);
         let action = key.action(state).cloned();
         if key.states.len() >= 2 {
-            st.toggles
+            st.slot_mut(&profile)
+                .toggles
                 .insert((page, at), (state + 1) % key.states.len());
-            // Every device showing this page sees the new state.
+            // Every device showing this page of this profile sees the new state.
             let showing: Vec<(String, u32)> = st
                 .devices
                 .iter()
-                .filter(|(_, d)| d.page == page && in_grid(&key, d.grid))
+                .filter(|(_, d)| d.profile == profile && d.page == page && in_grid(&key, d.grid))
                 .map(|(id, d)| (id.clone(), at[0] * d.grid.cols + at[1]))
                 .collect();
             for (id, idx) in showing {
@@ -312,7 +575,7 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let layout = page_layout(st, d.page, d.grid);
+        let layout = page_layout(st.slot(&d.profile), d.page, d.grid);
         let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
         self.outbox.send(device_id, Message::Layout(layout));
         let images = d.image_px.is_some();
@@ -328,9 +591,11 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let (page, grid, px) = (d.page, d.grid, d.image_px.unwrap_or(0));
+        let (profile, page, grid, px) =
+            (d.profile.clone(), d.page, d.grid, d.image_px.unwrap_or(0));
+        let slot = st.slot_mut(&profile);
         for index in 0..grid.key_count() {
-            if let Some(url) = key_image(st, page, grid, index, px) {
+            if let Some(url) = key_image(slot, page, grid, index, px) {
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -347,8 +612,8 @@ impl Deck {
         let Some(d) = st.devices.get(device_id) else {
             return;
         };
-        let (page, grid, image_px) = (d.page, d.grid, d.image_px);
-        let spec = key_spec(st, page, grid, index);
+        let (profile, page, grid, image_px) = (d.profile.clone(), d.page, d.grid, d.image_px);
+        let spec = key_spec(st.slot(&profile), page, grid, index);
         let previous = d.sent.get(&index).cloned();
         if previous.as_ref() == Some(&spec) {
             return;
@@ -367,7 +632,7 @@ impl Deck {
                     title: spec.title,
                 }),
             );
-            if let Some(url) = key_image(st, page, grid, index, px) {
+            if let Some(url) = key_image(st.slot_mut(&profile), page, grid, index, px) {
                 self.outbox.send(
                     device_id,
                     Message::SetImage(SetImage {
@@ -419,7 +684,7 @@ fn navigate(profile: &Profile, d: &mut DeviceView, page: usize, nav: &NavSpec) -
     }
 }
 
-fn look_at(st: &State, page: usize, grid: Grid, index: u32) -> Option<(Look, [u32; 2])> {
+fn look_at(st: &Slot, page: usize, grid: Grid, index: u32) -> Option<(Look, [u32; 2])> {
     let at = [index / grid.cols.max(1), index % grid.cols.max(1)];
     let key = st
         .profile
@@ -432,7 +697,7 @@ fn look_at(st: &State, page: usize, grid: Grid, index: u32) -> Option<(Look, [u3
     Some((key.look(state), at))
 }
 
-fn key_spec(st: &State, page: usize, grid: Grid, index: u32) -> KeySpec {
+fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32) -> KeySpec {
     match look_at(st, page, grid, index) {
         Some((look, _)) => KeySpec {
             index,
@@ -449,7 +714,7 @@ fn key_spec(st: &State, page: usize, grid: Grid, index: u32) -> KeySpec {
     }
 }
 
-fn page_layout(st: &State, page: usize, grid: Grid) -> Layout {
+fn page_layout(st: &Slot, page: usize, grid: Grid) -> Layout {
     Layout {
         cols: grid.cols,
         rows: grid.rows,
@@ -459,7 +724,7 @@ fn page_layout(st: &State, page: usize, grid: Grid) -> Layout {
     }
 }
 
-fn icon_bytes(st: &mut State, path: &Path) -> Option<Vec<u8>> {
+fn icon_bytes(st: &mut Slot, path: &Path) -> Option<Vec<u8>> {
     let full = st.base_dir.join(path);
     st.icons
         .entry(full.clone())
@@ -475,7 +740,7 @@ fn icon_bytes(st: &mut State, path: &Path) -> Option<Vec<u8>> {
 
 /// Render one key as a PNG data URL. `None` for empty positions (the client's
 /// background is enough).
-fn key_image(st: &mut State, page: usize, grid: Grid, index: u32, px: u32) -> Option<String> {
+fn key_image(st: &mut Slot, page: usize, grid: Grid, index: u32, px: u32) -> Option<String> {
     let (look, _) = look_at(st, page, grid, index)?;
     let icon_png = look.icon.as_deref().and_then(|p| icon_bytes(st, p));
     let style = perritodeck_render::KeyStyle {

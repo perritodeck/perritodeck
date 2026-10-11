@@ -238,6 +238,17 @@ impl PairingStore {
             .collect()
     }
 
+    /// Give a paired device a new name (shown in the app). False if it isn't paired.
+    pub fn rename(&self, device_id: &str, name: &str) -> bool {
+        let mut inner = self.lock();
+        let Some(d) = inner.devices.get_mut(device_id) else {
+            return false;
+        };
+        d.name = name.to_owned();
+        self.save(&inner);
+        true
+    }
+
     /// Forget a device. Returns false if it wasn't paired.
     pub fn revoke(&self, device_id: &str) -> bool {
         let mut inner = self.lock();
@@ -266,6 +277,9 @@ mod tests {
         assert!(!s.verify("dev", "wrong"));
         assert!(!s.verify("other", &secret));
         assert!(s.devices()[0].1.last_seen.is_some());
+        assert!(s.rename("dev", "Desk tablet"));
+        assert_eq!(s.devices()[0].1.name, "Desk tablet");
+        assert!(!s.rename("nobody", "x"));
         assert!(s.revoke("dev"));
         assert!(!s.verify("dev", &secret));
         assert!(!s.revoke("dev"));

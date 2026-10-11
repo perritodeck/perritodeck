@@ -1593,6 +1593,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "core-foundation",
+ "core-graphics",
  "directories",
  "gethostname",
  "notify",
@@ -1608,8 +1610,11 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.61.2",
+ "x11rb",
 ]
 
 [[package]]

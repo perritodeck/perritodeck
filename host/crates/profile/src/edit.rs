@@ -14,6 +14,10 @@ use crate::{NavSpec, Profile};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Edit {
+    /// The profile's display name.
+    SetName {
+        name: String,
+    },
     /// Create the key, or update it. Fields left out (`None`) are removed from the key;
     /// its icon and toggle states are kept.
     SetKey {
@@ -106,6 +110,13 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, EditError> {
 
 fn apply_one(doc: &mut DocumentMut, edit: &Edit) -> Result<(), EditError> {
     match edit {
+        Edit::SetName { name } => {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(EditError::Unsupported("a profile needs a name".into()));
+            }
+            set_opt(doc.as_table_mut(), "name", Some(Value::from(name)));
+        }
         Edit::SetKey { page, at, key } => {
             let keys = page_keys(doc, page)?;
             let i = match find_key(keys, *at) {
@@ -563,6 +574,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed(&out).pages.len(), 2);
+    }
+
+    #[test]
+    fn renaming_the_profile() {
+        let out = apply(
+            STARTER_PROFILE,
+            &[Edit::SetName {
+                name: "Streaming".into(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(parsed(&out).name, "Streaming");
+        assert_eq!(comments(&out), comments(STARTER_PROFILE));
+        assert!(apply(STARTER_PROFILE, &[Edit::SetName { name: " ".into() }]).is_err());
     }
 
     #[test]
