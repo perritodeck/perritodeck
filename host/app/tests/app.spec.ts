@@ -5,7 +5,8 @@ const mock = (page: Page, js: string) => page.evaluate(js);
 test("shows the profile as a deck", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Buttons" })).toBeVisible();
-  await expect(page.getByText("Profile “Starter”, 5 × 3 keys")).toBeVisible();
+  await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("default");
+  await expect(page.getByText("5 × 3 keys")).toBeVisible();
   // Live clock title is filled in, not shown as {time}.
   await expect(page.getByText("{time}")).toHaveCount(0);
 
@@ -224,5 +225,91 @@ test.describe("editing", () => {
     await expect(page.getByText(/toggle with 2 states/)).toBeVisible();
     await expect(page.getByLabel("Title")).toBeDisabled();
     await expect(page.getByLabel("When pressed")).toBeDisabled();
+  });
+});
+
+test.describe("profiles, tablets and switching", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Buttons" })).toBeVisible();
+  });
+
+  test("switch, create, copy, rename and delete profiles", async ({ page }) => {
+    const select = page.getByLabel("Profile", { exact: true });
+    await select.selectOption("streaming");
+    await expect(key(page, /^Rec: OBS/)).toBeVisible();
+
+    await page.getByRole("button", { name: "+ Profile" }).click();
+    await page.getByLabel("New profile name").fill("Gaming");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(select).toHaveValue("gaming");
+    await expect(key(page, "Empty, row 1 column 1")).toBeVisible();
+
+    // Edits go to the profile on screen.
+    await key(page, "Empty, row 1 column 1").click();
+    await page.getByLabel("Title").fill("GG");
+    await expect.poll(() => lastEdits(page)).toEqual([
+      { op: "setKey", page: "Main", at: [0, 0], key: { title: "GG", bg: null, fg: null, action: null, nav: null } },
+    ]);
+
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: /Rename/ }).click();
+    await page.getByLabel("Profile name").fill("Games");
+    await page.getByRole("button", { name: "Rename" }).click();
+    await expect(select.locator("option:checked")).toHaveText("Games");
+
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: "Make a copy" }).click();
+    await page.getByRole("button", { name: "Make copy" }).click();
+    await expect(select.locator("option:checked")).toHaveText("Games copy");
+    await expect(key(page, /^GG/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: "Delete profile" }).click();
+    await expect(select).toHaveValue("default");
+    await expect(select.locator("option", { hasText: "Games copy" })).toHaveCount(0);
+    // The default can't be deleted.
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await expect(page.getByRole("menuitem", { name: "Delete profile" })).toBeDisabled();
+  });
+
+  test("tablets can be renamed and given a profile", async ({ page }) => {
+    await page.getByRole("button", { name: /^Tablets/ }).click();
+    const row = page.getByRole("listitem").filter({ hasText: "Fire HD 10" });
+    await row.getByRole("combobox").selectOption("streaming");
+    await expect(row.getByRole("combobox")).toHaveValue("streaming");
+    await row.getByRole("button", { name: "Fire HD 10" }).click();
+    await page.getByLabel("Tablet name").fill("Desk Fire");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("button", { name: "Desk Fire" })).toBeVisible();
+  });
+
+  test("switching rules", async ({ page }) => {
+    await page.getByRole("button", { name: "Switching" }).click();
+    await expect(page.getByRole("heading", { name: "Switching" })).toBeVisible();
+    await page.getByRole("button", { name: "Add a rule" }).click();
+    await expect(page.getByLabel("Switch profiles by app")).toBeChecked();
+    await expect(page.getByLabel("App name")).toHaveValue("obs64");
+    await expect(page.getByLabel("Profile to show")).toHaveValue("streaming");
+    await page.getByLabel("App name").fill("Code");
+    await page.getByLabel("App name").blur();
+    await expect(page.getByText("Saved")).toBeVisible();
+    const saved = await page.evaluate(() => (window as any).__perritoMock.invoke("get_auto_switch"));
+    expect(saved).toEqual({ enabled: true, rules: [{ app: "Code", profile: "streaming", device: null }] });
+    await page.evaluate(() => (window as any).__perritoMock.emit("host-event", { kind: "foregroundApp", app: "firefox" }));
+    await expect(page.getByText("In front just now:")).toContainText("firefox");
+    await page.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByLabel("App name")).toHaveCount(0);
+  });
+
+  test("pausing keys shows a banner until resumed", async ({ page }) => {
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByLabel("Pause all keys").check();
+    await expect(page.getByText("Keys are paused.")).toBeVisible();
+    await page.getByRole("button", { name: "Resume" }).click();
+    await expect(page.getByText("Keys are paused.")).toHaveCount(0);
+    await expect(page.getByLabel("Pause all keys")).not.toBeChecked();
+    await page.getByLabel("Start PerritoDeck when I log in").check();
+    await expect.poll(() => page.evaluate(() => (window as any).__perritoMock.autostart)).toBe(true);
   });
 });

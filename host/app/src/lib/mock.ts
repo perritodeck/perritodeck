@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileView } from "./types";
+import type { AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -14,12 +14,22 @@ const status: HostStatus = {
   insecure: false,
   dataDir: "/home/me/.config/PerritoDeck",
   profilePath: "/home/me/.config/PerritoDeck/profiles/default.toml",
+  profilesDir: "/home/me/.config/PerritoDeck/profiles",
   integrations: ["OBS"],
+  paused: false,
+  autoSwitchSupported: true,
 };
 
 let devices: DeviceInfo[] = [
-  { id: "a1b2c3", name: "Fire HD 10", lastSeen: Math.floor(Date.now() / 1000), connected: true },
-  { id: "d4e5f6", name: "Pixel Tablet", lastSeen: Math.floor(Date.now() / 1000) - 3 * 86400, connected: false },
+  { id: "a1b2c3", name: "Fire HD 10", lastSeen: Math.floor(Date.now() / 1000), connected: true, profile: "default", assignedProfile: null },
+  {
+    id: "d4e5f6",
+    name: "Pixel Tablet",
+    lastSeen: Math.floor(Date.now() / 1000) - 3 * 86400,
+    connected: false,
+    profile: "default",
+    assignedProfile: null,
+  },
 ];
 
 function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?: Partial<KeyView>): KeyView {
@@ -40,7 +50,8 @@ function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?
 
 const dark = "#11111B";
 
-let profile: ProfileView = {
+const starter: ProfileView = {
+  id: "default",
   name: "Starter",
   cols: 5,
   rows: 3,
@@ -83,8 +94,32 @@ let profile: ProfileView = {
   ],
 };
 
-const undoStack: ProfileView[] = [];
-const redoStack: ProfileView[] = [];
+const streaming: ProfileView = {
+  id: "streaming",
+  name: "Streaming",
+  cols: 5,
+  rows: 3,
+  fixedGrid: true,
+  reloadError: null,
+  canUndo: false,
+  canRedo: false,
+  pages: [
+    {
+      name: "Main",
+      keys: [
+        key(0, 0, { title: "Rec", bg: "#F38BA8", fg: dark, action: { type: "obs", op: "toggleRecord" } }),
+        key(0, 1, { title: "Live", bg: "#F38BA8", fg: dark, action: { type: "obs", op: "toggleStream" } }),
+      ],
+    },
+  ],
+};
+
+let profiles: Record<string, ProfileView> = { default: starter, streaming };
+let autoSwitch: AutoSwitch = { enabled: false, rules: [] };
+
+type Snapshot = { id: string; before: ProfileView | null; after: ProfileView | null };
+const undoStack: Snapshot[] = [];
+const redoStack: Snapshot[] = [];
 
 const listeners = new Map<string, Set<Listener>>();
 let failStart: string | null = null;
@@ -114,6 +149,10 @@ const same = (k: KeyView, at: [number, number]) => k.row === at[0] && k.col === 
 /** The same rules as the Rust side, closely enough for UI work and tests. */
 function applyEdit(p: ProfileView, e: Edit) {
   switch (e.op) {
+    case "setName":
+      if (!e.name.trim()) throw "a profile needs a name";
+      p.name = e.name.trim();
+      return;
     case "setKey": {
       if (e.key.bg && !/^#[0-9a-fA-F]{6}$/.test(e.key.bg)) throw "that change would break the profile:\n  - colours look like #1E1E2E";
       const pg = page(p, e.page);
@@ -186,8 +225,21 @@ function applyEdit(p: ProfileView, e: Edit) {
   }
 }
 
-function view(): ProfileView {
-  return structuredClone({ ...profile, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 });
+function view(id: string): ProfileView {
+  const p = profiles[id];
+  if (!p) throw `There's no profile called ${id}.`;
+  return structuredClone({ ...p, canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 });
+}
+
+function summaries(): ProfileSummary[] {
+  return Object.values(profiles)
+    .map((p) => ({ id: p.id, name: p.name, pages: p.pages.length, isDefault: p.id === "default", hasError: !!p.reloadError }))
+    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name));
+}
+
+function slug(name: string) {
+  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return s || "profile";
 }
 
 export const mock = {
@@ -221,27 +273,82 @@ export const mock = {
         };
         return out(offer);
       }
+      case "list_profiles":
+        return out(summaries());
       case "get_profile":
-        return out(view());
+        return out(view((args?.id as string | null) ?? "default"));
       case "edit_profile": {
+        const id = args?.id as string;
         const edits = args?.edits as Edit[];
-        const draft = structuredClone(profile);
+        const draft = structuredClone(profiles[id]);
+        if (!draft) throw `There's no profile called ${id}.`;
         for (const e of edits) applyEdit(draft, e);
         this.edits.push(edits);
-        undoStack.push(profile);
+        undoStack.push({ id, before: profiles[id], after: draft });
         redoStack.length = 0;
-        profile = draft;
-        return out(view());
+        profiles[id] = draft;
+        return out(view(id));
       }
       case "undo_edit":
       case "redo_edit": {
-        const [from, to] = cmd === "undo_edit" ? [undoStack, redoStack] : [redoStack, undoStack];
-        const prev = from.pop();
-        if (!prev) throw `Nothing to ${cmd === "undo_edit" ? "undo" : "redo"}.`;
-        to.push(profile);
-        profile = prev;
-        return out(view());
+        const back = cmd === "undo_edit";
+        const [from, to] = back ? [undoStack, redoStack] : [redoStack, undoStack];
+        const step = from.pop();
+        if (!step) throw `Nothing to ${back ? "undo" : "redo"}.`;
+        to.push(step);
+        const target = back ? step.before : step.after;
+        if (target) profiles[step.id] = target;
+        return out(view(step.id));
       }
+      case "create_profile": {
+        const name = (args?.name as string).trim();
+        if (!name) throw "A profile needs a name.";
+        let id = slug(name);
+        for (let n = 2; profiles[id]; n++) id = `${slug(name)}-${n}`;
+        const from = args?.copyOf as string | null;
+        profiles[id] = from
+          ? { ...structuredClone(profiles[from]), id, name }
+          : { id, name, cols: 5, rows: 3, fixedGrid: false, reloadError: null, canUndo: false, canRedo: false, pages: [{ name: "Main", keys: [] }] };
+        return out(id);
+      }
+      case "delete_profile": {
+        const id = args?.id as string;
+        if (id === "default") throw "The default profile can't be deleted.";
+        delete profiles[id];
+        devices = devices.map((d) => (d.assignedProfile === id ? { ...d, assignedProfile: null, profile: "default" } : d));
+        autoSwitch = { ...autoSwitch, rules: autoSwitch.rules.filter((r) => r.profile !== id) };
+        return out(undefined);
+      }
+      case "assign_profile": {
+        const pid = (args?.profileId as string | null) ?? null;
+        if (pid && !profiles[pid]) throw `There's no profile called ${pid}.`;
+        devices = devices.map((d) =>
+          d.id === args?.deviceId ? { ...d, assignedProfile: pid === "default" ? null : pid, profile: pid ?? "default" } : d,
+        );
+        return out(undefined);
+      }
+      case "rename_device": {
+        const name = (args?.name as string).trim();
+        if (!name) throw "A tablet needs a name.";
+        devices = devices.map((d) => (d.id === args?.deviceId ? { ...d, name } : d));
+        return out(undefined);
+      }
+      case "set_paused":
+        status.paused = !!args?.paused;
+        this.emit("host-event", { kind: "profileChanged" });
+        return out(undefined);
+      case "get_auto_switch":
+        return out(autoSwitch);
+      case "set_auto_switch":
+        autoSwitch = structuredClone(args?.auto as AutoSwitch);
+        return out(undefined);
+      case "recent_apps":
+        return out(["obs64", "Code", "firefox"]);
+      case "get_autostart":
+        return out(this.autostart);
+      case "set_autostart":
+        this.autostart = !!args?.enabled;
+        return out(undefined);
       case "test_action": {
         const a = args?.action as { type: string; program?: string };
         this.tested.push(args?.action);
@@ -268,15 +375,16 @@ export const mock = {
   /** Test hooks. */
   hostEvent(e: HostEvent) {
     if (e.kind === "paired") {
-      devices.push({ id: e.deviceId, name: e.deviceName, lastSeen: null, connected: false });
+      devices.push({ id: e.deviceId, name: e.deviceName, lastSeen: null, connected: false, profile: "default", assignedProfile: null });
     }
     if (e.kind === "connected" || e.kind === "disconnected") {
       devices = devices.map((d) => (d.id === e.deviceId ? { ...d, connected: e.kind === "connected" } : d));
     }
     this.emit("host-event", e);
   },
+  autostart: false,
   setReloadError(msg: string | null) {
-    profile.reloadError = msg;
+    profiles.default.reloadError = msg;
     this.emit("host-event", { kind: "profileChanged" });
   },
   failToStart(msg: string) {

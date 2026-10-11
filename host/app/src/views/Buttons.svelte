@@ -3,11 +3,16 @@
   import { api } from "../lib/api";
   import { canon } from "../lib/canon";
   import KeyInspector from "../components/KeyInspector.svelte";
-  import type { Edit, HostStatus, KeyFields, KeyView, Pos, ProfileView } from "../lib/types";
+  import type { Edit, HostStatus, KeyFields, KeyView, Pos, ProfileSummary, ProfileView } from "../lib/types";
 
   let { status: _status }: { status: HostStatus } = $props();
 
+  let profiles = $state<ProfileSummary[]>([]);
+  let profileId = $state<string | undefined>(undefined);
   let profile = $state<ProfileView | null>(null);
+  let profileMenu = $state(false);
+  let profileNaming = $state<null | { mode: "new" } | { mode: "copy" } | { mode: "rename" }>(null);
+  let profileNameDraft = $state("");
   let pageIndex = $state(0);
   let selected = $state<Pos | null>(null);
   let now = $state(new Date());
@@ -47,19 +52,80 @@
   }
 
   function show(view: ProfileView) {
+    if (view.id !== profile?.id) {
+      pageIndex = 0;
+      selected = null;
+    }
     profile = view;
+    profileId = view.id;
     if (pageIndex >= view.pages.length) pageIndex = view.pages.length - 1;
     resync();
   }
 
   async function load() {
-    show(await api.profile());
+    profiles = await api.profiles();
+    if (profileId && !profiles.some((p) => p.id === profileId)) profileId = undefined;
+    show(await api.profile(profileId));
+  }
+
+  async function openProfile(id: string) {
+    profileMenu = false;
+    profileId = id;
+    try {
+      show(await api.profile(id));
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  function startProfileNaming(mode: "new" | "copy" | "rename") {
+    profileMenu = false;
+    profileNameDraft = mode === "rename" ? (profile?.name ?? "") : mode === "copy" ? `${profile?.name ?? ""} copy` : "";
+    profileNaming = { mode };
+    tick().then(() => document.querySelector<HTMLInputElement>("#profile-name")?.select());
+  }
+
+  async function submitProfileName() {
+    const name = profileNameDraft.trim();
+    if (!profileNaming || !name || !profile) {
+      profileNaming = null;
+      return;
+    }
+    try {
+      if (profileNaming.mode === "rename") {
+        show(await api.edit(profile.id, [{ op: "setName", name }]));
+      } else {
+        const id = await api.createProfile(name, profileNaming.mode === "copy" ? profile.id : undefined);
+        profiles = await api.profiles();
+        await openProfile(id);
+      }
+      profiles = await api.profiles();
+      profileNaming = null;
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function deleteProfile() {
+    if (!profile) return;
+    profileMenu = false;
+    try {
+      await api.deleteProfile(profile.id);
+      profileId = undefined;
+      await load();
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
   }
 
   async function run(edits: Edit[]): Promise<boolean> {
+    if (!profile) return false;
     busy = true;
     try {
-      show(await api.edit(edits));
+      show(await api.edit(profile.id, edits));
       error = null;
       return true;
     } catch (e) {
@@ -222,7 +288,7 @@
 
   async function openFile() {
     try {
-      await api.openProfileFile();
+      await api.openProfileFile(profile?.id);
     } catch (e) {
       error = String(e);
     }
@@ -247,13 +313,55 @@
   <div>
     <h1>Buttons</h1>
     {#if profile}
-      <p class="sub">Profile “{profile.name}”, {profile.cols} × {profile.rows} keys</p>
+      <div class="profile-bar">
+        {#if profileNaming}
+          <form class="naming" onsubmit={(e) => (e.preventDefault(), submitProfileName())}>
+            <input
+              id="profile-name"
+              aria-label={profileNaming.mode === "rename" ? "Profile name" : "New profile name"}
+              bind:value={profileNameDraft}
+              onkeydown={(e) => e.key === "Escape" && (profileNaming = null)}
+              maxlength="60"
+            />
+            <button class="btn small primary" type="submit"
+              >{profileNaming.mode === "rename" ? "Rename" : profileNaming.mode === "copy" ? "Make copy" : "Create"}</button
+            >
+            <button class="btn small quiet" type="button" onclick={() => (profileNaming = null)}>Cancel</button>
+          </form>
+        {:else}
+          <label class="sr-only" for="profile-select">Profile</label>
+          <select id="profile-select" value={profile.id} onchange={(e) => openProfile(e.currentTarget.value)}>
+            {#each profiles as p (p.id)}
+              <option value={p.id}>{p.name}{p.isDefault ? " (default)" : ""}{p.hasError ? " — has a mistake" : ""}</option>
+            {/each}
+          </select>
+          <span class="sub">{profile.cols} × {profile.rows} keys</span>
+          <button class="btn small quiet" onclick={() => startProfileNaming("new")}>+ Profile</button>
+          <div class="menu-wrap">
+            <button class="btn small quiet" aria-expanded={profileMenu} aria-haspopup="menu" onclick={() => (profileMenu = !profileMenu)}
+              >Profile options</button
+            >
+            {#if profileMenu}
+              <div class="menu" role="menu">
+                <button role="menuitem" onclick={() => startProfileNaming("rename")}>Rename “{profile.name}”</button>
+                <button role="menuitem" onclick={() => startProfileNaming("copy")}>Make a copy</button>
+                <button role="menuitem" onclick={openFile}>Open the file</button>
+                <button
+                  role="menuitem"
+                  class="danger"
+                  onclick={deleteProfile}
+                  disabled={profiles.find((p) => p.id === profile?.id)?.isDefault}>Delete profile</button
+                >
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
   <div class="actions">
     <button class="btn quiet" onclick={() => history("undo")} disabled={!profile?.canUndo} title="Undo (Ctrl+Z)">Undo</button>
     <button class="btn quiet" onclick={() => history("redo")} disabled={!profile?.canRedo} title="Redo (Ctrl+Shift+Z)">Redo</button>
-    <button class="btn" onclick={openFile}>Open profile file</button>
   </div>
 </header>
 
@@ -402,7 +510,30 @@
     gap: 16px;
     margin-bottom: 18px;
   }
-  .sub { color: var(--ink-soft); margin-top: 4px; }
+  .sub { color: var(--ink-soft); font-size: 0.9rem; }
+  .profile-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .profile-bar select {
+    font: 700 0.95rem var(--body);
+    color: var(--ink);
+    background: var(--paper);
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 12px;
+    max-width: 260px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
   .actions { display: flex; gap: 4px; align-items: center; }
   .actions .btn:disabled { opacity: 0.4; cursor: default; }
 

@@ -6,6 +6,7 @@
   import Tablets from "./views/Tablets.svelte";
   import Pair from "./views/Pair.svelte";
   import Settings from "./views/Settings.svelte";
+  import Switching from "./views/Switching.svelte";
 
   let view = $state<View>("buttons");
   let status = $state<HostStatus | null>(null);
@@ -16,6 +17,15 @@
 
   async function refreshDevices() {
     devices = await api.devices();
+  }
+
+  async function refreshStatus() {
+    status = await api.status();
+  }
+
+  async function resume() {
+    await api.setPaused(false);
+    await refreshStatus();
   }
 
   onMount(() => {
@@ -33,6 +43,10 @@
     offs.push(
       api.onHostEvent((e) => {
         if (e.kind === "connected" || e.kind === "disconnected" || e.kind === "paired") refreshDevices();
+        if (e.kind === "profileChanged") {
+          refreshStatus();
+          refreshDevices();
+        }
       }),
     );
     return () => offs.forEach((p) => p.then((off) => off()));
@@ -42,6 +56,7 @@
     { id: "buttons", label: "Buttons" },
     { id: "tablets", label: "Tablets" },
     { id: "pair", label: "Pair a tablet" },
+    { id: "switching", label: "Switching" },
     { id: "settings", label: "Settings" },
   ];
 </script>
@@ -95,14 +110,22 @@
         </p>
       </section>
     {:else if status}
+      {#if status.paused}
+        <div class="paused" role="status">
+          <span><strong>Keys are paused.</strong> Presses on the tablets do nothing until you resume.</span>
+          <button class="btn small" onclick={resume}>Resume</button>
+        </div>
+      {/if}
       {#if view === "buttons"}
         <Buttons {status} />
       {:else if view === "tablets"}
         <Tablets {devices} onchange={refreshDevices} onpair={() => (view = "pair")} />
       {:else if view === "pair"}
         <Pair {status} ondone={() => (view = "tablets")} />
+      {:else if view === "switching"}
+        <Switching {status} {devices} />
       {:else}
-        <Settings {status} />
+        <Settings {status} onchange={refreshStatus} />
       {/if}
     {/if}
   </main>
@@ -184,6 +207,19 @@
     overflow: auto;
     padding: 32px 40px 48px;
   }
+
+  .paused {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    max-width: 980px;
+    margin: -12px 0 20px;
+    padding: 10px 10px 10px 16px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--apricot) 28%, var(--paper));
+  }
+  .paused .btn { padding: 5px 14px; }
 
   .failed {
     max-width: 60ch;

@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, DeviceInfo, Edit, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -22,14 +22,25 @@ export const api = {
   status: () => call<HostStatus>("get_status"),
   devices: () => call<DeviceInfo[]>("list_devices"),
   revoke: (deviceId: string) => call<boolean>("revoke_device", { deviceId }),
+  renameDevice: (deviceId: string, name: string) => call<void>("rename_device", { deviceId, name }),
+  assignProfile: (deviceId: string, profileId: string | null) => call<void>("assign_profile", { deviceId, profileId }),
   startPairing: () => call<PairingOffer>("start_pairing"),
-  profile: () => call<ProfileView>("get_profile"),
-  edit: (edits: Edit[]) => call<ProfileView>("edit_profile", { edits }),
+  profiles: () => call<ProfileSummary[]>("list_profiles"),
+  profile: (id?: string) => call<ProfileView>("get_profile", { id: id ?? null }),
+  edit: (id: string, edits: Edit[]) => call<ProfileView>("edit_profile", { id, edits }),
+  createProfile: (name: string, copyOf?: string) => call<string>("create_profile", { name, copyOf: copyOf ?? null }),
+  deleteProfile: (id: string) => call<void>("delete_profile", { id }),
   undo: () => call<ProfileView>("undo_edit"),
   redo: () => call<ProfileView>("redo_edit"),
   /** Runs the action now; resolves to a warning note, or null when it went fine. */
   testAction: (action: ActionSpec) => call<string | null>("test_action", { action }),
-  openProfileFile: () => call<void>("open_profile_file"),
+  setPaused: (paused: boolean) => call<void>("set_paused", { paused }),
+  autoSwitch: () => call<AutoSwitch>("get_auto_switch"),
+  setAutoSwitch: (auto: AutoSwitch) => call<void>("set_auto_switch", { auto }),
+  recentApps: () => call<string[]>("recent_apps"),
+  autostart: () => call<boolean>("get_autostart"),
+  setAutostart: (enabled: boolean) => call<void>("set_autostart", { enabled }),
+  openProfileFile: (id?: string) => call<void>("open_profile_file", { id: id ?? null }),
   openDataFolder: () => call<void>("open_data_folder"),
   onHostEvent: (cb: (e: HostEvent) => void) => on<HostEvent>("host-event", cb),
   onNavigate: (cb: (v: View) => void) => on<View>("navigate", cb),

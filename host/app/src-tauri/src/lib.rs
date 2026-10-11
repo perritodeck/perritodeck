@@ -3,23 +3,28 @@
 //! The window is a view onto [`perritodeck_host::Host`]; closing it leaves the host
 //! running in the tray so the tablets keep working.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
-    ActionSpec, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus, PairingOffer,
-    ProfileView,
+    ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
+    PairingOffer, ProfileSummary, ProfileView,
 };
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, State, WindowEvent,
+    AppHandle, Emitter, Manager, State, Wry,
 };
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_opener::OpenerExt;
 use tracing::{error, info};
+
+/// Passed when the app starts at login, so it goes straight to the tray.
+const HIDDEN_ARG: &str = "--hidden";
 
 /// The running host, or why it couldn't start (shown in the window).
 struct App {
     host: Result<Arc<Host>, String>,
+    pause_item: Mutex<Option<CheckMenuItem<Wry>>>,
 }
 
 impl App {
@@ -28,60 +33,132 @@ impl App {
     }
 }
 
+type Res<T> = Result<T, String>;
+
 #[tauri::command]
-fn get_status(app: State<'_, App>) -> Result<HostStatus, String> {
+fn get_status(app: State<'_, App>) -> Res<HostStatus> {
     Ok(app.host()?.status())
 }
 
 #[tauri::command]
-fn list_devices(app: State<'_, App>) -> Result<Vec<DeviceInfo>, String> {
+fn list_devices(app: State<'_, App>) -> Res<Vec<DeviceInfo>> {
     Ok(app.host()?.devices())
 }
 
 #[tauri::command]
-fn revoke_device(app: State<'_, App>, device_id: String) -> Result<bool, String> {
+fn revoke_device(app: State<'_, App>, device_id: String) -> Res<bool> {
     Ok(app.host()?.revoke(&device_id))
 }
 
 #[tauri::command]
-fn start_pairing(app: State<'_, App>) -> Result<PairingOffer, String> {
+fn rename_device(app: State<'_, App>, device_id: String, name: String) -> Res<()> {
+    app.host()?.rename_device(&device_id, &name)
+}
+
+#[tauri::command]
+fn assign_profile(app: State<'_, App>, device_id: String, profile_id: Option<String>) -> Res<()> {
+    app.host()?
+        .assign_profile(&device_id, profile_id.as_deref())
+}
+
+#[tauri::command]
+fn start_pairing(app: State<'_, App>) -> Res<PairingOffer> {
     app.host()?.new_pairing_offer().ok_or_else(|| {
         "Pairing is off because the host is running in insecure development mode.".to_owned()
     })
 }
 
 #[tauri::command]
-fn get_profile(app: State<'_, App>) -> Result<ProfileView, String> {
-    Ok(app.host()?.profile_view())
-}
-
-/// Apply editor changes to the profile file; tablets update straight away.
-#[tauri::command]
-fn edit_profile(app: State<'_, App>, edits: Vec<Edit>) -> Result<ProfileView, String> {
-    app.host()?.edit_profile(&edits)
+fn list_profiles(app: State<'_, App>) -> Res<Vec<ProfileSummary>> {
+    Ok(app.host()?.profiles())
 }
 
 #[tauri::command]
-fn undo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
+fn get_profile(app: State<'_, App>, id: Option<String>) -> Res<ProfileView> {
+    app.host()?.profile_view(id.as_deref())
+}
+
+/// Apply editor changes to a profile file; tablets update straight away.
+#[tauri::command]
+fn edit_profile(app: State<'_, App>, id: String, edits: Vec<Edit>) -> Res<ProfileView> {
+    app.host()?.edit_profile(&id, &edits)
+}
+
+#[tauri::command]
+fn create_profile(app: State<'_, App>, name: String, copy_of: Option<String>) -> Res<String> {
+    app.host()?.create_profile(&name, copy_of.as_deref())
+}
+
+#[tauri::command]
+fn delete_profile(app: State<'_, App>, id: String) -> Res<()> {
+    app.host()?.delete_profile(&id)
+}
+
+#[tauri::command]
+fn undo_edit(app: State<'_, App>) -> Res<ProfileView> {
     app.host()?.undo()
 }
 
 #[tauri::command]
-fn redo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
+fn redo_edit(app: State<'_, App>) -> Res<ProfileView> {
     app.host()?.redo()
 }
 
 /// Run an action now, from the editor's "Try it" button.
 #[tauri::command]
-async fn test_action(app: State<'_, App>, action: ActionSpec) -> Result<Option<String>, String> {
+async fn test_action(app: State<'_, App>, action: ActionSpec) -> Res<Option<String>> {
     let host = app.host()?.clone();
     host.test_action(&action).await
 }
 
-/// Open the profile in the user's text editor.
 #[tauri::command]
-fn open_profile_file(handle: AppHandle, app: State<'_, App>) -> Result<(), String> {
-    let path = app.host()?.profile_path.clone();
+fn set_paused(app: State<'_, App>, paused: bool) -> Res<()> {
+    app.host()?.set_paused(paused);
+    if let Some(item) = app.pause_item.lock().expect("pause item").as_ref() {
+        let _ = item.set_checked(paused);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_auto_switch(app: State<'_, App>) -> Res<AutoSwitch> {
+    Ok(app.host()?.auto_switch())
+}
+
+#[tauri::command]
+fn set_auto_switch(app: State<'_, App>, auto: AutoSwitch) -> Res<()> {
+    app.host()?.set_auto_switch(auto)
+}
+
+#[tauri::command]
+fn recent_apps(app: State<'_, App>) -> Res<Vec<String>> {
+    Ok(app.host()?.recent_apps())
+}
+
+#[tauri::command]
+fn get_autostart(handle: AppHandle) -> Res<bool> {
+    handle.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_autostart(handle: AppHandle, enabled: bool) -> Res<()> {
+    let launcher = handle.autolaunch();
+    if enabled {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// Open a profile in the user's text editor; `None` for the default.
+#[tauri::command]
+fn open_profile_file(handle: AppHandle, app: State<'_, App>, id: Option<String>) -> Res<()> {
+    let host = app.host()?;
+    let path = match id {
+        Some(id) => host.profiles_dir.join(format!("{id}.toml")),
+        None => host.profile_path.clone(),
+    };
     handle
         .opener()
         .open_path(path.to_string_lossy(), None::<&str>)
@@ -90,7 +167,7 @@ fn open_profile_file(handle: AppHandle, app: State<'_, App>) -> Result<(), Strin
 
 /// Show the settings folder in the file manager.
 #[tauri::command]
-fn open_data_folder(handle: AppHandle, app: State<'_, App>) -> Result<(), String> {
+fn open_data_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
     let dir = app.host()?.data_dir.clone();
     handle
         .opener()
@@ -116,12 +193,13 @@ fn start_host() -> Result<Host, String> {
     tauri::async_runtime::block_on(Host::start(opts)).map_err(|e| format!("{e:#}"))
 }
 
-fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+fn build_tray(app: &tauri::App, paused: bool) -> tauri::Result<CheckMenuItem<Wry>> {
     let open = MenuItem::with_id(app, "open", "Open PerritoDeck", true, None::<&str>)?;
     let pair = MenuItem::with_id(app, "pair", "Pair a tablet…", true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", "Pause keys", true, paused, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit PerritoDeck", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pair, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &pair, &pause, &sep, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("PerritoDeck")
         .menu(&menu)
@@ -132,6 +210,16 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                 show_window(app);
                 let _ = app.emit("navigate", "pair");
             }
+            "pause" => {
+                let state = app.state::<App>();
+                if let Ok(host) = state.host() {
+                    let now = !host.paused();
+                    host.set_paused(now);
+                    if let Some(item) = state.pause_item.lock().expect("pause item").as_ref() {
+                        let _ = item.set_checked(now);
+                    }
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         });
@@ -139,7 +227,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
-    Ok(())
+    Ok(pause)
 }
 
 /// Forward host events to the window, and keep the tray tooltip current.
@@ -151,7 +239,9 @@ fn forward_events(handle: AppHandle, host: &Host) {
                 Ok(event) => {
                     if matches!(
                         event,
-                        HostEvent::Connected { .. } | HostEvent::Disconnected { .. }
+                        HostEvent::Connected { .. }
+                            | HostEvent::Disconnected { .. }
+                            | HostEvent::ProfileChanged
                     ) {
                         update_tooltip(&handle);
                     }
@@ -170,11 +260,14 @@ fn update_tooltip(handle: &AppHandle) {
     };
     let Ok(host) = app.host() else { return };
     let n = host.devices().iter().filter(|d| d.connected).count();
-    let text = match n {
+    let mut text = match n {
         0 => "PerritoDeck — no tablets connected".to_owned(),
         1 => "PerritoDeck — 1 tablet connected".to_owned(),
         n => format!("PerritoDeck — {n} tablets connected"),
     };
+    if host.paused() {
+        text.push_str(" (keys paused)");
+    }
     if let Some(tray) = handle.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(text));
     }
@@ -195,6 +288,10 @@ pub fn run() {
             show_window(app)
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_ARG]),
+        ))
         .setup(|app| {
             let host = start_host().map(Arc::new);
             match &host {
@@ -204,14 +301,23 @@ pub fn run() {
                 }
                 Err(e) => error!("host didn't start: {e}"),
             }
-            app.manage(App { host });
-            build_tray(app)?;
+            let paused = host.as_ref().is_ok_and(|h| h.paused());
+            app.manage(App {
+                host,
+                pause_item: Mutex::new(None),
+            });
+            let pause = build_tray(app, paused)?;
+            *app.state::<App>().pause_item.lock().expect("pause item") = Some(pause);
             update_tooltip(app.handle());
+            // Started at login: stay in the tray. Otherwise show the window.
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                show_window(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
             // Closing the window keeps the host running in the tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -220,12 +326,23 @@ pub fn run() {
             get_status,
             list_devices,
             revoke_device,
+            rename_device,
+            assign_profile,
             start_pairing,
+            list_profiles,
             get_profile,
             edit_profile,
+            create_profile,
+            delete_profile,
             undo_edit,
             redo_edit,
             test_action,
+            set_paused,
+            get_auto_switch,
+            set_auto_switch,
+            recent_apps,
+            get_autostart,
+            set_autostart,
             open_profile_file,
             open_data_folder,
         ])

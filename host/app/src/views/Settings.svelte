@@ -1,9 +1,19 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { api } from "../lib/api";
   import type { HostStatus } from "../lib/types";
 
-  let { status }: { status: HostStatus } = $props();
+  let { status, onchange }: { status: HostStatus; onchange: () => void } = $props();
   let error = $state<string | null>(null);
+  let autostart = $state<boolean | null>(null);
+
+  onMount(async () => {
+    try {
+      autostart = await api.autostart();
+    } catch {
+      autostart = null;
+    }
+  });
 
   async function run(f: () => Promise<void>) {
     error = null;
@@ -22,6 +32,40 @@
 {/if}
 
 <dl>
+  <dt>Keys</dt>
+  <dd>
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={status.paused}
+        onchange={(e) => run(async () => (await api.setPaused(e.currentTarget.checked), onchange()))}
+      />
+      Pause all keys
+    </label>
+    <small>While paused, presses on the tablets do nothing. Also in the tray menu.</small>
+  </dd>
+
+  {#if autostart !== null}
+    <dt>Start</dt>
+    <dd>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={autostart}
+          onchange={(e) => {
+            const on = e.currentTarget.checked;
+            run(async () => {
+              await api.setAutostart(on);
+              autostart = on;
+            });
+          }}
+        />
+        Start PerritoDeck when I log in
+      </label>
+      <small>It starts in the tray, so the tablets work without opening this window.</small>
+    </dd>
+  {/if}
+
   <dt>This computer</dt>
   <dd>{status.hostName}</dd>
 
@@ -41,10 +85,10 @@
     <small>Most tablets find this computer by themselves. Type an address in Perrito only if yours doesn’t.</small>
   </dd>
 
-  <dt>Profile</dt>
+  <dt>Profiles</dt>
   <dd>
-    <span class="mono selectable">{status.profilePath}</span>
-    <span><button class="btn" onclick={() => run(api.openProfileFile)}>Edit profile file</button></span>
+    <span class="mono selectable">{status.profilesDir}</span>
+    <small>One <code>.toml</code> file per profile. Files you add, change or delete here show up straight away.</small>
   </dd>
 
   <dt>Settings folder</dt>
@@ -82,4 +126,6 @@
   .mono { font-family: ui-monospace, monospace; font-size: 0.9rem; overflow-wrap: anywhere; }
   small { color: var(--ink-soft); font-size: 0.85rem; max-width: 60ch; }
   .err { color: var(--danger); margin-bottom: 16px; }
+  .check { display: flex; align-items: center; gap: 8px; }
+  .check input { width: 17px; height: 17px; accent-color: var(--apricot-deep); }
 </style>

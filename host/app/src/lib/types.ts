@@ -8,7 +8,10 @@ export interface HostStatus {
   insecure: boolean;
   dataDir: string;
   profilePath: string;
+  profilesDir: string;
   integrations: string[];
+  paused: boolean;
+  autoSwitchSupported: boolean;
 }
 
 export interface DeviceInfo {
@@ -17,6 +20,29 @@ export interface DeviceInfo {
   /** Unix seconds. */
   lastSeen: number | null;
   connected: boolean;
+  /** The profile it shows now. */
+  profile: string;
+  /** The profile chosen for it; null means the default. */
+  assignedProfile: string | null;
+}
+
+export interface ProfileSummary {
+  id: string;
+  name: string;
+  pages: number;
+  isDefault: boolean;
+  hasError: boolean;
+}
+
+export interface SwitchRule {
+  app: string;
+  profile: string;
+  device?: string | null;
+}
+
+export interface AutoSwitch {
+  enabled: boolean;
+  rules: SwitchRule[];
 }
 
 export interface PairingOffer {
@@ -77,6 +103,7 @@ export type Edit =
   | { op: "clearKey"; page: string; at: Pos }
   | { op: "moveKey"; page: string; from: Pos; to: Pos }
   | { op: "moveKeyToPage"; fromPage: string; at: Pos; toPage: string; to: Pos }
+  | { op: "setName"; name: string }
   | { op: "addPage"; name: string }
   | { op: "renamePage"; from: string; to: string }
   | { op: "removePage"; name: string }
@@ -104,6 +131,7 @@ export interface PageView {
 }
 
 export interface ProfileView {
+  id: string;
   name: string;
   cols: number;
   rows: number;
@@ -119,6 +147,7 @@ export type HostEvent =
   | { kind: "disconnected"; deviceId: string }
   | { kind: "paired"; deviceId: string; deviceName: string }
   | { kind: "keyPressed"; deviceId: string; keyIndex: number }
-  | { kind: "profileChanged" };
+  | { kind: "profileChanged" }
+  | { kind: "foregroundApp"; app: string | null };
 
-export type View = "buttons" | "tablets" | "pair" | "settings";
+export type View = "buttons" | "tablets" | "pair" | "switching" | "settings";
