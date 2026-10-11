@@ -1694,6 +1694,7 @@ dependencies = [
  "toml_edit",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "windows-sys 0.61.2",
  "x11rb",
  "zip",

@@ -462,6 +462,28 @@ export const mock = {
       case "set_autostart":
         this.autostart = !!args?.enabled;
         return out(undefined);
+      case "get_network":
+        return out({ ...this.network });
+      case "set_network": {
+        const n = args?.network as { port: number; lan: boolean };
+        if (n.port < 1024) throw "Use a port from 1024 up.";
+        this.network = { ...n };
+        return out(undefined);
+      }
+      case "get_check_updates":
+        return out(this.checkUpdates);
+      case "set_check_updates":
+        this.checkUpdates = !!args?.enabled;
+        return out(undefined);
+      case "check_for_updates":
+        if (typeof this.latest === "string") throw this.latest;
+        return out(this.latest);
+      case "open_release_page":
+        this.opened.push(String(args?.url));
+        return out(undefined);
+      case "restart_app":
+        this.restarted = true;
+        return out(undefined);
       case "test_action": {
         const a = args?.action as { type: string; program?: string };
         this.tested.push(args?.action);
@@ -496,6 +518,13 @@ export const mock = {
     this.emit("host-event", e);
   },
   autostart: false,
+  network: { port: 46710, lan: true },
+  // Tests can set these before the page loads, through window.__perritoMockInit.
+  checkUpdates: !!init().checkUpdates,
+  /** What check_for_updates answers; a string is an error. */
+  latest: (init().latest ?? null) as { version: string; url: string } | string | null,
+  restarted: false,
+  opened: [] as string[],
   exported: [] as string[],
   accessibility: null as boolean | null,
   setReloadError(msg: string | null) {
@@ -506,5 +535,9 @@ export const mock = {
     failStart = msg;
   },
 };
+
+function init(): { checkUpdates?: boolean; latest?: { version: string; url: string } | string | null } {
+  return typeof window !== "undefined" ? ((window as unknown as { __perritoMockInit?: object }).__perritoMockInit ?? {}) : {};
+}
 
 if (typeof window !== "undefined") (window as unknown as { __perritoMock: typeof mock }).__perritoMock = mock;

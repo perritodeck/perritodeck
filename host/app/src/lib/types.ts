@@ -218,3 +218,15 @@ export interface PluginsView {
   folder: string;
   catalog: { manifest: PluginManifest; installed: boolean }[];
 }
+
+/** How tablets reach this computer; applies after a restart. */
+export interface Network {
+  port: number;
+  /** Accept tablets over Wi-Fi/Ethernet; off means USB (and this computer) only. */
+  lan: boolean;
+}
+
+export interface Update {
+  version: string;
+  url: string;
+}

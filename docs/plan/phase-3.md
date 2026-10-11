@@ -7,11 +7,11 @@ Done in `host/app/` (with the host runtime as the `perritodeck-host` library):
 - **Editor:** the profile drawn as the tablet shows it; a key inspector for title, colours, image and action (hotkey recorder, text, media, websites, files, programs, commands, OBS, Home Assistant, page navigation); drag and drop (and Alt+arrows) to move or swap keys, onto a page tab to send them to that page; copy/paste keys; add, rename, reorder and remove pages; undo/redo across everything; "Try it" runs an action from the editor. Saves go to the TOML file in place, keeping comments, and reach the tablets straight away.
 - **Profiles:** create, copy, rename, delete, export and import (`.perritoprofile`, a zip with the images). Each tablet shows its chosen profile.
 - **Switching:** rules for showing a profile while a given app is in front (Windows, macOS, Linux X11).
-- **Tablets:** status, rename, choose profile, unpair. **Pairing** with QR, code and fingerprint. **Settings:** pause, start at login, addresses, folders.
+- **Tablets:** status, rename, choose profile, unpair. **Pairing** with QR, code and fingerprint. **Settings:** pause, start at login, port and Wi-Fi access (applied on restart, with a Restart now button), update check (asks GitHub Releases; never downloads), addresses, folders.
 - **macOS:** Accessibility permission check with a button to the right System Settings page.
-- **Tests:** Playwright against a mocked host (23 tests), Rust tests for the host API, and a CI job driving the real Linux app over WebDriver (pair, edit, see it on the tablet, undo). Bundles build on all three OSes.
+- **Tests:** Playwright against a mocked host (30 tests), Rust tests for the host API, and a CI job driving the real Linux app over WebDriver (pair, edit, see it on the tablet, undo). Bundles build on all three OSes.
 
-Not done yet: toggle (multi-state) and multi-step keys are edited in the file; built-in icon set; auto-switch on Wayland; update check; settings for port and Wi-Fi access; per-device latency in the Tablets view.
+Not done yet: auto-switch on Wayland (no standard way to ask which app is in front); per-device latency in the Tablets view (the host only answers heartbeats, so it would need the tablet to report its round-trip time; `fakedeck bench` measures it for now).
 
 **Goal:** a normal desktop app that someone who has never seen a terminal can install, pair a tablet with, and lay out buttons in by dragging, with every edit appearing on the tablet as they make it.
 

@@ -11,6 +11,27 @@ pub struct AppSettings {
     /// Device id → profile id, for tablets that don't show the default profile.
     pub device_profiles: BTreeMap<String, String>,
     pub auto_switch: AutoSwitch,
+    pub network: Network,
+    /// Look for a newer version when the app starts.
+    pub check_updates: bool,
+}
+
+/// How tablets reach this computer. Changes apply when the host restarts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Network {
+    pub port: u16,
+    /// Accept tablets over Wi-Fi/Ethernet; off means USB (and this computer) only.
+    pub lan: bool,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Self {
+            port: perritodeck_protocol::DEFAULT_PORT,
+            lan: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

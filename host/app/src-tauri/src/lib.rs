@@ -6,8 +6,8 @@
 use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
-    ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
-    PairingOffer, PluginsView, ProfileSummary, ProfileView,
+    updates, ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
+    Network, PairingOffer, PluginsView, ProfileSummary, ProfileView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -149,6 +149,52 @@ fn set_autostart(handle: AppHandle, enabled: bool) -> Res<()> {
         launcher.disable()
     }
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_network(app: State<'_, App>) -> Res<Network> {
+    Ok(app.host()?.network())
+}
+
+/// Saved for the next start; the window offers to restart.
+#[tauri::command]
+fn set_network(app: State<'_, App>, network: Network) -> Res<()> {
+    app.host()?.set_network(network)
+}
+
+#[tauri::command]
+fn get_check_updates(app: State<'_, App>) -> Res<bool> {
+    Ok(app.host()?.check_updates_enabled())
+}
+
+#[tauri::command]
+fn set_check_updates(app: State<'_, App>, enabled: bool) -> Res<()> {
+    app.host()?.set_check_updates(enabled)
+}
+
+/// `None` when this is the latest version.
+#[tauri::command]
+async fn check_for_updates() -> Res<Option<updates::Update>> {
+    tauri::async_runtime::spawn_blocking(|| updates::check(env!("CARGO_PKG_VERSION")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Open a release page from [`check_for_updates`]; nothing else.
+#[tauri::command]
+fn open_release_page(handle: AppHandle, url: String) -> Res<()> {
+    if !url.starts_with(updates::RELEASES) {
+        return Err("Not a PerritoDeck release page.".into());
+    }
+    handle
+        .opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn restart_app(handle: AppHandle) {
+    handle.request_restart();
 }
 
 /// Let the person pick an image for a key; it's copied next to the profiles.
@@ -342,7 +388,7 @@ fn start_host(app: &tauri::App) -> Result<Host, String> {
         Some(d) => d.into(),
         None => perritodeck_host::default_data_dir().map_err(|e| e.to_string())?,
     };
-    let mut opts = HostOptions::new(data_dir);
+    let mut opts = HostOptions::new(data_dir).with_saved_network();
     opts.profile = std::env::var_os("PERRITODECK_PROFILE").map(Into::into);
     // First-party plugins ship inside the app, ready to add from the Plugins page.
     opts.plugin_catalog = app
@@ -351,7 +397,19 @@ fn start_host(app: &tauri::App) -> Result<Host, String> {
         .ok()
         .map(|d| d.join("plugins"))
         .filter(|d| d.is_dir());
-    tauri::async_runtime::block_on(Host::start(opts)).map_err(|e| format!("{e:#}"))
+    // After "Restart now" the old process may still hold the port for a moment.
+    let mut tries = 0;
+    loop {
+        match tauri::async_runtime::block_on(Host::start(opts.clone())) {
+            Ok(host) => return Ok(host),
+            Err(e) if tries < 10 => {
+                tries += 1;
+                info!("host didn't start yet ({e:#}); trying again");
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+            Err(e) => return Err(format!("{e:#}")),
+        }
+    }
 }
 
 fn build_tray(app: &tauri::App, paused: bool) -> tauri::Result<CheckMenuItem<Wry>> {
@@ -519,6 +577,13 @@ pub fn run() {
             import_profile,
             accessibility_allowed,
             open_accessibility_settings,
+            get_network,
+            set_network,
+            get_check_updates,
+            set_check_updates,
+            check_for_updates,
+            restart_app,
+            open_release_page,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {

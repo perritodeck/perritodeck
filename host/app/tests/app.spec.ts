@@ -396,6 +396,58 @@ test.describe("profiles, tablets and switching", () => {
     await page.getByLabel("Start PerritoDeck when I log in").check();
     await expect.poll(() => page.evaluate(() => (window as any).__perritoMock.autostart)).toBe(true);
   });
+
+  test("network settings are saved and applied after a restart", async ({ page }) => {
+    const mock = () => page.evaluate(() => (window as any).__perritoMock);
+    await page.getByRole("button", { name: "Settings" }).click();
+    const port = page.getByLabel("Port", { exact: true });
+    await expect(port).toHaveValue("46710");
+    await expect(page.getByRole("button", { name: "Save network settings" })).toHaveCount(0);
+    await port.fill("80");
+    await expect(page.getByText("Use a number from 1024 to 65535.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save network settings" })).toBeDisabled();
+    await port.fill("47000");
+    await page.getByLabel("Let tablets connect over Wi-Fi").uncheck();
+    await expect(page.getByText("Only tablets on a USB cable can connect.")).toBeVisible();
+    await page.getByRole("button", { name: "Save network settings" }).click();
+    await expect(page.getByText("PerritoDeck uses the new settings after it restarts.")).toBeVisible();
+    expect((await mock()).network).toEqual({ port: 47000, lan: false });
+    await page.getByRole("button", { name: "Restart now" }).click();
+    await expect.poll(async () => (await mock()).restarted).toBe(true);
+  });
+
+  test("checks for updates on request", async ({ page }) => {
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Check now" }).click();
+    await expect(page.getByText("You have the latest version.")).toBeVisible();
+    await page.evaluate(() => ((window as any).__perritoMock.latest = "Couldn't reach GitHub: offline"));
+    await page.getByRole("button", { name: "Check now" }).click();
+    await expect(page.getByRole("alert")).toContainText("Couldn't reach GitHub");
+    await page.evaluate(() => {
+      (window as any).__perritoMock.latest = { version: "0.2.0", url: "https://github.com/perritodeck/perritodeck/releases/tag/v0.2.0" };
+    });
+    await page.getByRole("button", { name: "Check now" }).click();
+    await expect(page.getByText("Version 0.2.0 is out.")).toBeVisible();
+    await page.getByLabel("Tell me when a new version is out").check();
+    await expect.poll(() => page.evaluate(() => (window as any).__perritoMock.checkUpdates)).toBe(true);
+  });
+});
+
+test("says when a new version is out, if asked to", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__perritoMockInit = {
+      checkUpdates: true,
+      latest: { version: "0.2.0", url: "https://github.com/perritodeck/perritodeck/releases/tag/v0.2.0" },
+    };
+  });
+  await page.goto("/");
+  await expect(page.getByText("PerritoDeck 0.2.0 is out.")).toBeVisible();
+  await page.getByRole("button", { name: "See what's new" }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__perritoMock.opened))
+    .toEqual(["https://github.com/perritodeck/perritodeck/releases/tag/v0.2.0"]);
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByText("PerritoDeck 0.2.0 is out.")).toHaveCount(0);
 });
 
 test.describe("plugins", () => {

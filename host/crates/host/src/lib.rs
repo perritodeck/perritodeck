@@ -43,7 +43,8 @@ pub use perritodeck_plugins::{
     BrokenPlugin, Manifest as PluginManifest, PluginInfo, Status as PluginStatus,
 };
 pub use perritodeck_profile::edit::{Edit, KeyFields};
-pub use settings::{AppSettings, AutoSwitch, SwitchRule};
+pub use settings::{AppSettings, AutoSwitch, Network, SwitchRule};
+pub mod updates;
 pub use views::{view_of, view_with_icons, KeyView, PageView, ProfileSummary, ProfileView};
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,18 @@ pub struct HostOptions {
 }
 
 impl HostOptions {
+    /// Use the port and Wi-Fi choice saved in the app's settings.
+    pub fn with_saved_network(mut self) -> Self {
+        let n = AppSettings::load(&settings_path(&self.data_dir)).network;
+        self.port = n.port;
+        self.listen = if n.lan {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        } else {
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        };
+        self
+    }
+
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             listen: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -696,6 +709,53 @@ impl Host {
         self.shared.save_settings(&settings)?;
         *self.shared.settings.lock().expect("settings poisoned") = settings;
         self.shared.apply_auto_switch();
+        Ok(())
+    }
+
+    pub fn network(&self) -> settings::Network {
+        self.shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .network
+            .clone()
+    }
+
+    /// Save the port and whether Wi-Fi tablets may connect; used from the next start.
+    pub fn set_network(&self, network: settings::Network) -> Result<(), String> {
+        if network.port < 1024 {
+            return Err("Use a port from 1024 up.".into());
+        }
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.network = network;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        Ok(())
+    }
+
+    pub fn check_updates_enabled(&self) -> bool {
+        self.shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .check_updates
+    }
+
+    pub fn set_check_updates(&self, on: bool) -> Result<(), String> {
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.check_updates = on;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
         Ok(())
     }
 

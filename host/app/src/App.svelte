@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "./lib/api";
-  import type { DeviceInfo, HostStatus, View } from "./lib/types";
+  import type { DeviceInfo, HostStatus, Update, View } from "./lib/types";
   import Buttons from "./views/Buttons.svelte";
   import Tablets from "./views/Tablets.svelte";
   import Pair from "./views/Pair.svelte";
@@ -21,6 +21,16 @@
       accessibility = await api.accessibilityAllowed();
     } catch {
       accessibility = null;
+    }
+  }
+
+  let update = $state<Update | null>(null);
+
+  async function lookForUpdate() {
+    try {
+      if (await api.checkUpdatesEnabled()) update = await api.checkForUpdates();
+    } catch {
+      // Offline, or no releases yet: nothing to say.
     }
   }
 
@@ -52,6 +62,7 @@
     })();
     offs.push(api.onNavigate((v) => (view = v)));
     checkAccessibility();
+    lookForUpdate();
     const onFocus = () => checkAccessibility();
     window.addEventListener("focus", onFocus);
     offs.push(Promise.resolve(() => window.removeEventListener("focus", onFocus)));
@@ -133,6 +144,15 @@
             Accessibility, turn on PerritoDeck.</span
           >
           <button class="btn small" onclick={() => api.openAccessibilitySettings().then(checkAccessibility)}>Open System Settings</button>
+        </div>
+      {/if}
+      {#if update}
+        <div class="paused" role="status">
+          <span><strong>PerritoDeck {update.version} is out.</strong> You have {status.version}.</span>
+          <span class="actions">
+            <button class="btn small" onclick={() => update && api.openReleasePage(update.url)}>See what's new</button>
+            <button class="btn small quiet" onclick={() => (update = null)}>Not now</button>
+          </span>
         </div>
       {/if}
       {#if status.paused}
@@ -247,6 +267,7 @@
     background: color-mix(in srgb, var(--apricot) 28%, var(--paper));
   }
   .paused .btn { padding: 5px 14px; }
+  .actions { display: flex; gap: 6px; flex: none; }
 
   .failed {
     max-width: 60ch;
