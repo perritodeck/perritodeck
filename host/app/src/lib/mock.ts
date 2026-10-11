@@ -193,6 +193,8 @@ function view(): ProfileView {
 export const mock = {
   /** Every edit batch the UI sent, for tests. */
   edits: [] as Edit[][],
+  /** Actions run with "Try it". */
+  tested: [] as unknown[],
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     await new Promise((r) => setTimeout(r, 20));
@@ -239,6 +241,12 @@ export const mock = {
         to.push(profile);
         profile = prev;
         return out(view());
+      }
+      case "test_action": {
+        const a = args?.action as { type: string; program?: string };
+        this.tested.push(args?.action);
+        if (a.type === "command" && a.program === "false") return out("exited with status 1");
+        return out(null);
       }
       case "open_profile_file":
       case "open_data_folder":

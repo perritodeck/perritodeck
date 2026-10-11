@@ -25,6 +25,7 @@ use perritodeck_core::{
     HostIdentity, Security, Server, ServerConfig, ServerEvent, ServerHandle,
 };
 use perritodeck_deck::{watch::watch_profile, Deck, Outbox};
+pub use perritodeck_actions::ActionSpec;
 pub use perritodeck_profile::edit::{Edit, KeyFields};
 use perritodeck_profile::{NavSpec, Profile, SimpleNav};
 use perritodeck_protocol::{Message, DEFAULT_PORT};
@@ -210,6 +211,7 @@ pub struct Host {
     integrations: Vec<String>,
     events: broadcast::Sender<HostEvent>,
     history: std::sync::Mutex<History>,
+    executor: Executor,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -293,6 +295,7 @@ impl Host {
             info!("integrations: {}", integrations.join(", "));
         }
         let executor = Executor::new(input, Arc::new(OpenSystem)).with_integrations(builtins);
+        let test_executor = executor.clone();
 
         let outbox = Arc::new(LateOutbox::default());
         let deck = Deck::new(profile, base_dir, outbox.clone(), executor);
@@ -345,6 +348,7 @@ impl Host {
             integrations,
             events,
             history: Default::default(),
+            executor: test_executor,
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -479,6 +483,19 @@ impl Host {
             history.redo.clear();
         }
         Ok(self.profile_view())
+    }
+
+    /// Run an action now, as if its key were pressed. `Ok` carries a note to show when
+    /// the action ran but reported a problem (a command that failed, say).
+    pub async fn test_action(
+        &self,
+        spec: &perritodeck_actions::ActionSpec,
+    ) -> Result<Option<String>, String> {
+        match self.executor.run(spec).await {
+            Ok(perritodeck_actions::Outcome::Ok) => Ok(None),
+            Ok(perritodeck_actions::Outcome::Alert(note)) => Ok(Some(note)),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     /// Step back through the app's edits. Edits made in a text editor aren't undone here.
@@ -844,6 +861,28 @@ mod tests {
         };
         assert!(host.edit_profile(&[bad]).is_err());
         assert_eq!(title(&host.profile_view()).as_deref(), Some("Copied"));
+
+        // Actions can be tried from the editor.
+        let ok = perritodeck_actions::ActionSpec::Command {
+            program: "true".into(),
+            args: vec![],
+            cwd: None,
+            timeout_ms: None,
+        };
+        if cfg!(unix) {
+            assert_eq!(host.test_action(&ok).await, Ok(None));
+            let fails = perritodeck_actions::ActionSpec::Command {
+                program: "false".into(),
+                args: vec![],
+                cwd: None,
+                timeout_ms: None,
+            };
+            assert!(host.test_action(&fails).await.unwrap().is_some());
+        }
+        let bad = perritodeck_actions::ActionSpec::OpenUrl {
+            url: "file:///etc/passwd".into(),
+        };
+        assert!(host.test_action(&bad).await.is_err());
 
         // After a hand edit, undo refuses rather than overwrite it.
         std::fs::write(&host.profile_path, &original).unwrap();

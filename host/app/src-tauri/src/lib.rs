@@ -6,7 +6,8 @@
 use std::sync::Arc;
 
 use perritodeck_host::{
-    DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus, PairingOffer, ProfileView,
+    ActionSpec, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus, PairingOffer,
+    ProfileView,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -68,6 +69,13 @@ fn undo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
 #[tauri::command]
 fn redo_edit(app: State<'_, App>) -> Result<ProfileView, String> {
     app.host()?.redo()
+}
+
+/// Run an action now, from the editor's "Try it" button.
+#[tauri::command]
+async fn test_action(app: State<'_, App>, action: ActionSpec) -> Result<Option<String>, String> {
+    let host = app.host()?.clone();
+    host.test_action(&action).await
 }
 
 /// Open the profile in the user's text editor.
@@ -217,6 +225,7 @@ pub fn run() {
             edit_profile,
             undo_edit,
             redo_edit,
+            test_action,
             open_profile_file,
             open_data_folder,
         ])

@@ -209,6 +209,16 @@ test.describe("editing", () => {
     await expect(page.getByRole("tab", { name: "More" })).toBeVisible();
   });
 
+  test("tries an action from the editor", async ({ page }) => {
+    await page.getByRole("tab", { name: "More" }).click();
+    await key(page, /^Run a command:/).click();
+    await page.getByRole("button", { name: "Try it" }).click();
+    await expect(page.getByText("Done.")).toBeVisible();
+    await page.getByLabel("Program").fill("false");
+    await page.getByRole("button", { name: "Try it" }).click();
+    await expect(page.getByText("Ran, with a warning: exited with status 1")).toBeVisible();
+  });
+
   test("toggle keys are edited in the file", async ({ page }) => {
     await key(page, /^Mic live/).click();
     await expect(page.getByText(/toggle with 2 states/)).toBeVisible();

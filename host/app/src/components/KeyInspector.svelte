@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { DEFAULT_BG, DEFAULT_FG, mediaKeys, obsOps } from "../lib/describe";
+  import { api } from "../lib/api";
   import { chordFromEvent } from "../lib/hotkey";
   import type { ActionSpec, KeyFields, KeyView, MediaKey, NavSpec, Pos } from "../lib/types";
 
@@ -181,6 +182,32 @@
       keys = chord;
       recording = false;
       changed(0);
+    }
+  }
+
+  // "Try it": run the action now. Keyboard actions wait a moment so the person can switch
+  // to the window that should receive them.
+  let trying = $state<null | { countdown: number } | { result: string; ok: boolean }>(null);
+  const tryable = $derived(!["none", "page", "back", "next", "previous"].includes(choice));
+  async function tryIt() {
+    const out = build();
+    if (typeof out === "string" || !out.action) {
+      problem = typeof out === "string" ? out : null;
+      return;
+    }
+    const action = out.action;
+    if (["hotkey", "text", "media", "multi"].includes(action.type)) {
+      for (let n = 3; n > 0; n--) {
+        trying = { countdown: n };
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    trying = { countdown: 0 };
+    try {
+      const note = await api.testAction(action);
+      trying = note ? { result: `Ran, with a warning: ${note}`, ok: false } : { result: "Done.", ok: true };
+    } catch (e) {
+      trying = { result: String(e), ok: false };
     }
   }
 
@@ -388,6 +415,19 @@
   {#if problem}
     <p class="problem" role="status">{problem}</p>
   {/if}
+
+  {#if tryable}
+    <div class="try">
+      <button type="button" class="btn small" onclick={tryIt} disabled={trying != null && "countdown" in trying}>Try it</button>
+      <span role="status" class:bad={trying && "ok" in trying && !trying.ok}>
+        {#if trying && "countdown" in trying}
+          {trying.countdown > 0 ? `Switch to the window that should get it… ${trying.countdown}` : "Running…"}
+        {:else if trying}
+          {trying.result}
+        {/if}
+      </span>
+    </div>
+  {/if}
 </form>
 
 <style>
@@ -472,4 +512,12 @@
   .record-row input.recording { border-color: var(--apricot); }
   .btn.small { padding: 5px 12px; font-size: 0.85rem; }
   .problem { color: var(--danger); font-size: 0.9rem; }
+  .try {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+  }
+  .try .bad { color: var(--danger); }
 </style>
