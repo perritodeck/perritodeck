@@ -32,6 +32,7 @@ sealed interface Route {
     data object Home : Route
     data object Pair : Route
     data object Deck : Route
+    data object Scan : Route
 }
 
 /** Where the pairing flow is. */
@@ -107,6 +108,11 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
         pairJob?.cancel()
         _pairState.value = PairState.Form(prefillAddress ?: settings.lastManualAddress)
         _route.value = Route.Pair
+    }
+
+    fun openScan() {
+        pairJob?.cancel()
+        _route.value = Route.Scan
     }
 
     fun closePairing() {

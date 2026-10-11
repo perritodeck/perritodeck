@@ -27,4 +27,8 @@
     <string name="pair_confirm_body">Check that the computer shows the same fingerprint. If it doesn\'t, something on your network may be pretending to be it.</string>
     <string name="pair_matches">It matches</string>
     <string name="pair_mismatch">It doesn\'t match</string>
+    <string name="scan_button">Scan QR code</string>
+    <string name="scan_hint">Point the camera at the QR code PerritoDeck Host shows on your computer.</string>
+    <string name="scan_permission_denied">Perrito needs the camera only to read the pairing code. You can also pair by typing the 6-digit code instead.</string>
+    <string name="scan_allow">Allow camera</string>
 </resources>

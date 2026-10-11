@@ -11,7 +11,11 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import dev.perritodeck.client.scan.ScanScreen
+import dev.perritodeck.client.scan.hasCamera
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -51,6 +55,8 @@ private fun PerritoApp(vm: DeckViewModel) {
     val route by vm.route.collectAsStateWithLifecycle()
     when (route) {
         Route.Home -> {
+            val context = LocalContext.current
+            val canScan = remember { hasCamera(context) }
             val paired by vm.paired.collectAsStateWithLifecycle()
             val found by vm.discovery.hosts.collectAsStateWithLifecycle()
             val notice by vm.notice.collectAsStateWithLifecycle()
@@ -66,6 +72,7 @@ private fun PerritoApp(vm: DeckViewModel) {
                 onForget = vm::forget,
                 onPairFound = { vm.openPairing("${it.address}:${it.port}") },
                 onPairManually = { vm.openPairing() },
+                onScan = if (canScan) vm::openScan else null,
             )
         }
         Route.Pair -> {
@@ -77,6 +84,10 @@ private fun PerritoApp(vm: DeckViewModel) {
                 onConfirm = vm::confirmPairing,
                 onCancel = vm::closePairing,
             )
+        }
+        Route.Scan -> {
+            BackHandler { vm.closePairing() }
+            ScanScreen(onLink = vm::handleLink, onCancel = vm::closePairing)
         }
         Route.Deck -> {
             val state by vm.connection.state.collectAsStateWithLifecycle()

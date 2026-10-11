@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only to scan the host's pairing QR code, and only after the user taps "Scan". -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- Don't let store filters hide the app from devices that only report "faketouch". -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />

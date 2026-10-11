@@ -37,6 +37,7 @@ fun HomeScreen(
     onForget: (PairedHost) -> Unit,
     onPairFound: (FoundHost) -> Unit,
     onPairManually: () -> Unit,
+    onScan: (() -> Unit)?,
 ) {
     val pairedIds = paired.map { it.hostId }.toSet()
     val unpairedFound = found.filter { it.hostId == null || it.hostId !in pairedIds }
@@ -86,6 +87,10 @@ fun HomeScreen(
             }
 
             Spacer(Modifier.height(24.dp))
+            onScan?.let {
+                Button(onClick = it, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.scan_button)) }
+                Spacer(Modifier.height(8.dp))
+            }
             OutlinedButton(onClick = onPairManually, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.pair_with_code))
             }
