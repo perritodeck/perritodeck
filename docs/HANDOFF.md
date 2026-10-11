@@ -54,6 +54,9 @@ needed for the v0.1.0 release, which is on hold.
 1. **Kindle hardware check.** This is the reason for going local.
    - On the Kindle: Settings → Device Options → tap Serial Number 7 times, then Developer
      Options → enable ADB. Connect it over USB and accept the prompt.
+   - The tablet is a **KFMUWI = Fire 7 (2019)**: 1024×600 mdpi, 1 GB RAM, cameras front
+     and back (so in-app QR scanning should work). It shipped with Fire OS 6 (API 25) and
+     updates to Fire OS 7 (API 28).
    - `adb shell getprop ro.build.version.sdk` gives the API level. 22 is Fire OS 5 and 25
      is Fire OS 6. 28 is Fire OS 7 and 30 is Fire OS 8.
    - `cd android; .\gradlew.bat installDebug`, then pair with the host running on the

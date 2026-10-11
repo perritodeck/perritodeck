@@ -41,3 +41,4 @@ One line per decision, newest last. Format: `YYYY-MM-DD — decision — reason`
 - 2026-10-11 — App fonts (Bricolage Grotesque, Atkinson Hyperlegible, OFL) bundled through Fontsource, not loaded from Google Fonts — works offline and sends nothing anywhere.
 - 2026-10-11 — The app UI talks to an in-memory mock when opened in a plain browser — Playwright tests and UI work need no Rust build or WebView.
 - 2026-10-11 — First app slice shows the profile read-only, with "Edit profile file" — the drag-and-drop editor comes next; live reload already makes hand edits show up in the app and on tablets.
+- 2026-10-11 — Test tablet identified: KFMUWI = Fire 7 (2019, 9th gen), 1024×600 mdpi, 1 GB RAM, front and rear 2 MP cameras; launched on Fire OS 6 (API 25), updated to Fire OS 7 (API 28). The `fire7` E2E run already matches its screen. minSdk stays 22 until the hardware check reads the real API level; raising it to 23+ would let AndroidX/Compose be unpinned.
