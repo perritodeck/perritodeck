@@ -41,7 +41,9 @@ time, because both the CLI and the app listen on port 46710.
 
 ## CI
 
-The workflows in `.github/workflows` are `host`, `protocol`, `android`, `e2e` (real host +
-API 22/34 emulators plus Fire-sized API 22 runs), `desktop-app` (bundles for all three OSes) and `release` (triggered by
-a tag, not yet exercised). E2E screenshots are pushed to the `ci/e2e-<run name>` branches (`api22`, `api34`,
-`fire7`, `firehd10`).
+Actions minutes cost money (macOS ten times Linux), so pushes run only Host tests on
+Windows, the desktop UI tests, Android, Protocol and two emulators (API 22, Fire 7).
+Linux/macOS host tests, desktop bundles, the real-app test and the other emulators run
+weekly (Mondays) or by hand (Actions → workflow → Run workflow). Test Linux locally
+before pushing, and batch pushes. E2E screenshots go to `ci/e2e-<run name>` branches
+(`api22`, `api34`, `fire7`, `firehd10`).
