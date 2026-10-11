@@ -1,5 +1,8 @@
 First preview release.
 
-• Connect to PerritoDeck Host over Wi-Fi, USB or from the Android emulator
-• Full-screen, multi-touch button grid with haptics
-• Live button titles and automatic reconnect
+• Pair with your computer by QR code or 6-digit code; encrypted connection
+• Finds your computer on Wi-Fi automatically
+• Full-screen, multi-touch button grid with crisp host-drawn keys
+• Pages, toggles and live clock keys from your profile
+• ✓ / ⚠ feedback after each action
+• Works back to Android 5.1, including Fire tablets
