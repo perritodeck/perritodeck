@@ -316,9 +316,10 @@ class DeckConnection(
         const val PIN_MISMATCH =
             "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
 
-        /** 0.5s, 1s, 2s, 4s, then 8s between attempts. */
+        /** Slider moves are sent at most this often while dragging. */
         const val SLIDER_INTERVAL_MS = 50L
 
+        /** 0.5s, 1s, 2s, 4s, then 8s between attempts. */
         fun backoffMs(attempt: Int): Long = (250L shl attempt.coerceIn(1, 5)).coerceAtMost(8_000)
     }
 }
