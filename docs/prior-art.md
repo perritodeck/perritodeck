@@ -11,7 +11,7 @@ Surveyed October 2026. "Unverified" marks claims we couldn't confirm from a prim
 | Macro Deck 3 | Apache-2.0 (branding excluded) | .NET 10 host, Tauri bootstrapper, Angular UI | Free web/PWA; **paid** native Android/iOS app | Out-of-process HTTP/WS JSON, signed store | Beta rewrite; MD2 deprecated |
 | OpenDeck | GPL-3.0-or-later | Rust + Tauri 2 + SvelteKit | Via commercial sibling **Tacto** | **Runs Elgato SDK plugins** (+ OpenAction extensions) | Active, v2.14.x |
 | StreamController | GPL-3.0 | Python, GTK4/libadwaita | None | Python plugins over RPyC | Beta (1.5.0-beta.16, 2026-08) |
-| TilePad | MIT (README badge; LICENSE file unverified) | Rust + Tauri 2 + Svelte | Android client **WIP** | WebSocket, any language, HTML "inspectors" | Active (updated 2026-09) |
+| TilePad | Unverified (badge only, no LICENSE file found) | Rust + Tauri 2 + Svelte | Android touchscreen client (maturity unverified) | WebSocket, any language, HTML "inspectors" | Active (updated 2026-09) |
 | Stream-Pi | GPL-3.0 | Java/JavaFX | Android, Raspberry Pi | Java | Largely stale |
 | Touch Portal | Proprietary freemium | — | Android, iOS | Plugins need Pro ($13.99) | Active, v4.6 |
 | Deckboard | Proprietary freemium | Electron | Android | — | Activity unverified |
@@ -20,7 +20,7 @@ Surveyed October 2026. "Unverified" marks claims we couldn't confirm from a prim
 
 ## Closest competitors
 
-- **TilePad** is the nearest open-source analogue: same stack we planned (Rust + Tauri 2), MIT, WebSocket plugins with HTML inspectors, Android client still WIP. See open question in `plan/phase-1.md` about collaborating vs. building separately.
+- **TilePad** is the nearest open-source analogue: same stack we planned (Rust + Tauri 2), WebSocket plugins with HTML inspectors, Android touchscreen devices as the surface. Its license and how finished the Android client is are unverified. See open question in `plan/phase-1.md` about collaborating vs. building separately.
 - **Tacto** (tacto.live) is OpenDeck's developer's commercial phone-as-deck app: free for 6 keys, Pro $24.99 one-time or $1.49/month up to 64 keys.
 - **Macro Deck 3** is well engineered but its native mobile client is paid and it's still in beta.
 
@@ -91,4 +91,4 @@ Sources: https://docs.elgato.com/streamdeck/sdk/references/websocket/plugin · h
 1. **Own protocol, Satellite-shaped.** JSON over WebSocket, host-rendered images as lossless PNG/WebP, explicit capability negotiation. Keep the Satellite mapping easy so the Android client can speak both.
 2. **Pairing:** QR with endpoints + one-time code + host public-key fingerprint; per-device keys afterwards; ADB-reverse USB.
 3. **Plugins:** our native protocol should be a near-superset of the Elgato SDK event/command names so a compatibility layer is mostly a shim; support OpenAction manifest extensions.
-4. **License matters for reuse:** GPL-3.0 would let us borrow from OpenDeck/StreamController/Stream-Pi; MIT/Apache-2.0 would let us share code with TilePad and Companion but forbids copying from the GPL projects.
+4. **License matters for reuse:** GPL-3.0 would let us borrow from OpenDeck/StreamController/Stream-Pi; MIT/Apache-2.0 would let us share code with Companion (and TilePad, if it is MIT as its badge suggests) but forbids copying from the GPL projects.
