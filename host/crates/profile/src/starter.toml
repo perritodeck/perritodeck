@@ -139,3 +139,38 @@ steps = [
   { action = { type = "hotkey", keys = "Ctrl+A" }, delayMs = 100 },
   { action = { type = "hotkey", keys = "Ctrl+C" } },
 ]
+
+# OBS Studio and Home Assistant: put their addresses and passwords in
+# integrations.toml next to this file (run `perritodeck-host paths` to find it):
+#
+#   [obs]
+#   url = "ws://127.0.0.1:4455"      # OBS → Tools → WebSocket Server Settings
+#   password = "…"
+#
+#   [home_assistant]
+#   url = "http://homeassistant.local:8123"
+#   token = "…"                       # your profile → Security → Long-lived access tokens
+#
+# then add keys like these (remove the # to use them):
+#
+# [[pages.keys]]
+# at = [1, 0]
+# title = "Scene:\nGame"
+# action = { type = "obs", op = "scene", scene = "Gameplay" }
+#
+# [[pages.keys]]
+# at = [1, 1]
+# title = "REC"
+# action = { type = "obs", op = "toggleRecord" }
+#   # also: startRecord, stopRecord, toggleStream, startStream, stopStream,
+#   # toggleReplayBuffer, saveReplayBuffer, and { op = "toggleMute", input = "Mic/Aux" }
+#
+# [[pages.keys]]
+# at = [1, 2]
+# title = "Desk\nlight"
+# action = { type = "homeAssistant", service = "light.toggle", entity = "light.desk" }
+#
+# [[pages.keys]]
+# at = [1, 3]
+# title = "Dim"
+# action = { type = "homeAssistant", service = "light.turn_on", entity = "light.desk", data = { brightness_pct = 30 } }

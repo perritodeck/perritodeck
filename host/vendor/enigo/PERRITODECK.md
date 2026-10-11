@@ -10,3 +10,4 @@ one change, so Wayland input can use the desktop portal without hurting X11 user
   XTest with no prompt.
 
 Plan: upstream both changes and drop this copy.
+- `src/lib.rs`: `#![allow(unused, unknown_lints)]` so the vendored code doesn't add warnings to our builds.

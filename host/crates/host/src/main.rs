@@ -98,6 +98,10 @@ fn devices_path(dir: &Path) -> PathBuf {
     dir.join("devices.json")
 }
 
+fn integrations_path(dir: &Path) -> PathBuf {
+    dir.join("integrations.toml")
+}
+
 fn profile_path(cli: &Cli, dir: &Path) -> PathBuf {
     cli.profile
         .clone()
@@ -183,6 +187,7 @@ async fn main() -> Result<()> {
             println!("private key:  {}", key.display());
             println!("devices:      {}", devices_path(&dir).display());
             println!("profile:      {}", profile_path(&cli, &dir).display());
+            println!("integrations: {}", integrations_path(&dir).display());
             return Ok(());
         }
         Some(Command::Serve) | None => {}
@@ -248,7 +253,19 @@ async fn main() -> Result<()> {
         }
         });
     }
-    let executor = Executor::new(input, Arc::new(OpenSystem));
+    let integrations = match perritodeck_integrations::Config::load(&integrations_path(&dir)) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("ignoring integrations.toml: {e}");
+            Default::default()
+        }
+    };
+    let builtins = perritodeck_integrations::Builtins::new(integrations);
+    let configured = builtins.configured();
+    if !configured.is_empty() {
+        info!("integrations: {}", configured.join(", "));
+    }
+    let executor = Executor::new(input, Arc::new(OpenSystem)).with_integrations(builtins);
     let deck = Deck::new(profile, base_dir, outbox.clone(), executor);
     let layout_deck = deck.clone();
 

@@ -167,3 +167,38 @@ fn round_trips_through_toml() {
     let back = Profile::parse(&toml::to_string(&p).unwrap()).unwrap();
     assert_eq!(p, back);
 }
+
+#[test]
+fn obs_and_home_assistant_actions_parse() {
+    let uncommented: String = STARTER_PROFILE
+        .split("then add keys like these")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .filter(|l| l.starts_with("# ") && !l.starts_with("#   #"))
+        .map(|l| format!("{}\n", &l[2..]))
+        .collect();
+    let text = format!("schema_version = 1\nname = \"x\"\n[[pages]]\nname = \"P\"\n{uncommented}");
+    let p = Profile::parse(&text).unwrap_or_else(|e| panic!("{e}\n{text}"));
+    assert_eq!(p.problems(), Vec::<String>::new());
+    let keys = &p.pages[0].keys;
+    assert_eq!(keys.len(), 4);
+    assert!(matches!(
+        keys[0].action,
+        Some(ActionSpec::Obs(
+            perritodeck_actions::ObsAction::Scene { .. }
+        ))
+    ));
+    assert!(
+        matches!(&keys[3].action, Some(ActionSpec::HomeAssistant { data: Some(d), .. }) if d["brightness_pct"] == 30)
+    );
+
+    let bad = Profile::parse("schema_version = 1\nname = \"x\"\n[[pages]]\nname = \"P\"\n[[pages.keys]]\nat = [0, 0]\naction = { type = \"homeAssistant\", service = \"toggle\" }\n").unwrap();
+    assert!(
+        bad.problems()[0].contains("light.toggle"),
+        "{:?}",
+        bad.problems()
+    );
+    assert!(Profile::parse("schema_version = 1\nname = \"x\"\n[[pages]]\nname = \"P\"\n[[pages.keys]]\nat = [0, 0]\naction = { type = \"obs\", op = \"explode\" }\n").is_err());
+}

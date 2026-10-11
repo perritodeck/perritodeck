@@ -18,6 +18,7 @@ perritodeck-actions.workspace = true
 perritodeck-render.workspace = true
 perritodeck-profile.workspace = true
 perritodeck-deck.workspace = true
+perritodeck-integrations.workspace = true
 serde_json.workspace = true
 perritodeck-protocol.workspace = true
 anyhow.workspace = true

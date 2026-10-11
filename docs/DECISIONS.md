@@ -32,3 +32,7 @@ One line per decision, newest last. Format: `YYYY-MM-DD — decision — reason`
 - 2026-10-11 — "Run command" actions are allowed by default (argv only, no shell) — it's the user's own machine and profile; the Phase 3 UI will make commands visible before saving.
 - 2026-10-11 — Vendor enigo 0.6.1 with a two-part patch (portal only on Wayland; errors instead of panics) — upstream would prompt X11 users and crash where no portal exists. To be upstreamed.
 - 2026-10-11 — Toggle states belong to the profile, not the device — a "Mic muted" key should look the same on every tablet.
+- 2026-10-11 — In-app QR scanning with CameraX + ZXing core — both FOSS, no Play Services; uses the front camera on tablets that only have one; the deep link still works with any camera app.
+- 2026-10-11 — OBS and Home Assistant built into the host (not plugins yet) — they're the most-asked integrations and validate the action model before the Phase 5 plugin SDK; settings and secrets live in `integrations.toml`, separate from the shareable profile.
+- 2026-10-11 — Home Assistant via REST (`ureq`, rustls/ring) rather than its WebSocket API — one request per press is all actions need; entity state feedback will use the WebSocket API in Phase 4.
+- 2026-10-11 — v0.1.0 release and signing deferred by the maintainer; key generated and handed over, secrets not yet set.

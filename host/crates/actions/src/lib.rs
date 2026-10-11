@@ -25,7 +25,7 @@ pub const MAX_COMMAND_TIMEOUT_MS: u64 = 10 * 60_000;
 /// Multi-actions may nest, but not without limit.
 pub const MAX_NESTING: usize = 4;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ActionSpec {
     /// e.g. `{"type":"hotkey","keys":"Ctrl+Shift+M"}`
@@ -68,11 +68,45 @@ pub enum ActionSpec {
     Multi {
         steps: Vec<Step>,
     },
+    /// Controls OBS Studio through obs-websocket (configured in `integrations.toml`).
+    Obs(ObsAction),
+    /// Calls a Home Assistant service, e.g. `light.toggle` (configured in `integrations.toml`).
+    HomeAssistant {
+        /// `domain.service`, e.g. `light.toggle`, `scene.turn_on`, `script.good_night`.
+        service: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity: Option<String>,
+        /// Extra service data, e.g. `{ brightness_pct = 40 }`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+    },
     /// Does nothing (an empty key).
     None,
 }
 
+/// What to do in OBS. `{ type = "obs", op = "scene", scene = "Gameplay" }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ObsAction {
+    /// Switch the program scene.
+    Scene {
+        scene: String,
+    },
+    ToggleRecord,
+    StartRecord,
+    StopRecord,
+    ToggleStream,
+    StartStream,
+    StopStream,
+    /// Mute/unmute an audio input, e.g. "Mic/Aux".
+    ToggleMute {
+        input: String,
+    },
+    ToggleReplayBuffer,
+    SaveReplayBuffer,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Step {
     pub action: ActionSpec,
@@ -122,6 +156,10 @@ pub enum ActionError {
         #[source]
         source: std::io::Error,
     },
+    #[error("{0} isn't set up; add it to integrations.toml in the host's settings folder")]
+    NotConfigured(String),
+    #[error("{service}: {reason}")]
+    Integration { service: String, reason: String },
     #[error("could not open {target:?}: {reason}")]
     Open { target: String, reason: String },
 }
@@ -138,15 +176,44 @@ pub trait SystemBackend: Send + Sync {
     fn open(&self, target: &str) -> Result<(), ActionError>;
 }
 
+pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Apps the host talks to on the user's behalf (OBS, Home Assistant, …).
+pub trait Integrations: Send + Sync {
+    fn obs<'a>(&'a self, action: &'a ObsAction) -> BoxFuture<'a, Result<Outcome, ActionError>>;
+    fn home_assistant<'a>(
+        &'a self,
+        service: &'a str,
+        entity: Option<&'a str>,
+        data: Option<&'a serde_json::Value>,
+    ) -> BoxFuture<'a, Result<Outcome, ActionError>>;
+}
+
 #[derive(Clone)]
 pub struct Executor {
     input: Arc<dyn InputBackend>,
     system: Arc<dyn SystemBackend>,
+    integrations: Option<Arc<dyn Integrations>>,
 }
 
 impl Executor {
     pub fn new(input: Arc<dyn InputBackend>, system: Arc<dyn SystemBackend>) -> Self {
-        Self { input, system }
+        Self {
+            input,
+            system,
+            integrations: None,
+        }
+    }
+
+    pub fn with_integrations(mut self, integrations: Arc<dyn Integrations>) -> Self {
+        self.integrations = Some(integrations);
+        self
+    }
+
+    fn integrations(&self, what: &str) -> Result<&Arc<dyn Integrations>, ActionError> {
+        self.integrations
+            .as_ref()
+            .ok_or_else(|| ActionError::NotConfigured(what.to_owned()))
     }
 
     /// Check an action without running it (used when loading profiles).
@@ -223,6 +290,16 @@ impl Executor {
                     }
                     Ok(outcome)
                 }
+                ActionSpec::Obs(action) => self.integrations("OBS")?.obs(action).await,
+                ActionSpec::HomeAssistant {
+                    service,
+                    entity,
+                    data,
+                } => {
+                    self.integrations("Home Assistant")?
+                        .home_assistant(service, entity.as_deref(), data.as_ref())
+                        .await
+                }
                 ActionSpec::None => Ok(Outcome::Ok),
             }
         })
@@ -235,6 +312,21 @@ fn validate_at(spec: &ActionSpec, depth: usize) -> Result<(), ActionError> {
             keys.parse::<Chord>()?;
         }
         ActionSpec::OpenUrl { url } => check_url(url)?,
+        ActionSpec::HomeAssistant { service, .. } => {
+            let ok = service.split_once('.').is_some_and(|(d, s)| {
+                !d.is_empty()
+                    && !s.is_empty()
+                    && service
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+            });
+            if !ok {
+                return Err(ActionError::Integration {
+                    service: "Home Assistant".into(),
+                    reason: format!("{service:?} isn't a service like \"light.toggle\""),
+                });
+            }
+        }
         ActionSpec::Command {
             timeout_ms: Some(t),
             ..

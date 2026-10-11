@@ -61,7 +61,8 @@ class DeckConnectionTest {
     @After
     fun tearDown() {
         scope.cancel()
-        server.shutdown()
+        // A socket still closing can make shutdown time out; that isn't what these tests check.
+        runCatching { server.shutdown() }
         http.dispatcher.executorService.shutdown()
     }
 
@@ -76,6 +77,10 @@ class DeckConnectionTest {
                 is Message.KeyUp -> webSocket.send(Codec.encode(Envelope(Message.KeyAckMsg(KeyAck(m.payload.keyIndex, 5)), env.id)))
                 else -> Unit
             }
+        }
+        // Answer the client's close so MockWebServer can shut down promptly.
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(1000, null)
         }
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = Unit
     }
