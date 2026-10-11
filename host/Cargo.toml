@@ -54,7 +54,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny" # allowed only where an OS API needs it (host focus detection)
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

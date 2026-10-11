@@ -16,7 +16,9 @@ pub fn supported() -> bool {
     imp::supported()
 }
 
+// Asking the OS which window is in front needs its C APIs.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 mod imp {
     use windows_sys::Win32::{
         Foundation::CloseHandle,
@@ -65,6 +67,7 @@ mod imp {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 mod imp {
     use core_foundation::{
         array::CFArray,
