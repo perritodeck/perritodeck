@@ -10,6 +10,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 /// Size SVGs are drawn at (Stream Deck's high-resolution key size).
 const SVG_PX: u32 = 144;
+/// Images are scaled down to at most this many pixels a side.
+const MAX_SIDE: u32 = 288;
 /// Plugin images bigger than this many bytes are ignored.
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 
@@ -41,10 +43,15 @@ pub fn to_png(bytes: &[u8], svg: bool) -> Option<Vec<u8>> {
     if svg || looks_like_svg(bytes) {
         return svg_to_png(bytes);
     }
-    if bytes.starts_with(b"\x89PNG") {
-        return Some(bytes.to_vec());
-    }
     let img = image::load_from_memory(bytes).ok()?;
+    // Keys are at most a few hundred pixels; don't pass huge images on to tablets.
+    let img = if img.width() > MAX_SIDE || img.height() > MAX_SIDE {
+        img.thumbnail(MAX_SIDE, MAX_SIDE)
+    } else if bytes.starts_with(b"\x89PNG") {
+        return Some(bytes.to_vec());
+    } else {
+        img
+    };
     let mut png = Vec::new();
     img.to_rgba8()
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -73,8 +80,14 @@ fn fonts() -> Arc<resvg::usvg::fontdb::Database> {
 }
 
 fn svg_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    // Embedded images may only be data: URLs. The default would read any path on disk
+    // (or a network share), which a plugin's SVG must not be able to do.
     let opts = resvg::usvg::Options {
         fontdb: fonts(),
+        image_href_resolver: resvg::usvg::ImageHrefResolver {
+            resolve_data: resvg::usvg::ImageHrefResolver::default_data_resolver(),
+            resolve_string: Box::new(|_, _| None),
+        },
         ..Default::default()
     };
     let tree = resvg::usvg::Tree::from_data(bytes, &opts).ok()?;
@@ -100,8 +113,9 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+            let hex = |c: u8| (c as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((hi * 16 + lo) as u8);
                 i += 3;
                 continue;
             }
@@ -147,5 +161,24 @@ mod tests {
         assert!(load("../key", dir.path()).is_none());
         assert!(load("data:image/png;base64,!!!", dir.path()).is_none());
         assert_eq!(percent_decode("a%20b%2"), "a b%2");
+        assert_eq!(percent_decode("%aé%zz"), "%aé%zz", "no panic on odd input");
+
+        // An SVG can't pull in files from disk.
+        let secret = dir.path().join("secret.png");
+        std::fs::write(&secret, &png).unwrap();
+        let sneaky = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72"><image href="{}" width="72" height="72"/></svg>"#,
+            secret.display()
+        );
+        let out = image::load_from_memory(&svg_to_png(sneaky.as_bytes()).unwrap()).unwrap();
+        assert_eq!(out.to_rgba8().get_pixel(36, 36).0[3], 0, "nothing drawn");
+
+        // Huge images are scaled down.
+        let mut big = Vec::new();
+        image::RgbaImage::new(2000, 1000)
+            .write_to(&mut std::io::Cursor::new(&mut big), image::ImageFormat::Png)
+            .unwrap();
+        let small = image::load_from_memory(&to_png(&big, false).unwrap()).unwrap();
+        assert_eq!((small.width(), small.height()), (288, 144));
     }
 }

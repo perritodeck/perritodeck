@@ -171,3 +171,22 @@ async fn refuses_things_that_arent_plugins() {
     host.scan();
     assert_eq!(host.broken().len(), 1);
 }
+
+#[tokio::test]
+async fn web_pages_cant_pose_as_plugins() {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let dir = tempfile::tempdir().unwrap();
+    let host = SdHost::start(dir.path().join("sdplugins")).await.unwrap();
+    let url = format!("ws://127.0.0.1:{}", host.port());
+    let mut req = url.as_str().into_client_request().unwrap();
+    req.headers_mut()
+        .insert("Origin", "https://evil.example".parse().unwrap());
+    assert!(
+        tokio_tungstenite::connect_async(req).await.is_err(),
+        "refused"
+    );
+    assert!(
+        tokio_tungstenite::connect_async(url.as_str()).await.is_ok(),
+        "plugins (no Origin) still can"
+    );
+}

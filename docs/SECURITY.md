@@ -12,7 +12,11 @@ PerritoDeck's host can type keystrokes and (from Phase 2) run commands on your c
 | Malicious web page in your browser connects to the host | WebSocket upgrades with an `Origin` header are refused; pairing is required anyway | — |
 | Host key theft from disk | Private key and device list written with owner-only permissions (Unix); Windows relies on the per-user profile ACL | OS keychain storage (Phase 6) |
 | Oversized or malformed frames | 64 KiB message limit; malformed frames rejected with `badMessage`; handshake timeout; idle timeout | Rate limiting |
-| Plugins doing more than they claim | n/a | Declared permissions shown at install (Phase 5) |
+| Plugins doing more than they claim | Plugins run as the user, with no sandbox; the app says so when adding them. Their settings (tokens) are stored owner-only (`plugin-settings/`, `sdplugins/settings.json`) and never logged by first-party plugins | Declared permissions shown at install; signing |
+| Tampered plugin download | Online catalogue: HTTPS only, size and file-count caps, zip paths checked, SHA-256 must match the index, plugin id must match its entry. The hash comes from the same server as the zip, so it guards against corruption, not a compromised perritodeck.dev | Signed index |
+| Web page or other local program poses as a Stream Deck plugin | The plugin WebSocket listens on 127.0.0.1 only and refuses upgrades with an `Origin` header (browsers always send one). Another program running as the same user could still connect while a plugin isn't | Per-launch tokens |
+| Plugin images (SVG) reading local files | SVG `<image>` may only use `data:` URLs; images are scaled to at most 288 px | — |
+| Rogue or spoofed Companion on the LAN | Lines capped at 4 MB; silent connections dropped after 10 s; Companion only draws keys and receives presses of tablets showing a Companion profile | — |
 | Command injection via action settings | Command and launch actions take an argv array and never run through a shell; URLs limited to http/https/mailto | Confirm new commands in the UI (Phase 3) |
 
 ## Review checklist (every PR touching host networking or actions)

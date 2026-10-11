@@ -87,9 +87,36 @@ struct Running {
     settings: Mutex<Value>,
     /// Argument values profiles use, e.g. `up:192.168.1.10`, sent as `watch`.
     watching: Mutex<Vec<String>>,
+    /// The plugin's own writable folder (`PERRITODECK_PLUGIN_DATA`).
+    data_dir: PathBuf,
+    /// Wakes the supervisor to stop the plugin (killing it if it doesn't exit).
+    stop_signal: tokio::sync::Notify,
+    /// The supervisor has finished: no process is running for this plugin.
+    exited: AtomicBool,
 }
 
+/// How long a plugin gets to exit after `shutdown` before it's killed.
+const STOP_GRACE: Duration = Duration::from_secs(2);
+
 impl Running {
+    /// Ask the plugin to stop; the supervisor kills it if it doesn't exit in time.
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(tx) = self.to_plugin.lock().expect("stdin poisoned").take() {
+            let _ = tx.send(json!({ "event": "shutdown" }).to_string());
+        }
+        self.stop_signal.notify_one();
+    }
+
+    /// Wait (blocking, up to `limit`) until the plugin's process is gone, so its folder
+    /// can be deleted (Windows can't delete a running program).
+    fn wait_exited(&self, limit: Duration) {
+        let until = Instant::now() + limit;
+        while !self.exited.load(Ordering::Relaxed) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     fn send(&self, msg: Value) {
         if let Some(tx) = self.to_plugin.lock().expect("stdin poisoned").as_ref() {
             let _ = tx.send(msg.to_string());
@@ -191,10 +218,7 @@ impl PluginHost {
         plugins.retain(|id, p| {
             let keep = found.get(id).is_some_and(|(m, _)| *m == p.manifest);
             if !keep {
-                p.stop.store(true, Ordering::Relaxed);
-                if let Some(tx) = p.to_plugin.lock().expect("stdin poisoned").take() {
-                    let _ = tx.send(json!({ "event": "shutdown" }).to_string());
-                }
+                p.request_stop();
             }
             keep
         });
@@ -218,6 +242,9 @@ impl PluginHost {
                 stop: AtomicBool::new(false),
                 settings: Mutex::new(self.load_settings(&id)),
                 watching: Mutex::new(Vec::new()),
+                data_dir: self.settings_dir.with_file_name("plugin-data").join(&id),
+                stop_signal: tokio::sync::Notify::new(),
+                exited: AtomicBool::new(false),
             });
             plugins.insert(id, running.clone());
             self.runtime.spawn(supervise(
@@ -271,6 +298,16 @@ impl PluginHost {
         })?;
         let manifest = Manifest::parse(&text)?;
         let dest = self.dir.join(&manifest.id);
+        // Stop the old version first: a running program can't be deleted on Windows.
+        let old = self
+            .plugins
+            .lock()
+            .expect("plugins poisoned")
+            .remove(&manifest.id);
+        if let Some(old) = old {
+            old.request_stop();
+            old.wait_exited(STOP_GRACE * 2);
+        }
         if dest.exists() {
             std::fs::remove_dir_all(&dest)
                 .map_err(|e| format!("Couldn't replace the old version: {e}"))?;
@@ -283,13 +320,15 @@ impl PluginHost {
 
     /// Stop a plugin and delete its folder.
     pub fn remove(self: &Arc<Self>, id: &str) -> Result<(), String> {
-        let folder = self
+        let p = self
             .plugins
             .lock()
             .expect("plugins poisoned")
-            .get(id)
-            .map(|p| p.dir.clone())
+            .remove(id)
             .ok_or_else(|| format!("There's no plugin called {id}."))?;
+        p.request_stop();
+        p.wait_exited(STOP_GRACE * 2);
+        let folder = p.dir.clone();
         std::fs::remove_dir_all(&folder)
             .map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
         self.scan();
@@ -304,10 +343,7 @@ impl PluginHost {
             .expect("plugins poisoned")
             .remove(id)
             .ok_or_else(|| format!("There's no plugin called {id}."))?;
-        p.stop.store(true, Ordering::Relaxed);
-        if let Some(tx) = p.to_plugin.lock().expect("stdin poisoned").take() {
-            let _ = tx.send(json!({ "event": "shutdown" }).to_string());
-        }
+        p.request_stop();
         self.scan();
         Ok(())
     }
@@ -387,14 +423,9 @@ impl PluginHost {
         std::fs::create_dir_all(&self.settings_dir).map_err(|e| e.to_string())?;
         let path = self.settings_path(id);
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&value).expect("JSON"))
+        // They may hold passwords or tokens: readable by this user only, from the start.
+        write_private(&tmp, &serde_json::to_vec_pretty(&value).expect("JSON"))
             .map_err(|e| format!("Couldn't save the settings: {e}"))?;
-        // They may hold passwords or tokens: readable by this user only.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-        }
         std::fs::rename(&tmp, &path).map_err(|e| format!("Couldn't save the settings: {e}"))?;
         *p.settings.lock().expect("settings poisoned") = value.clone();
         p.send(json!({ "event": "settings", "settings": value }));
@@ -444,10 +475,7 @@ impl PluginHost {
     /// Stop every plugin (the host is quitting).
     pub fn shutdown(&self) {
         for p in self.plugins.lock().expect("plugins poisoned").values() {
-            p.stop.store(true, Ordering::Relaxed);
-            if let Some(tx) = p.to_plugin.lock().expect("stdin poisoned").take() {
-                let _ = tx.send(json!({ "event": "shutdown" }).to_string());
-            }
+            p.request_stop();
         }
     }
 }
@@ -499,7 +527,33 @@ fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
     }
 }
 
+/// Write a file only its owner can read (0600 on Unix, set when it's created).
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+/// Marks a plugin's process as gone when its supervisor returns, however it returns.
+struct Exited<'a>(&'a AtomicBool);
+
+impl Drop for Exited<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
+    let _exited = Exited(&p.exited);
+    let _ = std::fs::create_dir_all(&p.data_dir);
     let mut quick_restarts = 0u32;
     loop {
         if p.stop.load(Ordering::Relaxed) {
@@ -509,15 +563,21 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         let started = Instant::now();
         let mut child = None;
         for (program, args) in command_for(&p.manifest, &p.dir) {
-            match Command::new(&program)
-                .args(&args)
+            let mut cmd = Command::new(&program);
+            cmd.args(&args)
                 .current_dir(&p.dir)
+                // Plugins talk UTF-8 whatever the system's code page is.
+                .env("PYTHONUTF8", "1")
+                .env("PYTHONIOENCODING", "utf-8")
+                .env("PERRITODECK_PLUGIN_DATA", &p.data_dir)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-            {
+                .kill_on_drop(true);
+            // No console window popping up for each plugin.
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            match cmd.spawn() {
                 Ok(c) => {
                     child = Some(c);
                     break;
@@ -591,7 +651,20 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
             })
         };
 
-        let status = child.wait().await;
+        let status = tokio::select! {
+            s = child.wait() => s,
+            _ = p.stop_signal.notified() => {
+                // Asked to stop: give it a moment after `shutdown`, then kill it.
+                match tokio::time::timeout(STOP_GRACE, child.wait()).await {
+                    Ok(s) => s,
+                    Err(_) => {
+                        warn!("plugin {id} didn't stop; ending it");
+                        let _ = child.kill().await;
+                        child.wait().await
+                    }
+                }
+            }
+        };
         reader.abort();
         writer.abort();
         *p.to_plugin.lock().expect("stdin poisoned") = None;
@@ -649,6 +722,9 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
             let _ = done.send(result);
         }
         Some("value") => {
+            if p.stop.load(Ordering::Relaxed) {
+                return; // an old copy that's being stopped
+            }
             if let (Some(id), Some(v)) = (msg["id"].as_str(), msg["value"].as_str()) {
                 if p.publishes(id) {
                     values(format!("plugin:{}:{id}", p.manifest.id), v.to_owned());

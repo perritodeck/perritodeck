@@ -1159,9 +1159,10 @@ impl Deck {
     pub fn key_up(&self, device_id: &str, key_index: u32) {
         let st = self.lock();
         if !self.paused() {
-            if let (Some(agent), Some(a)) =
+            if let (Some(mut agent), Some(a)) =
                 (self.agent_at(&st, device_id, key_index), self.agents())
             {
+                agent.device = device_id.to_owned();
                 a.press(&agent, false);
                 return;
             }
@@ -1225,7 +1226,8 @@ impl Deck {
             return;
         }
 
-        if let Some(agent) = self.agent_at(&st, device_id, key_index) {
+        if let Some(mut agent) = self.agent_at(&st, device_id, key_index) {
+            agent.device = device_id.to_owned(); // the tablet pressing it
             if let Some(a) = self.agents() {
                 a.press(&agent, true);
             }

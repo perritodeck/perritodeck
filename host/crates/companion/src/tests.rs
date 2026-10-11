@@ -201,3 +201,42 @@ fn colours_and_versions() {
     assert_eq!(parse_version("1.12.0"), (1, 12, 0));
     assert_eq!(parse_version("1.5"), (1, 5, 0));
 }
+
+#[tokio::test]
+async fn notices_a_companion_that_goes_silent() {
+    let (port, mut accepted) = companion().await;
+    let (sink, seen) = recorder();
+    let _client = Client::start("127.0.0.1".into(), port, sink);
+    let mut c = Conn::new(accepted.recv().await.unwrap());
+    c.say("BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0")
+        .await;
+    c.say("CAPS BITMAP_FORMATS=rgb").await;
+    wait_for(&seen, |e| {
+        matches!(e, Event::Status(Status::Connected { .. }))
+    })
+    .await;
+    // Keep the connection open but never answer the pings.
+    for _ in 0..300 {
+        if seen.lock().unwrap().iter().any(|e| matches!(e, Event::Status(Status::Disconnected { reason }) if reason.contains("stopped answering"))) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("silence went unnoticed: {:?}", seen.lock().unwrap());
+}
+
+#[tokio::test]
+async fn refuses_endless_lines() {
+    let (port, mut accepted) = companion().await;
+    let (sink, seen) = recorder();
+    let _client = Client::start("127.0.0.1".into(), port, sink);
+    let mut c = Conn::new(accepted.recv().await.unwrap());
+    c.say("BEGIN CompanionVersion=4.1.0 ApiVersion=1.5.0").await;
+    let chunk = vec![b'A'; 1024 * 1024];
+    for _ in 0..5 {
+        if c.write.write_all(&chunk).await.is_err() {
+            break;
+        }
+    }
+    wait_for(&seen, |e| matches!(e, Event::Status(Status::Disconnected { reason }) if reason.contains("too long"))).await;
+}

@@ -298,3 +298,48 @@ async fn plugin_settings_and_watched_values() {
     wait_for("watch again", || has("plugin:test.watch:up:10.0.0.1", "up")).await;
     host.shutdown();
 }
+
+const STUBBORN_PLUGIN: &str = r#"
+import json, os, sys, time
+open(os.path.join(os.environ["PERRITODECK_PLUGIN_DATA"], "pid"), "w").write(str(os.getpid()))
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["event"] == "hello":
+        sys.stdout.write(json.dumps({"event": "ready"}) + "\n"); sys.stdout.flush()
+    # ignores shutdown on purpose
+"#;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plugins_that_ignore_shutdown_are_ended_before_removal() {
+    if !has_python() || cfg!(windows) {
+        eprintln!("skipping: needs Python on Unix");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    write_plugin(
+        &plugins,
+        "test.stubborn",
+        "python",
+        "plugin.py",
+        Some(STUBBORN_PLUGIN),
+    );
+    let host = PluginHost::start(plugins.clone(), "1", Arc::new(|_, _| {}));
+    wait_for("running", || {
+        host.list()
+            .first()
+            .is_some_and(|p| p.status == Status::Running)
+    })
+    .await;
+    let pid_file = root.path().join("plugin-data/test.stubborn/pid");
+    wait_for("pid", || pid_file.is_file()).await;
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let h = host.clone();
+    tokio::task::spawn_blocking(move || h.remove("test.stubborn"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!plugins.join("test.stubborn").exists());
+    let alive = std::path::Path::new("/proc").join(pid.trim()).exists();
+    assert!(!alive, "the old process was ended");
+}

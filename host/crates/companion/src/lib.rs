@@ -14,7 +14,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncWriteExt, BufReader},
     net::TcpStream,
     sync::mpsc,
 };
@@ -26,7 +26,7 @@ pub use line::Line;
 pub const DEFAULT_PORT: u16 = 16622;
 const PING_EVERY: Duration = Duration::from_secs(2);
 /// No word from Companion for this long and the connection is considered dead.
-const SILENCE: Duration = Duration::from_secs(10);
+const SILENCE: Duration = Duration::from_secs(if cfg!(test) { 3 } else { 10 });
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_BACKOFF: Duration = Duration::from_secs(15);
 
@@ -198,7 +198,7 @@ async fn session(
     backoff: &mut Duration,
 ) -> Result<(), String> {
     let (read, mut write) = stream.into_split();
-    let mut lines = BufReader::new(read).lines();
+    let mut lines = LineReader::new(read);
 
     // BEGIN, then (from API 1.10) CAPS.
     let begin = line::parse(&next(&mut lines).await?);
@@ -249,9 +249,11 @@ async fn session(
     let mut ping = tokio::time::interval(PING_EVERY);
     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut n = 0u64;
+    let mut last_heard = std::time::Instant::now();
     loop {
         tokio::select! {
-            l = next(&mut lines) => {
+            l = lines.next_line() => {
+                last_heard = std::time::Instant::now();
                 let l = line::parse(&l?);
                 handle(&l, &sizes, events, &mut write).await?;
             }
@@ -287,6 +289,11 @@ async fn session(
                 }
             },
             _ = ping.tick() => {
+                // Companion answers every ping; silence means the link is dead even if
+                // the connection never closed.
+                if last_heard.elapsed() > SILENCE {
+                    return Err("Companion stopped answering.".to_owned());
+                }
                 n += 1;
                 send(&mut write, format!("PING {n}\n")).await?;
             }
@@ -294,15 +301,60 @@ async fn session(
     }
 }
 
-type Lines = tokio::io::Lines<BufReader<tokio::net::tcp::OwnedReadHalf>>;
+/// The longest line accepted from Companion: a 512 px raw RGB bitmap in base64 is ~1 MB.
+const MAX_LINE: usize = 4 * 1024 * 1024;
 
-/// The next line from Companion (cancel-safe), or why there won't be one.
-async fn next(lines: &mut Lines) -> Result<String, String> {
+/// Reads lines with a length limit, so a rogue server can't fill memory. Cancel-safe:
+/// a partly read line stays in `buf` until the next call.
+struct LineReader {
+    r: BufReader<tokio::net::tcp::OwnedReadHalf>,
+    buf: Vec<u8>,
+}
+
+impl LineReader {
+    fn new(r: tokio::net::tcp::OwnedReadHalf) -> Self {
+        Self {
+            r: BufReader::new(r),
+            buf: Vec::new(),
+        }
+    }
+
+    async fn next_line(&mut self) -> Result<String, String> {
+        use tokio::io::AsyncBufReadExt as _;
+        loop {
+            let avail = self
+                .r
+                .fill_buf()
+                .await
+                .map_err(|e| format!("Connection to Companion lost: {e}"))?;
+            if avail.is_empty() {
+                return Err("Companion closed the connection.".to_owned());
+            }
+            let (take, done) = match avail.iter().position(|&b| b == b'\n') {
+                Some(i) => (i + 1, true),
+                None => (avail.len(), false),
+            };
+            self.buf.extend_from_slice(&avail[..take]);
+            self.r.consume(take);
+            if self.buf.len() > MAX_LINE {
+                return Err("Companion sent a line that's far too long.".to_owned());
+            }
+            if done {
+                let line = String::from_utf8_lossy(&self.buf)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_owned();
+                self.buf.clear();
+                return Ok(line);
+            }
+        }
+    }
+}
+
+/// The next line within the silence limit (used before the ping loop starts).
+async fn next(lines: &mut LineReader) -> Result<String, String> {
     match tokio::time::timeout(SILENCE, lines.next_line()).await {
         Err(_) => Err("Companion stopped answering.".to_owned()),
-        Ok(Err(e)) => Err(format!("Connection to Companion lost: {e}")),
-        Ok(Ok(None)) => Err("Companion closed the connection.".to_owned()),
-        Ok(Ok(Some(l))) => Ok(l),
+        Ok(r) => r,
     }
 }
 

@@ -116,6 +116,8 @@ struct Plugin {
     /// Wakes the plugin's supervisor to stop it. Also tells a supervisor whether this
     /// entry is still its own (after a restart there's a new one).
     stop: Arc<Notify>,
+    /// Set when the supervisor is done (no process left), so the folder can be deleted.
+    exited: Arc<std::sync::atomic::AtomicBool>,
 }
 
 struct Instance {
@@ -289,6 +291,7 @@ impl SdHost {
                         status: Status::Starting,
                         out: None,
                         stop: Arc::new(Notify::new()),
+                        exited: Arc::default(),
                     },
                 );
                 start.push(uuid);
@@ -361,6 +364,18 @@ impl SdHost {
         let manifest =
             Manifest::read(&folder).map_err(|p| format!("That plugin can't be used: {p}."))?;
         let dest = self.0.dir.join(format!("{}.sdPlugin", manifest.uuid));
+        // Stop the old version first: Windows can't delete a running program.
+        let old = self
+            .0
+            .state
+            .lock()
+            .expect("state poisoned")
+            .plugins
+            .remove(&manifest.uuid);
+        if let Some(old) = old {
+            stop(&old);
+            wait_exited(&old);
+        }
         if dest.exists() {
             std::fs::remove_dir_all(&dest)
                 .map_err(|e| format!("Couldn't replace the old version: {e}"))?;
@@ -378,8 +393,10 @@ impl SdHost {
                 .remove(uuid)
                 .ok_or_else(|| format!("There's no Stream Deck plugin {uuid}."))?;
             stop(&p);
-            p.folder
+            p
         };
+        wait_exited(&folder);
+        let folder = folder.folder;
         std::fs::remove_dir_all(&folder)
             .map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
         Ok(())
@@ -416,6 +433,35 @@ fn stop(p: &Plugin) {
     p.stop.notify_one();
 }
 
+/// Wait (blocking, a few seconds at most) for a stopped plugin's process to be gone.
+fn wait_exited(p: &Plugin) {
+    let until = std::time::Instant::now() + Duration::from_secs(4);
+    while !p.exited.load(Ordering::Relaxed) && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Settings plugins save are kept per plugin action and key, so a different action put
+/// on the same key never sees them.
+fn store_key(key: &AgentKey) -> String {
+    format!("{}|{}|{}", key.plugin, key.action, key.context)
+}
+
+/// Write a file only its owner can read (0600 on Unix, from creation).
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
 impl Inner {
     fn send(&self, uuid: &str, msg: Value) {
         let st = self.state.lock().expect("state poisoned");
@@ -429,7 +475,7 @@ impl Inner {
         match serde_json::to_vec_pretty(&st.store) {
             Ok(b) => {
                 let tmp = path.with_extension("json.tmp");
-                if std::fs::write(&tmp, b)
+                if write_private(&tmp, &b)
                     .and_then(|_| std::fs::rename(&tmp, &path))
                     .is_err()
                 {
@@ -485,7 +531,7 @@ fn device_info(id: &str, g: Grid) -> Value {
 fn settings_of(st: &State, key: &AgentKey) -> Value {
     st.store
         .contexts
-        .get(&key.context)
+        .get(&store_key(key))
         .cloned()
         .or_else(|| key.settings.is_object().then(|| key.settings.clone()))
         .unwrap_or_else(|| json!({}))
@@ -618,8 +664,17 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
     else {
         return;
     };
+    let exited = inner
+        .state
+        .lock()
+        .expect("state poisoned")
+        .plugins
+        .get(&uuid)
+        .map(|p| p.exited.clone());
+    let _done = Exited(exited);
     let mut crashes = 0;
     loop {
+        let started = std::time::Instant::now();
         let (code, folder, stop, args) = {
             let st = inner.state.lock().expect("state poisoned");
             let Some(p) = st
@@ -731,6 +786,10 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 return;
             }
         };
+        // A plugin that ran for a while before stopping starts its count again.
+        if started.elapsed() > Duration::from_secs(60) {
+            crashes = 0;
+        }
         crashes += 1;
         let reason = match exit {
             Ok(s) => format!("it stopped ({s})"),
@@ -749,9 +808,35 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
     }
 }
 
+struct Exited(Option<Arc<std::sync::atomic::AtomicBool>>);
+
+impl Drop for Exited {
+    fn drop(&mut self) {
+        if let Some(e) = &self.0 {
+            e.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
 /// One plugin's WebSocket.
 async fn connection(inner: Arc<Inner>, stream: tokio::net::TcpStream) {
-    let Ok(ws) = tokio_tungstenite::accept_async(stream).await else {
+    // Plugins are local programs and send no Origin. Web pages always do: refuse them, so a
+    // site open in a browser can't pose as a plugin on this port.
+    #[allow(clippy::result_large_err)]
+    let no_browsers =
+        |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
+         resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            if req.headers().contains_key("origin") {
+                let mut refuse =
+                    tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(Some(
+                        "browsers can't connect here".into(),
+                    ));
+                *refuse.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN;
+                return Err(refuse);
+            }
+            Ok(resp)
+        };
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, no_browsers).await else {
         return;
     };
     let (mut sink, mut source) = ws.split();
@@ -880,7 +965,8 @@ fn handle(inner: &Inner, uuid: &str, v: &Value) {
             });
         }
         "setSettings" if owns => {
-            st.store.contexts.insert(context, payload.clone());
+            let key = store_key(&st.instances[&context].key);
+            st.store.contexts.insert(key, payload.clone());
             inner.save_store(&st);
         }
         "getSettings" if owns => {
@@ -942,6 +1028,9 @@ fn unzip(bytes: &[u8], dest: &Path) -> Result<(), String> {
     const MAX_TOTAL: u64 = 200 * 1024 * 1024;
     let bad = |e: zip::result::ZipError| format!("That file isn't a Stream Deck plugin: {e}");
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(bad)?;
+    if z.len() > 10_000 {
+        return Err("The plugin has too many files.".into());
+    }
     let mut total = 0u64;
     for i in 0..z.len() {
         let mut f = z.by_index(i).map_err(bad)?;

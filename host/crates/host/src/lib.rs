@@ -102,7 +102,9 @@ impl HostOptions {
     }
 }
 
-/// The user's settings folder, e.g. `~/.config/PerritoDeck` on Linux.
+/// The user's settings folder: `~/.config/perritodeck` on Linux,
+/// `%APPDATA%\perritodeck\PerritoDeck\config` on Windows,
+/// `~/Library/Application Support/dev.perritodeck.PerritoDeck` on macOS.
 pub fn default_data_dir() -> Result<PathBuf> {
     directories::ProjectDirs::from("dev", "perritodeck", "PerritoDeck")
         .map(|d| d.config_dir().to_owned())
