@@ -45,6 +45,9 @@ pub fn watch_profile(path: PathBuf, deck: Arc<Deck>) -> notify::Result<notify::R
             tokio::time::sleep(Duration::from_millis(250)).await;
             while rx.try_recv().is_ok() {}
             match perritodeck_profile::load(&path) {
+                // The desktop app reloads the deck itself right after saving; don't
+                // redraw every tablet a second time for the same content.
+                Ok(profile) if profile == deck.profile() && deck.reload_error().is_none() => {}
                 Ok(profile) => {
                     info!("{} changed", path.display());
                     deck.reload(profile);

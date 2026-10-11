@@ -13,6 +13,8 @@ perritodeck-actions.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

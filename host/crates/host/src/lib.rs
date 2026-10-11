@@ -25,6 +25,7 @@ use perritodeck_core::{
     HostIdentity, Security, Server, ServerConfig, ServerEvent, ServerHandle,
 };
 use perritodeck_deck::{watch::watch_profile, Deck, Outbox};
+pub use perritodeck_profile::edit::{Edit, KeyFields};
 use perritodeck_profile::{NavSpec, Profile, SimpleNav};
 use perritodeck_protocol::{Message, DEFAULT_PORT};
 use serde::Serialize;
@@ -142,8 +143,12 @@ pub struct ProfileView {
     pub name: String,
     pub cols: u32,
     pub rows: u32,
+    /// True when the profile fixes the grid size; otherwise it follows each tablet.
+    pub fixed_grid: bool,
     pub pages: Vec<PageView>,
     pub reload_error: Option<String>,
+    pub can_undo: bool,
+    pub can_redo: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +170,11 @@ pub struct KeyView {
     pub kind: String,
     /// Short description of what it does, e.g. "hotkey Ctrl+C".
     pub detail: String,
+    /// The key's own settings, as the editor changes them.
+    pub fields: KeyFields,
+    /// Toggle states (0 for an ordinary key). Toggles are edited in the file for now.
+    pub states: usize,
+    pub has_icon: bool,
 }
 
 /// Outbox that forwards to the server handle once it exists.
@@ -176,6 +186,15 @@ impl Outbox for LateOutbox {
         self.0.get().is_some_and(|h| h.send(device_id, msg))
     }
 }
+
+/// Edits made through the app, as (file before, file after) pairs.
+#[derive(Default)]
+struct History {
+    undo: Vec<(String, String)>,
+    redo: Vec<(String, String)>,
+}
+
+const HISTORY_LIMIT: usize = 200;
 
 pub struct Host {
     pub host_name: String,
@@ -190,6 +209,7 @@ pub struct Host {
     insecure: bool,
     integrations: Vec<String>,
     events: broadcast::Sender<HostEvent>,
+    history: std::sync::Mutex<History>,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -324,6 +344,7 @@ impl Host {
             insecure: opts.insecure,
             integrations,
             events,
+            history: Default::default(),
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -437,7 +458,94 @@ impl Host {
 
     pub fn profile_view(&self) -> ProfileView {
         let profile = self.deck.profile();
-        view_of(&profile, self.deck.reload_error())
+        let mut view = view_of(&profile, self.deck.reload_error());
+        let history = self.history.lock().expect("history poisoned");
+        view.can_undo = !history.undo.is_empty();
+        view.can_redo = !history.redo.is_empty();
+        view
+    }
+
+    /// Change the profile file and show the result on the tablets right away.
+    pub fn edit_profile(&self, edits: &[Edit]) -> Result<ProfileView, String> {
+        let before = self.read_profile_text()?;
+        let after = perritodeck_profile::edit::apply(&before, edits).map_err(|e| e.to_string())?;
+        if after != before {
+            self.write_profile_text(&after)?;
+            let mut history = self.history.lock().expect("history poisoned");
+            history.undo.push((before, after));
+            if history.undo.len() > HISTORY_LIMIT {
+                history.undo.remove(0);
+            }
+            history.redo.clear();
+        }
+        Ok(self.profile_view())
+    }
+
+    /// Step back through the app's edits. Edits made in a text editor aren't undone here.
+    pub fn undo(&self) -> Result<ProfileView, String> {
+        self.step(true)
+    }
+
+    pub fn redo(&self) -> Result<ProfileView, String> {
+        self.step(false)
+    }
+
+    fn step(&self, back: bool) -> Result<ProfileView, String> {
+        let mut history = self.history.lock().expect("history poisoned");
+        let entry = if back {
+            history.undo.pop()
+        } else {
+            history.redo.pop()
+        };
+        let Some((before, after)) = entry else {
+            return Err(format!(
+                "Nothing to {}.",
+                if back { "undo" } else { "redo" }
+            ));
+        };
+        let (expected, target) = if back {
+            (&after, &before)
+        } else {
+            (&before, &after)
+        };
+        if self.read_profile_text()? != *expected {
+            history.undo.clear();
+            history.redo.clear();
+            return Err("The profile file was changed outside PerritoDeck, so earlier edits can't be undone.".into());
+        }
+        self.write_profile_text(target)?;
+        if back {
+            history.redo.push((before, after));
+        } else {
+            history.undo.push((before, after));
+        }
+        drop(history);
+        Ok(self.profile_view())
+    }
+
+    fn read_profile_text(&self) -> Result<String, String> {
+        std::fs::read_to_string(&self.profile_path)
+            .map_err(|e| format!("Couldn't read {}: {e}", self.profile_path.display()))
+    }
+
+    /// Save atomically (so a crash never leaves half a file), then reload the deck now
+    /// rather than waiting for the file watcher.
+    fn write_profile_text(&self, text: &str) -> Result<(), String> {
+        let path = &self.profile_path;
+        let profile = Profile::parse(text).map_err(|e| e.to_string())?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let tmp = path.with_file_name(format!(".{name}.saving"));
+        std::fs::write(&tmp, text)
+            .and_then(|()| std::fs::rename(&tmp, path))
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                format!("Couldn't save {}: {e}", path.display())
+            })?;
+        self.deck.reload(profile);
+        Ok(())
     }
 }
 
@@ -498,6 +606,15 @@ pub fn view_of(profile: &Profile, reload_error: Option<String>) -> ProfileView {
                         fg: look.fg,
                         kind: kind.to_owned(),
                         detail,
+                        fields: KeyFields {
+                            title: k.title.clone(),
+                            bg: k.bg.clone(),
+                            fg: k.fg.clone(),
+                            action: k.action.clone(),
+                            nav: k.nav.clone(),
+                        },
+                        states: k.states.len(),
+                        has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),
                     }
                 })
                 .collect(),
@@ -507,8 +624,11 @@ pub fn view_of(profile: &Profile, reload_error: Option<String>) -> ProfileView {
         name: profile.name.clone(),
         cols,
         rows,
+        fixed_grid: profile.grid.is_some(),
         pages,
         reload_error,
+        can_undo: false,
+        can_redo: false,
     }
 }
 
@@ -664,6 +784,71 @@ mod tests {
         .await;
         assert!(got.is_ok(), "no ProfileChanged event");
         assert!(host.profile_view().reload_error.is_some());
+    }
+
+    #[tokio::test]
+    async fn edits_save_reload_and_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut opts = HostOptions::new(dir.path().to_owned());
+        opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        opts.port = 0;
+        opts.mdns = false;
+        let host = Host::start(opts).await.unwrap();
+        let original = std::fs::read_to_string(&host.profile_path).unwrap();
+        let title = |v: &ProfileView| {
+            v.pages[0]
+                .keys
+                .iter()
+                .find(|k| k.row == 1 && k.col == 1)
+                .map(|k| k.title.clone())
+        };
+
+        let edit = Edit::SetKey {
+            page: "Main".into(),
+            at: [1, 1],
+            key: KeyFields {
+                title: Some("Copied".into()),
+                ..Default::default()
+            },
+        };
+        let view = host.edit_profile(std::slice::from_ref(&edit)).unwrap();
+        assert_eq!(title(&view).as_deref(), Some("Copied"));
+        assert!(view.can_undo && !view.can_redo);
+        // Saved to disk and already live in the deck (no waiting for the watcher).
+        assert!(std::fs::read_to_string(&host.profile_path)
+            .unwrap()
+            .contains("\"Copied\""));
+        assert_eq!(
+            title(&view_of(&host.deck.profile(), None)).as_deref(),
+            Some("Copied")
+        );
+
+        let view = host.undo().unwrap();
+        assert_eq!(title(&view).as_deref(), Some("Copy"));
+        assert_eq!(
+            std::fs::read_to_string(&host.profile_path).unwrap(),
+            original
+        );
+        assert!(!view.can_undo && view.can_redo);
+        let view = host.redo().unwrap();
+        assert_eq!(title(&view).as_deref(), Some("Copied"));
+
+        // A bad edit changes nothing.
+        let bad = Edit::SetKey {
+            page: "Main".into(),
+            at: [0, 0],
+            key: KeyFields {
+                bg: Some("red".into()),
+                ..Default::default()
+            },
+        };
+        assert!(host.edit_profile(&[bad]).is_err());
+        assert_eq!(title(&host.profile_view()).as_deref(), Some("Copied"));
+
+        // After a hand edit, undo refuses rather than overwrite it.
+        std::fs::write(&host.profile_path, &original).unwrap();
+        assert!(host.undo().unwrap_err().contains("outside"));
+        assert!(!host.profile_view().can_undo);
     }
 
     #[tokio::test]

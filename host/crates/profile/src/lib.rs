@@ -9,6 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod edit;
+
 use perritodeck_actions::{ActionSpec, Executor};
 use serde::{Deserialize, Serialize};
 
