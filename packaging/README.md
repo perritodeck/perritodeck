@@ -29,7 +29,7 @@ Both need the repository to be public and a release tag.
 4. Submit through a pull request to `flathub/flathub` (the `new-pr` branch), with `shared-modules` as a git submodule.
 
 Open questions before submitting:
-- **App ID.** The draft uses `dev.perritodeck.PerritoDeck`. The Tauri identifier is currently `dev.perritodeck.desktop`, and they should agree (see the first-release checklist in `docs/releasing.md`). Flathub checks that the publisher controls `perritodeck.dev`.
+- **App ID.** `dev.perritodeck.PerritoDeck`, the same as the Tauri identifier. Flathub checks that the publisher controls `perritodeck.dev`.
 - **Bundled plugins.** Outside an AppImage, Tauri looks for resources in `/usr/lib/PerritoDeck`, which is the runtime inside a Flatpak. The app likely needs a small fallback to `/app/lib/PerritoDeck` when `FLATPAK_ID` is set.
 - **Running programs.** "Run command" keys and plugins (Python is in the GNOME runtime; Node.js is not) run inside the sandbox. Reaching the real system needs `flatpak-spawn --host` (`--talk-name=org.freedesktop.Flatpak`), which Flathub reviewers want justified.
 - **Start at login.** The autostart plugin writes `~/.config/autostart`, which the sandbox can't see. The Background portal is the Flatpak way.

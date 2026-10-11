@@ -5,7 +5,7 @@ A release is one tag. Pushing `vX.Y.Z` runs the **Release** workflow, which buil
 ## The checklist
 
 ### 1. Before the first release only
-- [ ] Decide the desktop bundle identifier. It's `dev.perritodeck.desktop` in `host/app/src-tauri/tauri.conf.json`. It can never change after release (it names the macOS app's settings and the Windows install registry), and `distribution.md` used to say `dev.perritodeck.host`. It also makes an awkward Flatpak ID (`dev.perritodeck.desktop.desktop`). Something like `dev.perritodeck.PerritoDeck` reads better everywhere. If you change it, match the Flatpak app-id in `packaging/flatpak/`.
+- [x] Desktop bundle identifier: `dev.perritodeck.PerritoDeck` (decided 2026-10-11; matches the Flatpak app-id).
 - [ ] Android signing secrets (below). Without them the APK is `-unsigned` and IzzyOnDroid/Obtainium can't use it.
 - [ ] Optional: Apple Developer ID and notarisation secrets (below). Without them the Mac app is ad-hoc signed and people have to use "Open Anyway".
 - [ ] Optional: Windows code signing (below). Without it, SmartScreen warns.

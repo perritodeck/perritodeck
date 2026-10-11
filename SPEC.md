@@ -12,7 +12,7 @@ You are building **PerritoDeck**, a free/open-source (GPL-3.0 or Apache-2.0 — 
 - Display name: **Perrito** on the Android launcher/app stores' short name; **PerritoDeck** as the project and full product name.
 - GitHub org: `perritodeck` (monorepo `perritodeck/perritodeck`).
 - Website: `perritodeck.dev` (with `perritodeck.app` redirecting, if registered).
-- Android `applicationId`: `dev.perritodeck.client` (never change after first release). Desktop bundle id: `dev.perritodeck.host`.
+- Android `applicationId`: `dev.perritodeck.client` (never change after first release). Desktop bundle id: `dev.perritodeck.PerritoDeck` (decided 2026-10-11; never change after first release).
 - Rust crates / npm scope: `perritodeck-*` / `@perritodeck/*`. Plugin ids: reverse-DNS, e.g. `dev.perritodeck.obs`.
 - Never use Elgato names, logos or assets in branding.
 

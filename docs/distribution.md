@@ -7,7 +7,7 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 | | |
 |---|---|
 | Android package | `dev.perritodeck.client` (debug: `dev.perritodeck.client.debug`) |
-| Desktop bundle id | `dev.perritodeck.desktop` in `tauri.conf.json` (**undecided**: `dev.perritodeck.PerritoDeck` would suit Flatpak better; settle it before the first release, see [releasing](releasing.md#1-before-the-first-release-only)) |
+| Desktop bundle id | `dev.perritodeck.PerritoDeck` (`tauri.conf.json`, Flatpak app-id); never change it after the first release |
 | Store title | Perrito: tablet control deck |
 | Contact | dev@perritodeck.dev |
 | Privacy policy | https://perritodeck.dev/privacy.html |
