@@ -8,6 +8,11 @@
 //   });
 //   plugin.start();
 //
+//   plugin.onSettings((s) => { /* the plugin's own settings (Plugins page) */ });
+//   plugin.every(5, () => {
+//     for (const host of plugin.watched("up")) plugin.setValue("up", check(host), host);
+//   });
+//
 // The host talks to the plugin over stdin/stdout, one JSON object per line (see
 // PROTOCOL.md). Don't write to stdout yourself: use plugin.log or console.error.
 "use strict";
@@ -20,9 +25,51 @@ class Plugin {
   constructor({ input = process.stdin, output = process.stdout } = {}) {
     this._actions = new Map();
     this._onStart = [];
+    this._onSettings = [];
+    this._onWatch = [];
+    this._timers = [];
+    this._started = false;
     this._input = input;
     this._output = output;
     this.hostVersion = null;
+    /** The plugin's own settings, as saved on the Plugins page. */
+    this.settings = {};
+    /** Values with an argument that keys show, e.g. "up:192.168.1.10". */
+    this.watching = new Set();
+  }
+
+  /** Run fn(settings) whenever the plugin's settings arrive or change. */
+  onSettings(fn) {
+    this._onSettings.push(fn);
+    return this;
+  }
+
+  /** Run fn(values) when the set of watched values changes. */
+  onWatch(fn) {
+    this._onWatch.push(fn);
+    return this;
+  }
+
+  /** Run fn() every `seconds` once the host said hello (errors are logged). */
+  every(seconds, fn, { now = true } = {}) {
+    this._timers.push({ seconds, fn, now });
+    return this;
+  }
+
+  /** The arguments keys use with a value: ["192.168.1.10", …] for up:<host>. */
+  watched(id) {
+    const prefix = id + ":";
+    return [...this.watching].filter((v) => v.startsWith(prefix)).map((v) => v.slice(prefix.length)).sort();
+  }
+
+  async _call(fns, ...args) {
+    for (const fn of fns) {
+      try {
+        await fn(...args);
+      } catch (e) {
+        console.error(e);
+      }
+    }
   }
 
   /** Register a handler (settings) => void | string | Promise<void | string>. */
@@ -37,9 +84,11 @@ class Plugin {
     return this;
   }
 
-  /** Publish a live value; key titles show it as {plugin:<plugin id>:<value id>}. */
-  setValue(id, value) {
-    this._send({ event: "value", id, value: String(value) });
+  /** Publish a live value: {plugin:<plugin id>:<value id>}, or with `arg`,
+   * {plugin:<plugin id>:<value id>:<arg>}. */
+  setValue(id, value, arg) {
+    const full = arg === undefined || arg === null ? id : `${id}:${arg}`;
+    this._send({ event: "value", id: full, value: String(value) });
   }
 
   log(message, level = "info") {
@@ -80,21 +129,36 @@ class Plugin {
         }
         if (m.event === "hello") {
           this.hostVersion = m.host;
-          for (const fn of this._onStart) {
-            try {
-              await fn();
-            } catch (e) {
-              console.error(e);
+          this.settings = m.settings ?? {};
+          await this._call(this._onSettings, this.settings);
+          await this._call(this._onStart);
+          this._send({ event: "ready" });
+          if (!this._started) {
+            this._started = true;
+            for (const t of this._timers) {
+              const tick = () => Promise.resolve().then(t.fn).catch((e) => console.error(e));
+              if (t.now) tick();
+              const h = setInterval(tick, t.seconds * 1000);
+              h.unref?.();
+              this._intervals = [...(this._intervals ?? []), h];
             }
           }
-          this._send({ event: "ready" });
+        } else if (m.event === "settings") {
+          this.settings = m.settings ?? {};
+          this._call(this._onSettings, this.settings);
+        } else if (m.event === "watch") {
+          this.watching = new Set(m.values ?? []);
+          this._call(this._onWatch, [...this.watching].sort());
         } else if (m.event === "run") {
           this._run(m.id, m.action, m.settings);
         } else if (m.event === "shutdown") {
           rl.close();
         }
       });
-      rl.on("close", resolve);
+      rl.on("close", () => {
+        for (const h of this._intervals ?? []) clearInterval(h);
+        resolve();
+      });
     });
   }
 }

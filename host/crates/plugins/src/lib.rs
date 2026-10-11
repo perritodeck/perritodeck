@@ -83,9 +83,30 @@ struct Running {
     pending: Mutex<HashMap<u64, oneshot::Sender<Result<Outcome, ActionError>>>>,
     next_id: AtomicU64,
     stop: AtomicBool,
+    /// The plugin's settings (from the Plugins page).
+    settings: Mutex<Value>,
+    /// Argument values profiles use, e.g. `up:192.168.1.10`, sent as `watch`.
+    watching: Mutex<Vec<String>>,
 }
 
 impl Running {
+    fn send(&self, msg: Value) {
+        if let Some(tx) = self.to_plugin.lock().expect("stdin poisoned").as_ref() {
+            let _ = tx.send(msg.to_string());
+        }
+    }
+
+    /// Does the plugin publish this value (`id`, or `id:<argument>`)?
+    fn publishes(&self, value: &str) -> bool {
+        self.manifest
+            .values
+            .iter()
+            .any(|d| match value.split_once(':') {
+                Some((id, arg)) => d.arg.is_some() && d.id == id && !arg.is_empty(),
+                None => d.id == value,
+            })
+    }
+
     fn set_status(&self, s: Status) {
         *self.status.lock().expect("status poisoned") = s;
     }
@@ -113,14 +134,23 @@ pub struct PluginHost {
     values: ValueSink,
     plugins: Mutex<HashMap<String, Arc<Running>>>,
     broken: Mutex<Vec<BrokenPlugin>>,
+    /// Plugin settings, one JSON file per plugin (kept when a plugin is updated).
+    settings_dir: PathBuf,
+    /// The live value names last passed to [`PluginHost::watch`], for plugins that start later.
+    last_watch: Mutex<Vec<String>>,
 }
 
 impl PluginHost {
     /// Start every plugin installed in `dir` (one folder per plugin). Call from
     /// inside a Tokio runtime.
     pub fn start(dir: PathBuf, host_version: &str, values: ValueSink) -> Arc<Self> {
+        let settings_dir = dir
+            .parent()
+            .map_or_else(|| dir.join(".settings"), |p| p.join("plugin-settings"));
         let host = Arc::new(Self {
             runtime: tokio::runtime::Handle::current(),
+            settings_dir,
+            last_watch: Mutex::new(Vec::new()),
             dir,
             host_version: host_version.to_owned(),
             values,
@@ -186,6 +216,8 @@ impl PluginHost {
                 pending: Mutex::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
                 stop: AtomicBool::new(false),
+                settings: Mutex::new(self.load_settings(&id)),
+                watching: Mutex::new(Vec::new()),
             });
             plugins.insert(id, running.clone());
             self.runtime.spawn(supervise(
@@ -194,6 +226,10 @@ impl PluginHost {
                 self.values.clone(),
             ));
         }
+        drop(plugins);
+        // New and restarted plugins learn what profiles show (sent once they're ready).
+        let last = self.last_watch.lock().expect("watch poisoned").clone();
+        self.watch(&last);
     }
 
     pub fn list(&self) -> Vec<PluginInfo> {
@@ -317,6 +353,94 @@ impl PluginHost {
         }
     }
 
+    fn settings_path(&self, id: &str) -> PathBuf {
+        self.settings_dir.join(format!("{id}.json"))
+    }
+
+    fn load_settings(&self, id: &str) -> Value {
+        std::fs::read(self.settings_path(id))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}))
+    }
+
+    /// A plugin's settings, as saved on the Plugins page.
+    pub fn settings(&self, id: &str) -> Result<Value, String> {
+        let p = self.get(id)?;
+        let s = p.settings.lock().expect("settings poisoned").clone();
+        Ok(s)
+    }
+
+    /// Save a plugin's settings and send them to it. Only settings its manifest declares
+    /// are kept.
+    pub fn set_settings(&self, id: &str, settings: Value) -> Result<(), String> {
+        let p = self.get(id)?;
+        let Value::Object(given) = settings else {
+            return Err("Settings must be an object.".into());
+        };
+        let kept: serde_json::Map<String, Value> = given
+            .into_iter()
+            .filter(|(k, _)| p.manifest.settings.iter().any(|f| &f.id == k))
+            .collect();
+        let value = Value::Object(kept);
+        std::fs::create_dir_all(&self.settings_dir).map_err(|e| e.to_string())?;
+        let path = self.settings_path(id);
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&value).expect("JSON"))
+            .map_err(|e| format!("Couldn't save the settings: {e}"))?;
+        // They may hold passwords or tokens: readable by this user only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+        }
+        std::fs::rename(&tmp, &path).map_err(|e| format!("Couldn't save the settings: {e}"))?;
+        *p.settings.lock().expect("settings poisoned") = value.clone();
+        p.send(json!({ "event": "settings", "settings": value }));
+        Ok(())
+    }
+
+    fn get(&self, id: &str) -> Result<Arc<Running>, String> {
+        self.plugins
+            .lock()
+            .expect("plugins poisoned")
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("There's no plugin called {id}."))
+    }
+
+    /// Tell plugins which of their argument values profiles use, given the live value
+    /// names in use (`plugin:<id>:<value>:<argument>`). Each plugin hears only about
+    /// changes to its own list.
+    pub fn watch(&self, tokens: &[String]) {
+        *self.last_watch.lock().expect("watch poisoned") = tokens.to_vec();
+        let mut wanted: HashMap<&str, Vec<String>> = HashMap::new();
+        for t in tokens {
+            let Some(rest) = t.strip_prefix("plugin:") else {
+                continue;
+            };
+            let Some((plugin, value)) = rest.split_once(':') else {
+                continue;
+            };
+            if value.contains(':') {
+                wanted.entry(plugin).or_default().push(value.to_owned());
+            }
+        }
+        for (id, p) in self.plugins.lock().expect("plugins poisoned").iter() {
+            let mut list = wanted.remove(id.as_str()).unwrap_or_default();
+            list.retain(|v| p.publishes(v));
+            list.sort();
+            list.dedup();
+            let mut watching = p.watching.lock().expect("watching poisoned");
+            if *watching != list {
+                *watching = list.clone();
+                drop(watching);
+                p.send(json!({ "event": "watch", "values": list }));
+            }
+        }
+    }
+
     /// Stop every plugin (the host is quitting).
     pub fn shutdown(&self) {
         for p in self.plugins.lock().expect("plugins poisoned").values() {
@@ -425,8 +549,10 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        let settings = p.settings.lock().expect("settings poisoned").clone();
         let _ = tx.send(
-            json!({ "event": "hello", "protocol": PROTOCOL, "host": host_version }).to_string(),
+            json!({ "event": "hello", "protocol": PROTOCOL, "host": host_version, "settings": settings })
+                .to_string(),
         );
         let writer = tokio::spawn(async move {
             while let Some(line) = rx.recv().await {
@@ -499,6 +625,11 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
         Some("ready") => {
             *p.to_plugin.lock().expect("stdin poisoned") = Some(tx.clone());
             p.set_status(Status::Running);
+            // Catch it up on what profiles show (it may have restarted).
+            let watching = p.watching.lock().expect("watching poisoned").clone();
+            if !watching.is_empty() {
+                let _ = tx.send(json!({ "event": "watch", "values": watching }).to_string());
+            }
             info!("plugin {} is ready", p.manifest.id);
         }
         Some("result") => {
@@ -519,7 +650,7 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
         }
         Some("value") => {
             if let (Some(id), Some(v)) = (msg["id"].as_str(), msg["value"].as_str()) {
-                if p.manifest.values.iter().any(|d| d.id == id) {
+                if p.publishes(id) {
                     values(format!("plugin:{}:{id}", p.manifest.id), v.to_owned());
                 }
             }

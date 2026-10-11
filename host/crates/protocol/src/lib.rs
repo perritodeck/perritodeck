@@ -137,6 +137,7 @@ pub struct Paired {
 #[serde(rename_all = "lowercase")]
 pub enum Platform {
     Android,
+    Ios,
     Web,
     Other,
 }

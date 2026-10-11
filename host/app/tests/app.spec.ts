@@ -485,6 +485,30 @@ test.describe("plugins", () => {
     await expect(installed.getByText("HTTP requests")).toHaveCount(0);
   });
 
+  test("plugin settings and live values with an argument", async ({ page }) => {
+    await page.getByRole("button", { name: "Plugins" }).click();
+    await page.getByRole("button", { name: "Settings for HTTP requests" }).click();
+    await page.getByLabel("Base address").fill("https://pve.local:8006");
+    await page.getByLabel("Token").fill("s3cret");
+    await page.getByLabel("Skip certificate check").check();
+    await expect(page.getByLabel("Token")).toHaveAttribute("type", "password");
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(page.getByText("Saved. The plugin uses the new settings now.")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__perritoMock.pluginSettings["dev.perritodeck.http"]))
+      .toEqual({ base: "https://pve.local:8006", token: "s3cret", insecure: true });
+
+    await page.getByRole("button", { name: "Buttons" }).click();
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("Title").fill("NAS");
+    await page.getByRole("button", { name: "Insert a live value…" }).click();
+    await page.getByLabel("Live value", { exact: true }).selectOption("plugin:dev.perritodeck.http:up");
+    await page.getByLabel("Web address", { exact: true }).fill("https://nas.local");
+    await page.getByRole("button", { name: "Insert", exact: true }).click();
+    await expect(page.getByLabel("Title")).toHaveValue("NAS {plugin:dev.perritodeck.http:up:https://nas.local}");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.title).toBe("NAS {plugin:dev.perritodeck.http:up:https://nas.local}");
+  });
+
   test("adds a Stream Deck plugin and puts its action on a key", async ({ page }) => {
     await page.getByRole("button", { name: "Plugins" }).click();
     const sd = page.locator("section", { has: page.getByRole("heading", { name: "Stream Deck plugins" }) });

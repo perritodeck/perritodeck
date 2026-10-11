@@ -45,6 +45,17 @@ A plugin is a folder containing `perritodeck-plugin.json`:
 - `values`: live values the plugin publishes; a key title shows one with
   `{plugin:<plugin id>:<value id>}`, a toggle can `follow` it, and a slider can
   `follow` one that is a number from 0 to 100 so it sits where the plugin says.
+  A value with `"arg": "<label>"` takes an argument saying what to show, e.g.
+  `{ "id": "up", "name": "Host is up", "arg": "Host or address" }`: a title uses
+  `{plugin:<plugin id>:up:192.168.1.10}`. The host tells the plugin which arguments
+  profiles use (`watch`), and the plugin publishes `value` with id `up:192.168.1.10`.
+  Arguments may contain `:` (e.g. `nas:443`); the value id is everything before the
+  first `:`.
+- `settings`: fields for the plugin as a whole (a server address, an API token), same
+  shape as action fields plus the type `password` (shown masked). People fill them in
+  on the Plugins page; the host stores them in its settings folder
+  (`plugin-settings/<id>.json`, readable by the user only) and sends them in `hello`
+  and in `settings` whenever they change.
 
 Installed plugins live in the host's settings folder under `plugins/<id>/`.
 
@@ -54,7 +65,9 @@ Host → plugin:
 
 | `event` | Fields | Meaning |
 |---|---|---|
-| `hello` | `protocol` (1), `host` (version) | First line after start. |
+| `hello` | `protocol` (1), `host` (version), `settings` (object) | First line after start. |
+| `settings` | `settings` (object) | The plugin's settings changed on the Plugins page. |
+| `watch` | `values` (array of strings) | The argument values profiles use right now, e.g. `["up:nas", "up:10.0.0.1"]`; sent when the list changes and again after each start. Publish only these, and stop polling the rest. |
 | `run` | `id` (number), `action`, `settings` (object), `device` | A key was pressed (or a slider moved). Answer with `result` and the same `id` within 10 seconds. |
 | `shutdown` | | Exit now (the host also closes stdin). |
 

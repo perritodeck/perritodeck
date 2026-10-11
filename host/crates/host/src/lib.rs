@@ -532,6 +532,17 @@ impl Host {
         });
         spawn_event_loop(shared.clone(), server_events);
         live::spawn(deck.clone(), test_executor.integrations_handle());
+        {
+            // Plugins hear which of their values profiles show (e.g. `up:<host>`).
+            let (deck, plugins) = (deck.clone(), plugins.clone());
+            tokio::spawn(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(2));
+                loop {
+                    every.tick().await;
+                    plugins.watch(&deck.live_tokens());
+                }
+            });
+        }
         if opts.watch_focus && focus::supported() {
             spawn_focus_watch(shared.clone());
         }
@@ -987,6 +998,15 @@ impl Host {
     /// Copy a plugin's folder into the plugins folder and start it.
     pub fn install_plugin(&self, folder: &Path) -> Result<String, String> {
         self.plugins.install_from(folder)
+    }
+
+    /// A plugin's own settings (server address, token…), as saved on the Plugins page.
+    pub fn plugin_settings(&self, id: &str) -> Result<serde_json::Value, String> {
+        self.plugins.settings(id)
+    }
+
+    pub fn set_plugin_settings(&self, id: &str, settings: serde_json::Value) -> Result<(), String> {
+        self.plugins.set_settings(id, settings)
     }
 
     pub fn remove_plugin(&self, id: &str) -> Result<(), String> {

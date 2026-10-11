@@ -952,6 +952,14 @@ impl Deck {
                     out.extend(tokens(t).map(str::to_owned));
                 }
                 out.extend(key.follow.iter().cloned());
+                if let Some(SliderSpec::Plugin {
+                    plugin,
+                    follow: Some(f),
+                    ..
+                }) = &key.slider
+                {
+                    out.push(format!("plugin:{plugin}:{f}"));
+                }
             }
         }
         out.sort();

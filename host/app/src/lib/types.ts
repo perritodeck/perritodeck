@@ -193,7 +193,7 @@ export type View = "buttons" | "tablets" | "pair" | "switching" | "plugins" | "s
 export interface PluginField {
   id: string;
   label: string;
-  type: "text" | "number" | "checkbox" | "select";
+  type: "text" | "number" | "checkbox" | "select" | "password";
   placeholder?: string;
   options?: { value: string; label: string }[];
   default?: unknown;
@@ -209,7 +209,10 @@ export interface PluginManifest {
   main: string;
   /** `slider`: the action takes a value (0–100) and goes on a slider, not a key. */
   actions: { id: string; name: string; description: string; fields: PluginField[]; slider?: boolean }[];
-  values: { id: string; name: string }[];
+  /** `arg`: the value needs an argument (a host, a VM id); this is its label. */
+  values: { id: string; name: string; arg?: string }[];
+  /** Settings for the whole plugin, filled in on the Plugins page. */
+  settings?: PluginField[];
 }
 
 export type PluginStatus =

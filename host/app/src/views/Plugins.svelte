@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api } from "../lib/api";
-  import type { OnlineEntry, PluginStatus, PluginsView, SdPlugin, SdPluginsView } from "../lib/types";
+  import type { OnlineEntry, PluginField, PluginStatus, PluginsView, SdPlugin, SdPluginsView } from "../lib/types";
 
   let view = $state<PluginsView | null>(null);
   let error = $state<string | null>(null);
@@ -35,6 +35,41 @@
   }
 
   let sd = $state<SdPluginsView | null>(null);
+  // The plugin whose settings are open, and the draft.
+  let configuring = $state<string | null>(null);
+  let draft = $state<Record<string, unknown>>({});
+  let savedNote = $state<string | null>(null);
+
+  async function configure(id: string) {
+    if (configuring === id) {
+      configuring = null;
+      return;
+    }
+    try {
+      draft = await api.pluginSettings(id);
+      configuring = id;
+      savedNote = null;
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  async function saveSettings(id: string, fields: PluginField[]) {
+    const out: Record<string, unknown> = {};
+    for (const f of fields) {
+      const v = draft[f.id];
+      if (v === undefined || v === "") continue;
+      out[f.id] = f.type === "number" && typeof v === "string" && !isNaN(Number(v)) ? Number(v) : v;
+    }
+    try {
+      await api.setPluginSettings(id, out);
+      savedNote = "Saved. The plugin uses the new settings now.";
+      error = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
 
   async function load() {
     view = await api.plugins();
@@ -130,10 +165,58 @@
                 <button class="btn quiet small" onclick={() => (confirming = null)}>Keep</button>
               </div>
             {:else}
+              {#if p.manifest.settings?.length}
+                <button
+                  class="btn small"
+                  class:quiet={configuring !== p.manifest.id}
+                  aria-expanded={configuring === p.manifest.id}
+                  onclick={() => configure(p.manifest.id)}
+                  aria-label="Settings for {p.manifest.name}">Settings</button
+                >
+              {/if}
               <button class="btn quiet small" onclick={() => act(() => api.restartPlugin(p.manifest.id))}>Restart</button>
               <button class="btn quiet small" onclick={() => (confirming = p.manifest.id)}>Remove…</button>
             {/if}
           </li>
+          {#if configuring === p.manifest.id && p.manifest.settings}
+            {@const fields = p.manifest.settings}
+            <li class="settings">
+              <form class="form" onsubmit={(e) => (e.preventDefault(), saveSettings(p.manifest.id, fields))}>
+                {#each fields as f (f.id)}
+                  <div class="field">
+                    {#if f.type === "checkbox"}
+                      <label class="check">
+                        <input type="checkbox" checked={!!(draft[f.id] ?? f.default)} onchange={(e) => (draft[f.id] = e.currentTarget.checked)} />
+                        {f.label}
+                      </label>
+                    {:else if f.type === "select"}
+                      <label for="ps-{f.id}">{f.label}</label>
+                      <select id="ps-{f.id}" value={String(draft[f.id] ?? f.default ?? f.options?.[0]?.value ?? "")} onchange={(e) => (draft[f.id] = e.currentTarget.value)}>
+                        {#each f.options ?? [] as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+                      </select>
+                    {:else}
+                      <label for="ps-{f.id}">{f.label}</label>
+                      <input
+                        id="ps-{f.id}"
+                        type={f.type === "password" ? "password" : "text"}
+                        inputmode={f.type === "number" ? "decimal" : undefined}
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder={f.placeholder ?? ""}
+                        value={String(draft[f.id] ?? f.default ?? "")}
+                        oninput={(e) => (draft[f.id] = e.currentTarget.value)}
+                      />
+                    {/if}
+                  </div>
+                {/each}
+                <div class="save-row">
+                  <button class="btn small primary" type="submit">Save settings</button>
+                  {#if savedNote}<span role="status">{savedNote}</span>{/if}
+                </div>
+                <small>Kept on this computer only, in the settings folder, readable by your user account.</small>
+              </form>
+            </li>
+          {/if}
         {/each}
       </ul>
     {/if}
@@ -300,6 +383,10 @@
   .empty .btn { margin-left: 8px; }
   .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
   .section-head h2 { margin: 0; }
+  li.settings { display: block; padding: 4px 4px 16px 26px; }
+  li.settings .form { max-width: 520px; display: grid; gap: 10px; }
+  .save-row { display: flex; gap: 10px; align-items: center; }
+  .check { display: flex; align-items: center; gap: 8px; }
   .sd-icon { width: 28px; height: 28px; border-radius: 6px; flex: none; }
   .hint { max-width: 70ch; font-size: 0.9rem; }
   .err { color: var(--danger); margin-bottom: 12px; }

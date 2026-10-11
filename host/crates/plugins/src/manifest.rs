@@ -21,6 +21,10 @@ pub struct Manifest {
     pub actions: Vec<ActionDef>,
     #[serde(default)]
     pub values: Vec<ValueDef>,
+    /// Settings for the whole plugin (a server address, an API token), asked for on the
+    /// Plugins page and sent to the plugin in `hello` and `settings`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings: Vec<Field>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,7 +80,13 @@ pub struct FieldOption {
 pub struct ValueDef {
     pub id: String,
     pub name: String,
+    /// The value needs an argument saying what to show (a host, a VM id): titles use
+    /// `{plugin:<plugin id>:<value id>:<argument>}`. This is the argument's label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arg: Option<String>,
 }
+
+const FIELD_TYPES: &[&str] = &["text", "number", "checkbox", "select", "password"];
 
 /// Plugin and action ids: lowercase letters, digits, `.`, `-`, `_`.
 pub fn valid_id(id: &str) -> bool {
@@ -118,9 +128,14 @@ impl Manifest {
                 return Err(format!("action id {:?} is invalid or repeated", a.id));
             }
             for f in &a.fields {
-                if !matches!(f.kind.as_str(), "text" | "number" | "checkbox" | "select") {
+                if !FIELD_TYPES.contains(&f.kind.as_str()) {
                     return Err(format!("field {:?} has unknown type {:?}", f.id, f.kind));
                 }
+            }
+        }
+        for f in &self.settings {
+            if f.id.is_empty() || !FIELD_TYPES.contains(&f.kind.as_str()) {
+                return Err(format!("setting {:?} has unknown type {:?}", f.id, f.kind));
             }
         }
         for v in &self.values {
@@ -163,5 +178,26 @@ mod tests {
         assert!(Manifest::parse(&base("ok.id", "/bin/sh")).is_err());
         assert!(Manifest::parse(&base("ok.id", "bin/plugin")).is_ok());
         assert!(valid_id("dev.perritodeck.http") && !valid_id("") && !valid_id("a..b"));
+    }
+}
+
+#[cfg(test)]
+mod bundled {
+    /// Every first-party plugin's manifest in `plugins/` is one the host accepts.
+    #[test]
+    fn first_party_manifests_parse() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+        let mut n = 0;
+        for e in std::fs::read_dir(&root).unwrap().flatten() {
+            let m = e.path().join(super::MANIFEST);
+            if m.is_file() {
+                let text = std::fs::read_to_string(&m).unwrap();
+                if let Err(err) = super::Manifest::parse(&text) {
+                    panic!("{}: {err}", m.display());
+                }
+                n += 1;
+            }
+        }
+        assert!(n >= 3, "found {n} plugins");
     }
 }

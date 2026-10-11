@@ -377,6 +377,7 @@
           {:else}
             <input
               id="{uid}-pf-{field.id}"
+              type={field.type === "password" ? "password" : "text"}
               inputmode={field.type === "number" ? "decimal" : undefined}
               value={String(pluginSettings[field.id] ?? field.default ?? "")}
               placeholder={field.placeholder ?? ""}

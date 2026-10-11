@@ -47,3 +47,36 @@ test("round trip with the host", async () => {
   send({ event: "shutdown" });
   await done;
 });
+
+test("settings, watched values and timers", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lines = [];
+  output.on("data", (d) => {
+    for (const l of d.toString().split("\n").filter(Boolean)) lines.push(JSON.parse(l));
+  });
+  const until = async (pred) => {
+    for (let i = 0; i < 200; i++) {
+      const hit = lines.find(pred);
+      if (hit) return hit;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error("timed out: " + JSON.stringify(lines));
+  };
+  const send = (m) => input.write(JSON.stringify(m) + "\n");
+  const p = new Plugin({ input, output });
+  let ticks = 0;
+  p.onSettings((s) => p.setValue("server", s.url ?? "none"));
+  p.onWatch(() => p.watched("up").forEach((h) => p.setValue("up", "yes", h)));
+  p.every(0.02, () => ticks++);
+  const done = p.start();
+  send({ event: "hello", protocol: 1, host: "t", settings: { url: "https://pve" } });
+  await until((m) => m.id === "server" && m.value === "https://pve");
+  send({ event: "watch", values: ["up:nas", "x:y"] });
+  await until((m) => m.id === "up:nas");
+  assert.deepStrictEqual(p.watched("up"), ["nas"]);
+  await new Promise((r) => setTimeout(r, 80));
+  assert.ok(ticks >= 2, `timer ran ${ticks} times`);
+  send({ event: "shutdown" });
+  await done;
+});

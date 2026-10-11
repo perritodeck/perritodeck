@@ -54,5 +54,46 @@ class SdkTest(unittest.TestCase):
         self.assertEqual(proc.wait(timeout=5), 0)
 
 
+WATCHER = """
+import sys
+sys.path.insert(0, %r)
+from perritodeck_plugin import Plugin
+p = Plugin()
+@p.on_settings
+def configured(s):
+    p.set_value("server", s.get("url", "none"))
+@p.on_watch
+def watching(values):
+    for host in p.watched("up"):
+        p.set_value("up", "yes", arg=host)
+p.run()
+""" % HERE
+
+
+class SettingsAndWatchTest(unittest.TestCase):
+    def test_settings_and_watch(self):
+        proc = subprocess.Popen(
+            [sys.executable, "-c", WATCHER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+        )
+
+        def send(m):
+            proc.stdin.write(json.dumps(m) + "\n")
+            proc.stdin.flush()
+
+        def receive():
+            return json.loads(proc.stdout.readline())
+
+        send({"event": "hello", "protocol": 1, "host": "test", "settings": {"url": "https://pve"}})
+        self.assertEqual(receive(), {"event": "value", "id": "server", "value": "https://pve"})
+        self.assertEqual(receive(), {"event": "ready"})
+        send({"event": "settings", "settings": {}})
+        self.assertEqual(receive(), {"event": "value", "id": "server", "value": "none"})
+        send({"event": "watch", "values": ["up:nas", "other:x", "up:10.0.0.1"]})
+        self.assertEqual(receive(), {"event": "value", "id": "up:10.0.0.1", "value": "yes"})
+        self.assertEqual(receive(), {"event": "value", "id": "up:nas", "value": "yes"})
+        send({"event": "shutdown"})
+        self.assertEqual(proc.wait(timeout=5), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

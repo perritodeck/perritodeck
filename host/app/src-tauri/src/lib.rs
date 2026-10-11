@@ -291,6 +291,16 @@ fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
 }
 
 #[tauri::command]
+fn get_plugin_settings(app: State<'_, App>, id: String) -> Res<serde_json::Value> {
+    app.host()?.plugin_settings(&id)
+}
+
+#[tauri::command]
+fn set_plugin_settings(app: State<'_, App>, id: String, settings: serde_json::Value) -> Res<()> {
+    app.host()?.set_plugin_settings(&id, settings)
+}
+
+#[tauri::command]
 fn list_sd_plugins(app: State<'_, App>) -> Res<SdPluginsView> {
     Ok(app.host()?.sd_plugins())
 }
@@ -664,6 +674,8 @@ pub fn run() {
             list_online_plugins,
             install_online_plugin,
             list_sd_plugins,
+            get_plugin_settings,
+            set_plugin_settings,
             install_sd_plugin,
             remove_sd_plugin,
             restart_sd_plugin,

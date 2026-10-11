@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveValuePicker from "./LiveValuePicker.svelte";
   import { untrack } from "svelte";
   import { DEFAULT_BG, DEFAULT_FG } from "../lib/describe";
   import { api } from "../lib/api";
@@ -165,6 +166,13 @@
     <label for="f1">{kind === "toggle" ? "Title (when a state has none)" : "Title"}</label>
     <textarea id="f1" rows="2" bind:value={title} oninput={() => changed()} placeholder={"Two lines\nat most"}></textarea>
     <small>Live values: <code>{"{time}"}</code>, <code>{"{date}"}</code>, <code>{"{cpu}"}</code>, <code>{"{ha:sensor.x}"}</code>…</small>
+    <LiveValuePicker
+      plugins={initial.plugins}
+      onpick={(name) => {
+        title = `${title}${title && !title.endsWith("\n") && !title.endsWith(" ") ? " " : ""}{${name}}`;
+        changed(0);
+      }}
+    />
   </div>
 
   <div class="field">
@@ -315,6 +323,14 @@
       <div class="field">
         <label for="follow">Follow a live value (optional)</label>
         <input id="follow" bind:value={follow} oninput={() => changed()} placeholder="obs:recording" spellcheck="false" />
+        <LiveValuePicker
+          plugins={initial.plugins}
+          label="Choose a value to follow"
+          onpick={(name) => {
+            follow = name;
+            changed(0);
+          }}
+        />
         <small>
           With two states, the key shows the second while this value is on (e.g. <code>obs:recording</code>,
           <code>ha:light.desk</code>), instead of switching on each press.

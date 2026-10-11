@@ -47,6 +47,8 @@ export const api = {
   setCheckUpdates: (enabled: boolean) => call<void>("set_check_updates", { enabled }),
   checkForUpdates: () => call<Update | null>("check_for_updates"),
   restart: () => call<void>("restart_app"),
+  pluginSettings: (id: string) => call<Record<string, unknown>>("get_plugin_settings", { id }),
+  setPluginSettings: (id: string, settings: Record<string, unknown>) => call<void>("set_plugin_settings", { id, settings }),
   sdPlugins: () => call<SdPluginsView>("list_sd_plugins"),
   installSdPlugin: (folder = false) => call<string | null>("install_sd_plugin", { folder }),
   removeSdPlugin: (uuid: string) => call<void>("remove_sd_plugin", { uuid }),

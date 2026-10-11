@@ -183,7 +183,15 @@ const httpPlugin: PluginManifest = {
       fields: [{ id: "url", label: "Web address", type: "text", placeholder: "https://example.com/dim?level={value}" }],
     },
   ],
-  values: [{ id: "last-status", name: "Status of the last request" }],
+  values: [
+    { id: "last-status", name: "Status of the last request" },
+    { id: "up", name: "Address answers", arg: "Web address" },
+  ],
+  settings: [
+    { id: "base", label: "Base address", type: "text", placeholder: "https://example.com" },
+    { id: "token", label: "Token", type: "password" },
+    { id: "insecure", label: "Skip certificate check", type: "checkbox" },
+  ],
 };
 const mqttPlugin: PluginManifest = {
   ...httpPlugin,
@@ -512,6 +520,11 @@ export const mock = {
       case "check_for_updates":
         if (typeof this.latest === "string") throw this.latest;
         return out(this.latest);
+      case "get_plugin_settings":
+        return out({ ...(this.pluginSettings[String(args?.id)] ?? {}) });
+      case "set_plugin_settings":
+        this.pluginSettings[String(args?.id)] = { ...(args?.settings as Record<string, unknown>) };
+        return out(undefined);
       case "list_sd_plugins":
         return out({ installed: sdPlugins, broken: [], folder: "/home/me/.config/PerritoDeck/sdplugins" });
       case "install_sd_plugin": {
@@ -589,6 +602,7 @@ export const mock = {
   /** What check_for_updates answers; a string is an error. */
   latest: (init().latest ?? null) as { version: string; url: string } | string | null,
   restarted: false,
+  pluginSettings: {} as Record<string, Record<string, unknown>>,
   /** The online catalogue; a string is an error. */
   onlineIndex: [
     { id: "dev.example.weather", name: "Weather", version: "1.2.0", description: "Today's weather on a key.", author: "Example", url: "w.zip", sha256: "00" },

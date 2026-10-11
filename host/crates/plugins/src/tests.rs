@@ -203,3 +203,98 @@ async fn install_and_remove() {
     assert!(host.list().is_empty());
     assert!(!root.path().join("plugins/test.copy").exists());
 }
+
+const WATCH_PLUGIN: &str = r#"
+import json, sys
+def send(m):
+    sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["event"] == "hello":
+        send({"event": "ready"})
+        send({"event": "value", "id": "server", "value": m["settings"].get("url", "none")})
+    elif m["event"] == "settings":
+        send({"event": "value", "id": "server", "value": m["settings"].get("url", "none")})
+    elif m["event"] == "watch":
+        for v in m["values"]:
+            send({"event": "value", "id": v, "value": "up"})
+        send({"event": "value", "id": "server:not-an-arg-value", "value": "ignored"})
+    elif m["event"] == "shutdown":
+        break
+"#;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plugin_settings_and_watched_values() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    let dir = plugins.join("test.watch");
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = json!({
+        "id": "test.watch", "name": "Watch", "version": "1.0.0", "runtime": "python", "main": "plugin.py",
+        "settings": [{ "id": "url", "label": "Server" }, { "id": "token", "label": "Token", "type": "password" }],
+        "values": [{ "id": "server", "name": "Server" }, { "id": "up", "name": "Up", "arg": "Host" }]
+    });
+    std::fs::write(dir.join(MANIFEST), manifest.to_string()).unwrap();
+    std::fs::write(dir.join("plugin.py"), WATCH_PLUGIN).unwrap();
+    let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let sink = seen.clone();
+    let host = PluginHost::start(
+        plugins.clone(),
+        "1",
+        Arc::new(move |k, v| sink.lock().unwrap().push((k, v))),
+    );
+    let has = |k: &str, v: &str| seen.lock().unwrap().iter().any(|(a, b)| a == k && b == v);
+    wait_for("first value", || has("plugin:test.watch:server", "none")).await;
+
+    // Settings: saved (undeclared ones dropped), sent, and given to the next start.
+    host.set_settings(
+        "test.watch",
+        json!({ "url": "https://pve:8006", "junk": 1 }),
+    )
+    .unwrap();
+    wait_for("settings", || {
+        has("plugin:test.watch:server", "https://pve:8006")
+    })
+    .await;
+    assert_eq!(
+        host.settings("test.watch").unwrap(),
+        json!({ "url": "https://pve:8006" })
+    );
+    assert!(root
+        .path()
+        .join("plugin-settings/test.watch.json")
+        .is_file());
+    assert!(host.set_settings("test.watch", json!([1])).is_err());
+
+    // Values with an argument: only what profiles use, and only arg-taking values.
+    host.watch(&[
+        "plugin:test.watch:up:10.0.0.1".into(),
+        "plugin:test.watch:up:10.0.0.2:22".into(),
+        "plugin:test.watch:server".into(),
+        "plugin:other.plugin:up:x".into(),
+        "cpu".into(),
+    ]);
+    wait_for("watched", || {
+        has("plugin:test.watch:up:10.0.0.1", "up") && has("plugin:test.watch:up:10.0.0.2:22", "up")
+    })
+    .await;
+    assert!(!seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(k, _)| k.contains("not-an-arg-value")));
+
+    // After a restart it gets its settings in hello and the watch list again.
+    seen.lock().unwrap().clear();
+    host.restart("test.watch").unwrap();
+    wait_for("hello settings", || {
+        has("plugin:test.watch:server", "https://pve:8006")
+    })
+    .await;
+    wait_for("watch again", || has("plugin:test.watch:up:10.0.0.1", "up")).await;
+    host.shutdown();
+}
