@@ -60,6 +60,8 @@ pub struct HostOptions {
     pub watch_focus: bool,
     /// Forward the port to tablets on USB with `adb reverse`, when adb is installed.
     pub usb: bool,
+    /// Folder of plugins that ship with the app (one folder each), offered for install.
+    pub plugin_catalog: Option<PathBuf>,
     /// Fixed pairing codes (tests only).
     pub pair_codes: Vec<String>,
 }
@@ -76,6 +78,7 @@ impl HostOptions {
             mdns: true,
             watch_focus: true,
             usb: true,
+            plugin_catalog: None,
             pair_codes: Vec::new(),
         }
     }
@@ -185,6 +188,15 @@ pub struct PluginsView {
     pub broken: Vec<BrokenPlugin>,
     /// Where plugins are installed.
     pub folder: String,
+    /// Plugins that ship with the app.
+    pub catalog: Vec<CatalogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    pub manifest: PluginManifest,
+    pub installed: bool,
 }
 
 /// Outbox that forwards to the server handle once it exists.
@@ -276,6 +288,7 @@ pub struct Host {
     integrations: Vec<String>,
     shared: Arc<Shared>,
     plugins: Arc<perritodeck_plugins::PluginHost>,
+    plugin_catalog: Option<PathBuf>,
     usb: usb::UsbDevices,
     usb_available: bool,
     history: Mutex<History>,
@@ -454,6 +467,7 @@ impl Host {
 
         Ok(Self {
             plugins,
+            plugin_catalog: opts.plugin_catalog.clone(),
             usb: usb_devices,
             usb_available,
             host_name,
@@ -707,11 +721,50 @@ impl Host {
     // ---- Plugins ----
 
     pub fn plugins(&self) -> PluginsView {
+        let installed = self.plugins.list();
+        let catalog = self
+            .catalog_entries()
+            .into_iter()
+            .map(|(manifest, _)| CatalogEntry {
+                installed: installed.iter().any(|p| p.manifest.id == manifest.id),
+                manifest,
+            })
+            .collect();
         PluginsView {
-            installed: self.plugins.list(),
+            installed,
             broken: self.plugins.broken(),
             folder: self.plugins.folder().display().to_string(),
+            catalog,
         }
+    }
+
+    fn catalog_entries(&self) -> Vec<(PluginManifest, PathBuf)> {
+        let Some(dir) = &self.plugin_catalog else {
+            return Vec::new();
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut out: Vec<(PluginManifest, PathBuf)> = entries
+            .flatten()
+            .filter_map(|e| {
+                let text =
+                    std::fs::read_to_string(e.path().join(perritodeck_plugins::MANIFEST)).ok()?;
+                Some((PluginManifest::parse(&text).ok()?, e.path()))
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+        out
+    }
+
+    /// Install (or update) a plugin that ships with the app.
+    pub fn install_from_catalog(&self, id: &str) -> Result<String, String> {
+        let (_, folder) = self
+            .catalog_entries()
+            .into_iter()
+            .find(|(m, _)| m.id == id)
+            .ok_or_else(|| format!("{id} doesn't ship with this version."))?;
+        self.plugins.install_from(&folder)
     }
 
     /// Copy a plugin's folder into the plugins folder and start it.

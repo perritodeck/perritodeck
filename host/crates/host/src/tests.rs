@@ -452,3 +452,35 @@ async fn plugin_actions_run_from_keys_and_values_reach_titles() {
     host.remove_plugin("test.counter").unwrap();
     assert!(host.plugins().installed.is_empty());
 }
+
+#[tokio::test]
+async fn first_party_plugins_install_from_the_catalog() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.plugin_catalog =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins"));
+    let host = Host::start(opts).await.unwrap();
+    let ids: Vec<String> = host
+        .plugins()
+        .catalog
+        .iter()
+        .map(|c| c.manifest.id.clone())
+        .collect();
+    assert!(ids.contains(&"dev.perritodeck.http".to_string()), "{ids:?}");
+    assert!(ids.contains(&"dev.perritodeck.mqtt".to_string()));
+    assert_eq!(
+        host.install_from_catalog("dev.perritodeck.http").unwrap(),
+        "dev.perritodeck.http"
+    );
+    let view = host.plugins();
+    assert!(view
+        .catalog
+        .iter()
+        .any(|c| c.manifest.id == "dev.perritodeck.http" && c.installed));
+    assert!(host.install_from_catalog("nope").is_err());
+}

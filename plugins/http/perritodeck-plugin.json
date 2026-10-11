@@ -1,0 +1,34 @@
+{
+  "id": "dev.perritodeck.http",
+  "name": "HTTP requests",
+  "version": "1.0.0",
+  "description": "Call a web address when a key is pressed: webhooks, REST APIs, smart plugs.",
+  "author": "PerritoDeck contributors",
+  "runtime": "python",
+  "main": "plugin.py",
+  "actions": [
+    {
+      "id": "request",
+      "name": "Send a request",
+      "fields": [
+        { "id": "url", "label": "Web address", "type": "text", "placeholder": "https://example.com/hook" },
+        {
+          "id": "method",
+          "label": "Method",
+          "type": "select",
+          "default": "POST",
+          "options": [
+            { "value": "GET", "label": "GET" },
+            { "value": "POST", "label": "POST" },
+            { "value": "PUT", "label": "PUT" },
+            { "value": "PATCH", "label": "PATCH" },
+            { "value": "DELETE", "label": "DELETE" }
+          ]
+        },
+        { "id": "body", "label": "Body (optional)", "type": "text", "placeholder": "{\"on\": true}" },
+        { "id": "headers", "label": "Headers, one per line (optional)", "type": "text", "placeholder": "Authorization: Bearer …" }
+      ]
+    }
+  ],
+  "values": [{ "id": "last-status", "name": "Status of the last request" }]
+}
