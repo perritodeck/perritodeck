@@ -1,6 +1,8 @@
 package dev.perritodeck.client
 
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
@@ -10,8 +12,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.perritodeck.client.net.ConnState
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,7 +26,9 @@ import java.io.File
  * Runs the real app against a real `perritodeck-host` started by CI on the machine
  * running the emulator (reachable as 10.0.2.2) with a fixed pairing code. Proves the
  * whole loop: pair over TLS, compare fingerprints, connect, then use the host's starter
- * profile — open a page, run a command, go back and flip a toggle.
+ * profile — open a page, run a command, go back and flip a toggle. Then the things a
+ * tablet left on a desk runs into: the screen sleeping, and the network dropping out.
+ * Press latency is logged with the tag `PerritoE2E`.
  *
  * Instrumentation args: `pairCode` (default 424242) and optionally `hostFingerprint`
  * (the short form the host printed), which the on-screen fingerprint must equal.
@@ -70,6 +77,72 @@ class HostEndToEndTest {
         compose.onNode(hasContentDescription("live", substring = true)).performClick()
         compose.waitUntilAtLeastOneExists(hasContentDescription("muted", substring = true), timeout)
         screenshot("4-toggled")
+
+        measureLatency()
+
+        // Screen off for a while, then on: the deck is still there and still works.
+        shell("input keyevent KEYCODE_SLEEP")
+        Thread.sleep(15_000)
+        shell("input keyevent KEYCODE_WAKEUP")
+        shell("wm dismiss-keyguard") // API 23+
+        shell("input keyevent 82") // unlocks the swipe keyguard on older versions
+        waitForState("connected after sleep") { it is ConnState.Connected }
+        compose.onNode(hasContentDescription("muted", substring = true)).performClick()
+        compose.waitUntilAtLeastOneExists(hasContentDescription("live", substring = true), timeout)
+        screenshot("5-after-sleep")
+
+        // Network drops out (Wi-Fi off, router reboot): the app keeps retrying, then
+        // reconnects on its own once the network is back.
+        shell("svc wifi disable")
+        shell("svc data disable")
+        waitForState("noticed the network went away") { it is ConnState.Connecting }
+        screenshot("6-network-down")
+        Thread.sleep(5_000)
+        shell("svc wifi enable")
+        shell("svc data enable")
+        waitForState("reconnected after the network came back", 60_000) { it is ConnState.Connected }
+        compose.onNode(hasContentDescription("live", substring = true)).performClick()
+        compose.waitUntilAtLeastOneExists(hasContentDescription("muted", substring = true), timeout)
+        screenshot("7-reconnected")
+    }
+
+    private val vm: DeckViewModel by lazy {
+        compose.runOnUiThread { ViewModelProvider(compose.activity)[DeckViewModel::class.java] }
+    }
+
+    /** Press a key repeatedly and log the round trip the app measures for each ack. */
+    private fun measureLatency() {
+        val key = compose.onNode(hasContentDescription("Copy", substring = true))
+        val samples = mutableListOf<Double>()
+        repeat(30) {
+            key.performClick()
+            Thread.sleep(150)
+            vm.connection.rttMs.value?.let(samples::add)
+        }
+        assertTrue("no round trips measured", samples.isNotEmpty())
+        samples.sort()
+        val median = samples[samples.size / 2]
+        val p95 = samples[((samples.size - 1) * 95) / 100]
+        Log.i(
+            "PerritoE2E",
+            "latency ms: median=%.1f p95=%.1f max=%.1f n=%d".format(median, p95, samples.last(), samples.size),
+        )
+    }
+
+    private fun waitForState(what: String, ms: Long = timeout, ok: (ConnState) -> Boolean) {
+        val until = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < until) {
+            if (ok(vm.connection.state.value)) return
+            Thread.sleep(200)
+        }
+        throw AssertionError("timed out waiting: $what (state ${vm.connection.state.value})")
+    }
+
+    /** Runs a shell command as the shell user and waits for it to finish. */
+    private fun shell(cmd: String) {
+        val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
+        ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+        Log.i("PerritoE2E", "shell: $cmd")
     }
 
     /**

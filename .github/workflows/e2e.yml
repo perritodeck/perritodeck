@@ -19,8 +19,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22 = oldest supported (Fire OS 5 era); 34 = modern.
-        api-level: [22, 34]
+        include:
+          # 22 = oldest supported (Fire OS 5 era); 34 = modern.
+          - { name: api22, api-level: 22 }
+          - { name: api34, api-level: 34 }
+          # Stand-ins for Amazon Fire tablets until real hardware is tested: Fire OS 5 is
+          # API 22. Smallest current Fire (Fire 7) and the common Fire HD 10.
+          - { name: fire7, api-level: 22, screen-size: 1024x600, screen-density: 160 }
+          - { name: firehd10, api-level: 22, screen-size: 1920x1200, screen-density: 224 }
+    name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -73,7 +80,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: ./scripts/e2e-android.sh
+          script: SCREEN_SIZE="${{ matrix.screen-size }}" SCREEN_DENSITY="${{ matrix.screen-density }}" E2E_NAME="${{ matrix.name }}" ./scripts/e2e-android.sh
 
       - name: Host log
         if: always()
@@ -92,16 +99,16 @@ jobs:
           git init -q -b main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          printf '# E2E API ${{ matrix.api-level }}\n\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\nCommit: ${{ github.sha }}\n' > README.md
+          printf '# E2E ${{ matrix.name }} (API ${{ matrix.api-level }})\n\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\nCommit: ${{ github.sha }}\n' > README.md
           git add -A
-          git commit -qm "E2E screenshots, API ${{ matrix.api-level }}, ${{ github.sha }}"
-          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:refs/heads/ci/e2e-api${{ matrix.api-level }}
+          git commit -qm "E2E screenshots, ${{ matrix.name }}, ${{ github.sha }}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:refs/heads/ci/e2e-${{ matrix.name }}
 
       - name: Upload screenshots and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-api${{ matrix.api-level }}
+          name: e2e-${{ matrix.name }}
           path: |
             e2e-out/
             host.log

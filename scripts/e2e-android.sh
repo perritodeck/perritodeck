@@ -9,6 +9,13 @@ mkdir -p "$out"
 
 adb logcat -c || true
 
+# Pretend to be a different screen (e.g. a Fire tablet) when the matrix asks for one.
+if [ -n "${SCREEN_SIZE:-}" ]; then
+  adb shell wm size "$SCREEN_SIZE"
+  [ -n "${SCREEN_DENSITY:-}" ] && adb shell wm density "$SCREEN_DENSITY"
+  echo "screen: $(adb shell wm size | tr -d '\r' | tail -1), $(adb shell wm density | tr -d '\r' | tail -1)" | tee "$out/screen.txt"
+fi
+
 # Keep the app installed after the run so the screenshots can be copied out with run-as.
 args=(-Pandroid.testInstrumentationRunnerArguments.pairCode=424242 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true)
 if [ -n "${HOST_FINGERPRINT:-}" ]; then
@@ -18,6 +25,8 @@ fi
 status=${PIPESTATUS[0]}
 
 adb logcat -d > "$out/logcat.txt" 2>&1 || true
+# Latency and other measurements from the test, as notes on the run summary.
+grep -oE "PerritoE2E: latency.*" "$out/logcat.txt" | sed "s/^/::notice title=${E2E_NAME:-E2E}::/" || true
 pkg=dev.perritodeck.client.debug
 mkdir -p "$out/e2e-screenshots"
 for f in $(adb shell run-as "$pkg" ls files/e2e-screenshots 2>/dev/null | tr -d '\r' | grep -E '^[A-Za-z0-9._-]+\.png$'); do
