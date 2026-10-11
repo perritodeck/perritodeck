@@ -55,3 +55,15 @@ Pairing/QR, mDNS, actions, host-rendered images, Tauri UI, plugins, packaging.
 2. **TilePad.** Same Rust + Tauri 2 stack, WebSocket plugins with HTML inspectors, and it already targets Android touchscreens. I couldn't confirm its license or how finished its Android client is. Build PerritoDeck independently, or reach out about collaborating (e.g. PerritoDeck becomes the Android client and protocol, interoperating with TilePad)? My lean: build independently but keep the protocol open enough that a TilePad bridge is easy.
 3. **Which Kindle?** Fire OS 5 is Android 5.1 (API 22), Fire OS 7 is Android 9 (API 28), Fire OS 8 is Android 11 (API 30). The spec says minSdk 26, which would exclude Fire OS 5 tablets. Old Kindles are exactly the e-waste audience, so if yours is Fire OS 5 I'd drop minSdk to 22.
 4. **GitHub repo.** The GitHub CLI isn't logged in here. If you create an empty `perritodeck/perritodeck` repo, I can attach it to this session and push, which also gets CI building Android APKs.
+
+## Status (2026-10-11)
+
+| Item | State |
+|---|---|
+| Monorepo, licenses, docs | Done |
+| Protocol v1 schema + 13 fixtures, validator | Done, CI green |
+| Rust host: protocol, core, host binary, fakedeck | Done — 22 tests incl. 9 end-to-end; CI green on Linux, Windows, macOS |
+| Android client: connect + deck screens, reconnect, multi-touch, haptics | Done — fixture + MockWebServer tests and lint pass in CI; debug APK published as a CI artifact |
+| Latency (fakedeck over loopback, 300 presses) | Median 0.17 ms, p95 0.30 ms round trip |
+| Emulator test | Pending — needs the maintainer's laptop (this cloud workspace has no KVM and can't reach Google's SDK servers) |
+| Kindle test | Pending — tomorrow |
