@@ -523,7 +523,7 @@ impl Inner {
                 "font": if cfg!(target_os = "macos") { ".AppleSystemUIFont" } else { "Segoe UI" },
                 "language": "en",
                 "platform": platform,
-                "platformVersion": std::env::consts::OS,
+                "platformVersion": platform_version(),
                 "version": "6.9.0",
             },
             "plugin": { "uuid": p.manifest.uuid, "version": p.manifest.version },
@@ -771,6 +771,9 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 return;
             }
         };
+        // On Windows the plugin and everything it starts end together (job object);
+        // dropped when this attempt ends, below or by returning.
+        let tree = perritodeck_actions::job::ProcessTree::adopt(&child);
         set_status(Status::Starting);
         for (pipe, is_err) in [
             (
@@ -809,6 +812,7 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 return;
             }
         };
+        drop(tree);
         // A plugin that ran for a while before stopping starts its count again.
         if started.elapsed() > Duration::from_secs(60) {
             crashes = 0;
@@ -1130,4 +1134,19 @@ fn copy_dir(src: &Path, dest: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The OS version as Stream Deck reports it in `-info`: `10.0.<build>` on Windows (10
+/// and 11 both report 10.0, like `RtlGetVersion`), `15.1.1` on macOS. Plugins may parse
+/// it to pick OS-specific behaviour.
+fn platform_version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        let v = if cfg!(windows) {
+            sysinfo::System::kernel_version().map(|build| format!("10.0.{build}"))
+        } else {
+            sysinfo::System::os_version()
+        };
+        v.unwrap_or_else(|| std::env::consts::OS.to_owned())
+    })
 }

@@ -3315,6 +3315,7 @@ dependencies = [
  "tokio",
  "tracing",
  "windows 0.61.3",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3509,6 +3510,7 @@ dependencies = [
  "futures-util",
  "image",
  "open",
+ "perritodeck-actions",
  "perritodeck-deck",
  "perritodeck-protocol",
  "perritodeck-render",
@@ -3516,6 +3518,7 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
+ "sysinfo",
  "tokio",
  "tokio-tungstenite",
  "tracing",

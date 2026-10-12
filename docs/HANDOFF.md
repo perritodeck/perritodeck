@@ -33,6 +33,13 @@ and a manual CLI run piping JSON-RPC through `perritodeck-host mcp`):
   and log rotation while the file is open (the writer closes it before renaming). The
   Claude Desktop/Code wording in the website guide wasn't checked against their current docs.
 
+**Windows review fixes (cloud session, not committed yet):** most findings in
+`docs/windows-review-2026-10.md` are fixed (see its status table), written and tested on
+Linux only, because the Windows Rust target couldn't be downloaded in the cloud session.
+`cargo clippy --all-targets -- -D warnings` and `cargo test` in `host\` on Windows are
+the first check; the Windows-only code is in `actions/src/launch.rs`, `actions/src/job.rs`,
+`host/src/focus.rs` and `host/src/usb.rs`, plus `plugins/soundboard/winmm.py`.
+
 ## 1. Set up the Windows clone (`C:\perritodeck\perritodeck`)
 
 In PowerShell:

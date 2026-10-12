@@ -113,10 +113,7 @@ impl Manifest {
                 self.id
             ));
         }
-        if self.main.is_empty()
-            || self.main.contains("..")
-            || std::path::Path::new(&self.main).is_absolute()
-        {
+        if !main_is_inside(&self.main) {
             return Err(format!(
                 "\"main\" must be a file inside the plugin's folder, not {:?}",
                 self.main
@@ -145,6 +142,19 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+/// Whether a manifest's `main` stays inside the plugin's folder, judged the same way on
+/// every platform (a plugin made on Linux may be installed on Windows): no `..`, no
+/// absolute path, nothing that starts at a root (`/x`, or `\x`, which Windows treats as the
+/// current drive's root), and no `:` at all (`C:x.exe` is relative to drive C's current
+/// folder; `a:b` would be an NTFS stream).
+fn main_is_inside(main: &str) -> bool {
+    !main.is_empty()
+        && !main.contains("..")
+        && !main.starts_with(['/', '\\'])
+        && !main.contains(':')
+        && !std::path::Path::new(main).is_absolute()
 }
 
 #[cfg(test)]
@@ -177,6 +187,18 @@ mod tests {
         assert!(Manifest::parse(&base("ok.id", "../outside")).is_err());
         assert!(Manifest::parse(&base("ok.id", "/bin/sh")).is_err());
         assert!(Manifest::parse(&base("ok.id", "bin/plugin")).is_ok());
+        assert!(Manifest::parse(&base("ok.id", r"bin\\plugin.exe")).is_ok());
+        // Windows paths that leave the folder, refused on every platform.
+        for main in [
+            r"\\Windows\\System32\\x.exe",
+            r"C:x.exe",
+            r"C:\\x.exe",
+            r"\\\\server\\share\\x.exe",
+            r"bin\\..\\..\\x.exe",
+            "plugin.py:stream",
+        ] {
+            assert!(Manifest::parse(&base("ok.id", main)).is_err(), "{main}");
+        }
         assert!(valid_id("dev.perritodeck.http") && !valid_id("") && !valid_id("a..b"));
     }
 }

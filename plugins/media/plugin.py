@@ -28,11 +28,26 @@ NOTHING = "–"
 PLAYERCTL = shutil.which("playerctl")
 
 TIMEOUT = 3  # seconds; no backend call may block longer than this
+# A cold Windows PowerShell 5.1 start that loads WinRT (and is scanned by Defender)
+# can take several seconds.
+WINDOWS_TIMEOUT = 8
 CACHE_SECONDS = 1.0
 POLL_SECONDS = 2
+# Windows starts a PowerShell per poll, so it polls less often once nobody has pressed
+# a media key for a while. (The host only tells plugins which values with arguments
+# are on keys, so the plugin can't tell whether "status" or "title" is shown.)
+IDLE_AFTER_SECONDS = 30
+IDLE_POLL_SECONDS = 10
+MAX_ERROR = 80  # characters of an error message shown on a key
 COMMANDS = ("play-pause", "next", "previous")
 # subprocess.CREATE_NO_WINDOW only exists on Windows; the value is fixed.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def short(message, limit=MAX_ERROR):
+    """One line of at most `limit` characters, for a key's alert."""
+    line = " ".join(str(message).split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
 def describe(artist, title):
@@ -156,7 +171,7 @@ def windows_run(command):
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=TIMEOUT,
+        timeout=WINDOWS_TIMEOUT,
         creationflags=CREATE_NO_WINDOW,
     )
     return parse_windows(out.stdout, out.stderr)
@@ -356,11 +371,32 @@ def forget_state():
         _cache["at"] = None
 
 
+_last_action = time.monotonic()
+_woken = threading.Event()  # set by an action, so the keys update right away
+
+
 def control(command):
+    global _last_action
+    _last_action = time.monotonic()
     try:
         backend()[1](command)
+    except subprocess.TimeoutExpired as e:
+        # str(e) is the whole command line, a base64 script on Windows.
+        raise RuntimeError(f"the player didn't answer in {e.timeout:g} s") from None
+    except Exception as e:
+        raise RuntimeError(short(e)) from None
     finally:
         forget_state()  # the next poll shows the change
+        _woken.set()
+
+
+def poll_interval(platform=None, now=None):
+    """Seconds until the next poll: longer on Windows after a quiet spell."""
+    platform = platform or sys.platform
+    now = time.monotonic() if now is None else now
+    if platform == "win32" and now - _last_action > IDLE_AFTER_SECONDS:
+        return IDLE_POLL_SECONDS
+    return POLL_SECONDS
 
 
 def poll():
@@ -376,7 +412,8 @@ def poll():
             plugin.set_value("status", status)
             plugin.set_value("title", title)
             last = (status, title)
-        time.sleep(POLL_SECONDS)
+        _woken.wait(poll_interval())
+        _woken.clear()
 
 
 @plugin.on_start

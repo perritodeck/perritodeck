@@ -823,7 +823,19 @@ pub fn run() {
             sd_settings_page,
             restart_sd_plugin,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|handle, event| {
+                // Quit (`app.exit`) ends the process right after this: stop the plugins
+                // first, so they and the programs they started don't outlive the app.
+                if let tauri::RunEvent::Exit = event {
+                    if let Some(Ok(host)) = handle.try_state::<App>().map(|a| a.host().cloned()) {
+                        info!("stopping plugins before exit");
+                        host.stop_plugins();
+                    }
+                }
+            })
+        });
     if let Err(e) = result {
         error!("PerritoDeck couldn't start: {e}");
         std::process::exit(1);

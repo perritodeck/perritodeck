@@ -36,20 +36,24 @@ ignores case on Windows).
 
 | OS | Player | Formats | Volume | Output device |
 |---|---|---|---|---|
-| Windows | Windows PowerShell 5.1 with WPF's `MediaPlayer` | WAV, MP3, WMA, AAC/M4A | yes | default only |
-| Windows (fallback) | `System.Media.SoundPlayer`, if `MediaPlayer` fails | WAV | no | default only |
+| Windows | In the plugin itself, through winmm's MCI `mpegvideo` device (`mciSendStringW`) | WAV, MP3, WMA, AAC/M4A | yes | default only |
+| Windows (fallback) | Windows PowerShell 5.1 with WPF's `MediaPlayer`, if MCI can't play the file | WAV, MP3, WMA, AAC/M4A | yes | default only |
+| Windows (last resort) | `System.Media.SoundPlayer`, if `MediaPlayer` fails | WAV | no | default only |
 | macOS | `afplay -v` | WAV, MP3, AAC/M4A, AIFF, CAF… | yes | default only |
 | Linux | `pw-play`, then `paplay`, then `aplay`, then `ffplay -nodisp -autoexit` | WAV, FLAC, OGG (MP3 with libsndfile 1.1+); `aplay` only WAV; `ffplay` almost anything | yes, except `aplay` | `pw-play --target`, `paplay --device` |
 
 On Linux the first installed player starts; if it can't play the file (it exits with
 an error, e.g. an MP3 on an older libsndfile), the next one tries, and the log says
 why. Each sound is its own child process, started without a console window on
-Windows, and stopping a sound ends that process.
+Windows, and stopping a sound ends that process. On Windows the first try plays
+inside the plugin instead (no PowerShell start, so no second of delay), each sound with
+its own MCI alias; when MCI can't open a file, the PowerShell player tries it.
 
 ## Not tested yet
 
 Real playback on every OS. The tests use stand-in child processes to check starting,
 stopping, the four modes, falling back to the next player and the `playing` value,
-and check the exact command lines for each OS. In particular the Windows PowerShell
-script (MediaPlayer driven by pumping the WPF dispatcher) has only been read, not run;
+and check the exact command lines for each OS. In particular the Windows MCI player (tested
+against a stand-in for `mciSendStringW`) and the PowerShell script (MediaPlayer driven
+by pumping the WPF dispatcher) have only been read, not run;
 macOS `afplay` and Linux `pw-play`/`paplay` options are from their manuals.

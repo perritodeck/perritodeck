@@ -6,6 +6,8 @@
 //! calls is testable headlessly.
 
 mod hotkey;
+pub mod job;
+mod launch;
 pub mod slider;
 #[cfg(feature = "system")]
 pub mod system;
@@ -330,20 +332,46 @@ impl Executor {
                     Ok(Outcome::Ok)
                 }
                 ActionSpec::Launch { program, args } => {
-                    let mut cmd = Command::new(program);
-                    cmd.args(args)
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null());
-                    let mut child = cmd.spawn().map_err(|source| ActionError::Spawn {
-                        program: program.clone(),
-                        source,
-                    })?;
-                    // Reap it in the background so it never becomes a zombie.
-                    tokio::spawn(async move {
-                        let _ = child.wait().await;
-                    });
-                    Ok(Outcome::Ok)
+                    let build = |p: &std::ffi::OsStr| {
+                        let mut cmd = Command::new(p);
+                        cmd.args(args)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null());
+                        // Start in the program's own folder, like an Explorer shortcut.
+                        #[cfg(windows)]
+                        if let Some(dir) = launch::program_dir(program) {
+                            cmd.current_dir(dir);
+                        }
+                        cmd
+                    };
+                    match spawn_found(program, build) {
+                        Ok(mut child) => {
+                            // Reap it in the background so it never becomes a zombie.
+                            tokio::spawn(async move {
+                                let _ = child.wait().await;
+                            });
+                            Ok(Outcome::Ok)
+                        }
+                        // App Paths names (`obs64`), shortcuts and documents.
+                        #[cfg(all(windows, feature = "system"))]
+                        Err(source) if launch::shell_can_try(&source) => {
+                            match launch::shell_execute(program, args).await {
+                                Ok(()) => Ok(Outcome::Ok),
+                                Err(code) => {
+                                    debug!(code, "ShellExecute couldn't start {program} either");
+                                    Err(ActionError::Spawn {
+                                        program: program.clone(),
+                                        source,
+                                    })
+                                }
+                            }
+                        }
+                        Err(source) => Err(ActionError::Spawn {
+                            program: program.clone(),
+                            source,
+                        }),
+                    }
                 }
                 ActionSpec::Command {
                     program,
@@ -480,22 +508,47 @@ fn check_url(url: &str) -> Result<(), ActionError> {
     }
 }
 
+/// Spawn `program`; on Windows, when it isn't found as given, retry with the PATHEXT
+/// names Windows users expect (`code` is `code.cmd`).
+fn spawn_found(
+    program: &str,
+    build: impl Fn(&std::ffi::OsStr) -> Command,
+) -> std::io::Result<tokio::process::Child> {
+    let first = build(std::ffi::OsStr::new(program)).spawn();
+    #[cfg(windows)]
+    if matches!(&first, Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        if let Some(found) = launch::search_path(program, path.as_deref(), pathext.as_deref()) {
+            return build(found.as_os_str()).spawn();
+        }
+    }
+    first
+}
+
 pub(crate) async fn run_command(
     program: &str,
     args: &[String],
     cwd: Option<&std::path::Path>,
     timeout_ms: Option<u64>,
 ) -> Result<Outcome, ActionError> {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
-    let child = cmd.spawn().map_err(|source| ActionError::Spawn {
+    let build = |p: &std::ffi::OsStr| {
+        let mut cmd = Command::new(p);
+        cmd.args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
+        // Output is captured, so a console window would only flash up empty (the app is
+        // a GUI process with no console of its own).
+        #[cfg(windows)]
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        cmd
+    };
+    let child = spawn_found(program, build).map_err(|source| ActionError::Spawn {
         program: program.to_owned(),
         source,
     })?;

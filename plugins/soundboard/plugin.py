@@ -1,13 +1,15 @@
 """Soundboard: play sound files from a key, with the players each OS already has.
 
-- Windows: Windows PowerShell 5.1 with WPF's System.Windows.Media.MediaPlayer (WAV,
-  MP3, WMA, AAC…), falling back to System.Media.SoundPlayer for WAV (no volume).
+- Windows: in-process through winmm's MCI "mpegvideo" device (WAV, MP3, WMA, AAC…,
+  with volume; see winmm.py). If that can't play a file: Windows PowerShell 5.1 with
+  WPF's System.Windows.Media.MediaPlayer, falling back to System.Media.SoundPlayer for
+  WAV (no volume).
 - macOS: afplay -v.
 - Linux: pw-play, paplay, aplay (WAV only), then ffplay -nodisp -autoexit, in turn:
   when one can't play the file (it exits with an error), the next one tries.
 
-Every sound is a child process, so stopping it is stopping the process; the
-`playing:<file>` value follows those processes. Standard library only.
+Every sound is a child process (or, for MCI, a thread shaped like one), so stopping it
+is stopping the process; the `playing:<file>` value follows them. Standard library only.
 """
 
 import base64
@@ -20,6 +22,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from perritodeck_plugin import Plugin  # noqa: E402
+import winmm  # noqa: E402  (imports everywhere; loads winmm.dll only when used)
 
 plugin = Plugin()
 
@@ -27,6 +30,7 @@ MODES = ("play", "toggle", "restart", "overlap")
 MAX_SOUNDS = 32  # all files together; stops a stuck key from starting hundreds
 # subprocess.CREATE_NO_WINDOW only exists on Windows; the value is fixed.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+MCI_PLAYER = "winmm MCI"  # argv[0] of the in-process Windows player
 INSTALL_HINT = "install PipeWire (pw-play), pulseaudio-utils (paplay), alsa-utils (aplay) or ffmpeg (ffplay)"
 
 # Runs under Windows PowerShell 5.1 (-STA, which WPF needs). The file and volume
@@ -114,7 +118,10 @@ def player_commands(path, volume, device="", platform=None, which=shutil.which):
     if platform == "win32":
         encoded = base64.b64encode(WINDOWS_SCRIPT.encode("utf-16-le")).decode("ascii")
         argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", encoded]
-        return [(argv, {"PERRITODECK_SOUND": path, "PERRITODECK_VOLUME": f"{level:.3f}"})]
+        return [
+            ([MCI_PLAYER, path, str(volume)], {}),
+            (argv, {"PERRITODECK_SOUND": path, "PERRITODECK_VOLUME": f"{level:.3f}"}),
+        ]
     if platform == "darwin":
         return [([which("afplay") or "/usr/bin/afplay", "-v", f"{level:.3f}", path], {})]
     commands = []
@@ -137,6 +144,8 @@ def player_commands(path, volume, device="", platform=None, which=shutil.which):
 
 
 def spawn(argv, extra_env):
+    if argv[0] == MCI_PLAYER:
+        return winmm.MciSound(argv[1], int(argv[2]))
     env = None
     if extra_env:
         env = dict(os.environ)

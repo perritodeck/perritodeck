@@ -9,6 +9,7 @@ homepage.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+perritodeck-actions.workspace = true
 perritodeck-deck.workspace = true
 perritodeck-protocol.workspace = true
 perritodeck-render.workspace = true
@@ -19,6 +20,8 @@ open.workspace = true
 resvg = { version = "0.48", default-features = false, features = ["text", "system-fonts"] }
 serde.workspace = true
 serde_json.workspace = true
+# The OS version for plugins' `-info`.
+sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 rand.workspace = true
@@ -26,7 +29,6 @@ tracing.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-perritodeck-actions.workspace = true
 perritodeck-profile.workspace = true
 tempfile.workspace = true
 

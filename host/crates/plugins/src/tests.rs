@@ -45,12 +45,32 @@ fn has_python() -> bool {
     } else {
         &["python3", "python"]
     };
+    // `.status.success()` and not just "it ran": on Windows without Python, `python` is
+    // the Microsoft Store shortcut, which runs and exits with 9009.
     candidates.iter().any(|p| {
         std::process::Command::new(p)
-            .arg("--version")
+            .args(if *p == "py" {
+                &["-3", "--version"][..]
+            } else {
+                &["--version"][..]
+            })
             .output()
-            .is_ok()
+            .is_ok_and(|o| o.status.success())
     })
+}
+
+#[test]
+fn store_python_stub_means_missing_python() {
+    let quick = Duration::from_millis(300);
+    assert!(is_store_python_stub(Runtime::Python, Some(9009), quick));
+    assert!(!is_store_python_stub(Runtime::Python, Some(1), quick));
+    assert!(!is_store_python_stub(Runtime::Node, Some(9009), quick));
+    // A plugin that ran for a while and happened to exit with 9009 is just a crash.
+    assert!(!is_store_python_stub(
+        Runtime::Python,
+        Some(9009),
+        Duration::from_secs(60)
+    ));
 }
 
 async fn wait_for(what: &str, mut f: impl FnMut() -> bool) {

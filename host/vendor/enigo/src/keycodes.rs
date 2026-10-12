@@ -1069,7 +1069,10 @@ impl TryFrom<Key> for windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY {
                 if vk < 0 {
                     return Err("Character can't be mapped to virtual key");
                 }
-                VIRTUAL_KEY(vk as u16)
+                // PerritoDeck: keep only the low byte (the virtual-key code). The high byte is
+                // the shift state, and passing it on makes MapVirtualKeyExW return 0, so
+                // shifted characters such as '+' on a US layout typed nothing.
+                VIRTUAL_KEY((vk as u16) & 0x00FF)
             }
             Key::Other(v) => {
                 let Ok(v) = u16::try_from(v) else {

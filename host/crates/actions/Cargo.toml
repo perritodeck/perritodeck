@@ -28,7 +28,12 @@ tracing.workspace = true
 enigo = { workspace = true, optional = true, features = ["x11rb", "libei_tokio"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
+# Job objects, so a plugin's child processes end with it (job.rs).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

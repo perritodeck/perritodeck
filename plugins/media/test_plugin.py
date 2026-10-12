@@ -92,7 +92,7 @@ class WindowsTest(unittest.TestCase):
         self.assertTrue(script.startswith("$cmd = 'status'\n"))
         self.assertIn("GlobalSystemMediaTransportControlsSessionManager", script)
         self.assertEqual(args.kwargs["creationflags"], 0x08000000)
-        self.assertEqual(args.kwargs["timeout"], media.TIMEOUT)
+        self.assertEqual(args.kwargs["timeout"], media.WINDOWS_TIMEOUT)
         self.assertIs(args.kwargs["stdin"], subprocess.DEVNULL)
 
     def test_status_values(self):
@@ -210,6 +210,35 @@ class MacTest(unittest.TestCase):
         with mock.patch.object(media.subprocess, "run", return_value=done("", 1, "execution error")):
             with self.assertRaisesRegex(RuntimeError, "execution error"):
                 media.mac_state()
+
+
+class ErrorTextTest(unittest.TestCase):
+    def test_timeouts_do_not_put_the_command_line_on_the_key(self):
+        slow = subprocess.TimeoutExpired(["powershell.exe", "-EncodedCommand", "A" * 4000], 8)
+        with mock.patch.object(media.sys, "platform", "win32"), mock.patch.object(
+            media.subprocess, "run", side_effect=slow
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                media.next_track({})
+        self.assertEqual(str(caught.exception), "the player didn't answer in 8 s")
+
+    def test_long_errors_are_shortened(self):
+        long = "line one\n" + "x" * 500
+        with mock.patch.object(media.sys, "platform", "win32"), mock.patch.object(
+            media.subprocess, "run", return_value=done("", stderr=long)
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                media.next_track({})
+        self.assertLessEqual(len(str(caught.exception)), media.MAX_ERROR)
+        self.assertNotIn("\n", str(caught.exception))
+
+
+class PollIntervalTest(unittest.TestCase):
+    def test_windows_polls_less_when_idle(self):
+        now = media._last_action
+        self.assertEqual(media.poll_interval("win32", now + 5), media.POLL_SECONDS)
+        self.assertEqual(media.poll_interval("win32", now + 31), media.IDLE_POLL_SECONDS)
+        self.assertEqual(media.poll_interval("linux", now + 300), media.POLL_SECONDS)
 
 
 class NoPlayerTest(unittest.TestCase):

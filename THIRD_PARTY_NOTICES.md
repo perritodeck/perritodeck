@@ -29,7 +29,7 @@ unmodified unless noted:
 
 ## Rust crates: Command-line host and shared crates
 
-381 crates (all target platforms; build-time crates included, test-only crates left out).
+382 crates (all target platforms; build-time crates included, test-only crates left out).
 
 <details><summary>Show the list</summary>
 
@@ -102,6 +102,7 @@ unmodified unless noted:
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 |
 | document-features | 0.2.12 | MIT OR Apache-2.0 |
+| dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | endi | 1.1.1 | MIT |
 | enigo | 0.6.1 (vendored) | MIT |
 | enumflags2 | 0.7.12 | MIT OR Apache-2.0 |

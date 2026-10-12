@@ -16,17 +16,64 @@ pub fn supported() -> bool {
     imp::supported()
 }
 
+/// Whether "no app" from [`foreground_app`] means "nothing worth switching for; keep
+/// the last app". On Windows it does: the foreground window is NULL while focus moves
+/// and while the UAC or lock screen is up, and the shell's own windows (taskbar, Start,
+/// Search, Alt+Tab) are reported as no app too.
+pub const NONE_KEEPS_LAST: bool = cfg!(windows);
+
+/// Windows processes whose windows are the shell rather than an app. Their windows
+/// being in front shouldn't switch profiles.
+const SHELL_PROCESSES: [&str; 7] = [
+    "ShellExperienceHost",
+    "StartMenuExperienceHost",
+    "SearchHost",
+    "SearchApp",
+    "SearchUI",
+    "LockApp",
+    "consent", // UAC prompt
+];
+
+/// `explorer.exe` window classes that are the shell: the taskbars, the desktop, the
+/// task switcher and the tray overflow. File Explorer windows (`CabinetWClass`) count as
+/// an app.
+const SHELL_EXPLORER_CLASSES: [&str; 8] = [
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "Progman",
+    "WorkerW",
+    "MultitaskingViewFrame",
+    "TaskSwitcherWnd",
+    "XamlExplorerHostIslandWindow",
+    "TopLevelWindowForOverflowXamlIsland",
+];
+
+/// Whether a foreground window of `process` (exe name without `.exe`) with window class
+/// `class` is part of the Windows shell.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_windows_shell(process: &str, class: &str) -> bool {
+    SHELL_PROCESSES
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(process))
+        || (process.eq_ignore_ascii_case("explorer") && SHELL_EXPLORER_CLASSES.contains(&class))
+}
+
 // Asking the OS which window is in front needs its C APIs.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod imp {
-    use windows_sys::Win32::{
-        Foundation::CloseHandle,
-        System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-            PROCESS_QUERY_LIMITED_INFORMATION,
+    use windows_sys::{
+        core::BOOL,
+        Win32::{
+            Foundation::{CloseHandle, HWND, LPARAM},
+            System::Threading::{
+                OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+                PROCESS_QUERY_LIMITED_INFORMATION,
+            },
+            UI::WindowsAndMessaging::{
+                EnumChildWindows, GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId,
+            },
         },
-        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
     };
 
     pub fn supported() -> bool {
@@ -34,18 +81,49 @@ mod imp {
     }
 
     pub fn foreground_app() -> Option<String> {
-        // SAFETY: plain Win32 calls; the handle is closed before returning and the
-        // buffer outlives the call that fills it.
+        // SAFETY: plain Win32 calls on a window handle Windows just gave us; a window
+        // that has gone away since only makes the calls fail.
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.is_null() {
+            return None;
+        }
+        let pid = window_pid(hwnd)?;
+        let name = process_name(pid)?;
+        if name.eq_ignore_ascii_case("ApplicationFrameHost") {
+            // A Store app: the frame is ApplicationFrameHost's, and the app's own
+            // CoreWindow is a child window owned by the app's process. A suspended
+            // (minimised) app may have none; keep the frame host's name then.
+            return Some(
+                hosted_app_pid(hwnd, pid)
+                    .and_then(process_name)
+                    .unwrap_or(name),
+            );
+        }
+        if super::is_windows_shell(&name, &class_name(hwnd)) {
+            return None;
+        }
+        Some(name)
+    }
+
+    fn window_pid(hwnd: HWND) -> Option<u32> {
+        let mut pid = 0u32;
+        // SAFETY: `pid` outlives the call that fills it.
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        (pid != 0).then_some(pid)
+    }
+
+    fn class_name(hwnd: HWND) -> String {
+        let mut buf = [0u16; 256];
+        // SAFETY: the length passed is the buffer's, in characters.
+        let len = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+        String::from_utf16_lossy(&buf[..len.max(0) as usize])
+    }
+
+    /// The exe name, without `.exe`, of process `pid`.
+    fn process_name(pid: u32) -> Option<String> {
+        // SAFETY: the handle is closed before returning and the buffer outlives the
+        // call that fills it.
         unsafe {
-            let hwnd = GetForegroundWindow();
-            if hwnd.is_null() {
-                return None;
-            }
-            let mut pid = 0u32;
-            GetWindowThreadProcessId(hwnd, &mut pid);
-            if pid == 0 {
-                return None;
-            }
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if process.is_null() {
                 return None;
@@ -63,6 +141,32 @@ mod imp {
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
         }
+    }
+
+    /// The first child window of `frame` that belongs to another process than the
+    /// frame host's: the hosted Store app.
+    fn hosted_app_pid(frame: HWND, host_pid: u32) -> Option<u32> {
+        struct Search {
+            host_pid: u32,
+            found: u32,
+        }
+        unsafe extern "system" fn visit(child: HWND, lparam: LPARAM) -> BOOL {
+            // SAFETY: `lparam` is the `Search` below, alive for the whole enumeration.
+            let search = unsafe { &mut *(lparam as *mut Search) };
+            match window_pid(child) {
+                Some(pid) if pid != search.host_pid => {
+                    search.found = pid;
+                    0 // stop
+                }
+                _ => 1, // keep going
+            }
+        }
+        let mut search = Search { host_pid, found: 0 };
+        // SAFETY: the callback only runs during this call, while `search` is alive.
+        unsafe {
+            EnumChildWindows(frame, Some(visit), &mut search as *mut Search as LPARAM);
+        }
+        (search.found != 0).then_some(search.found)
     }
 }
 
@@ -175,5 +279,22 @@ mod imp {
     }
     pub fn foreground_app() -> Option<String> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_shell_windows_are_not_apps() {
+        assert!(is_windows_shell("explorer", "Shell_TrayWnd"));
+        assert!(is_windows_shell("explorer", "WorkerW"));
+        assert!(is_windows_shell("SearchHost", "Windows.UI.Core.CoreWindow"));
+        assert!(is_windows_shell("consent", "anything"));
+        assert!(is_windows_shell("startmenuexperiencehost", ""));
+        // File Explorer is an app someone may have a profile for.
+        assert!(!is_windows_shell("explorer", "CabinetWClass"));
+        assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
     }
 }

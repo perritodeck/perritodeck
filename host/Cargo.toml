@@ -43,7 +43,7 @@ ureq = { version = "3", features = ["json"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 enigo = "0.6"
-open = "5"
+open = { version = "5", features = ["shellexecute-on-windows"] } # ShellExecuteExW instead of a PowerShell per open, as the app already gets through tauri-plugin-opener
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 gethostname = "1"

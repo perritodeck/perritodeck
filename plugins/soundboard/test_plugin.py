@@ -109,8 +109,9 @@ class SoundboardTest(unittest.TestCase):
 
     def test_windows_powershell(self):
         cmds = soundboard.player_commands("C:\\Sounds\\a b.mp3", 70, "", "win32", which_none)
-        self.assertEqual(len(cmds), 1)
-        argv, env = cmds[0]
+        self.assertEqual(len(cmds), 2)
+        self.assertEqual(cmds[0], ([soundboard.MCI_PLAYER, "C:\\Sounds\\a b.mp3", "70"], {}))
+        argv, env = cmds[1]  # the fallback
         self.assertEqual(argv[:5], ["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand"])
         script = base64.b64decode(argv[5]).decode("utf-16-le")
         self.assertIn("System.Windows.Media.MediaPlayer", script)

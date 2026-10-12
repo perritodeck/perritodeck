@@ -115,6 +115,27 @@ class WindowsTest(Base):
                 shot.capture({"what": "window"})
         self.assertIsNone(self.last())
 
+    def test_script_asks_for_per_monitor_dpi_first(self):
+        script = shot.WINDOWS_SCRIPT
+        v2 = script.index("SetProcessDpiAwarenessContext([IntPtr](-4))")
+        self.assertLess(v2, script.index("[void][PerritoShot]::SetProcessDPIAware()"))
+        self.assertLess(v2, script.index("System.Windows.Forms, System.Drawing"))
+
+    def test_timeout_does_not_put_the_command_line_on_the_key(self):
+        slow = subprocess.TimeoutExpired(["powershell.exe", "-EncodedCommand", "A" * 4000], shot.TIMEOUT)
+        with mock.patch.object(shot.sys, "platform", "win32"), mock.patch.object(shot.subprocess, "run", side_effect=slow):
+            with self.assertRaises(RuntimeError) as caught:
+                shot.capture({"what": "screen"})
+        self.assertEqual(str(caught.exception), f"Windows didn't take the screenshot in {shot.TIMEOUT} s")
+
+    def test_long_errors_are_shortened(self):
+        with mock.patch.object(shot.sys, "platform", "win32"), mock.patch.object(
+            shot.subprocess, "run", return_value=done('{"ok":false,"error":"' + "x" * 300 + '"}')
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                shot.capture({"what": "screen"})
+        self.assertLessEqual(len(str(caught.exception)), shot.MAX_ERROR)
+
     def test_region_uses_the_snipping_overlay(self):
         with mock.patch.object(shot.sys, "platform", "win32"), mock.patch.object(shot.subprocess, "Popen") as popen:
             warning = shot.capture({"what": "region"})

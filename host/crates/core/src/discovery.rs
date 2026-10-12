@@ -56,18 +56,41 @@ fn sanitize_label(name: &str) -> String {
     }
 }
 
-/// Non-loopback IPv4 addresses of this machine, for the pairing link.
+/// Non-loopback IPv4 addresses of this machine, for the pairing link. The address of
+/// the default-route interface comes first: the tablet tries them in order with a
+/// timeout each, and on Windows the WSL and Hyper-V adapters (172.16–31.x) would
+/// otherwise sort before a 192.168.x Wi-Fi address and cost seconds per pairing.
 pub fn lan_addresses() -> Vec<IpAddr> {
-    let mut ips: Vec<IpAddr> = if_addrs::get_if_addrs()
+    let ips: Vec<IpAddr> = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
         .filter(|i| !i.is_loopback())
         .map(|i| i.ip())
         .filter(|ip| ip.is_ipv4())
         .collect();
+    order_addresses(ips, default_route_ipv4())
+}
+
+/// Sorted and deduplicated, with `first` moved to the front when it's in the list.
+fn order_addresses(mut ips: Vec<IpAddr>, first: Option<IpAddr>) -> Vec<IpAddr> {
     ips.sort();
     ips.dedup();
+    if let Some(pos) = first.and_then(|f| ips.iter().position(|ip| *ip == f)) {
+        let ip = ips.remove(pos);
+        ips.insert(0, ip);
+    }
     ips
+}
+
+/// The local address the OS would use to reach the internet. "Connecting" a UDP socket
+/// only picks a route and a source address; no packet is sent. 192.0.2.1 is a
+/// documentation address (RFC 5737), so it never belongs to anyone's server, and it
+/// goes through the default route like any public address.
+fn default_route_ipv4() -> Option<IpAddr> {
+    let sock = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    sock.connect(("192.0.2.1", 9)).ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
 }
 
 /// `perritodeck://pair?v=1&n=<name>&a=<ip:port>…&fp=<fingerprint>&c=<code>`
@@ -104,6 +127,25 @@ fn percent_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_route_address_comes_first() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let all = vec![ip("192.168.1.20"), ip("172.24.0.1"), ip("172.24.0.1")];
+        assert_eq!(
+            order_addresses(all.clone(), Some(ip("192.168.1.20"))),
+            [ip("192.168.1.20"), ip("172.24.0.1")]
+        );
+        assert_eq!(
+            order_addresses(all.clone(), None),
+            [ip("172.24.0.1"), ip("192.168.1.20")]
+        );
+        // Not one of ours (say, a VPN with no listed adapter): plain order.
+        assert_eq!(
+            order_addresses(all, Some(ip("10.0.0.5"))),
+            [ip("172.24.0.1"), ip("192.168.1.20")]
+        );
+    }
 
     #[test]
     fn uri_format() {

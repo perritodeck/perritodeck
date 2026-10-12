@@ -1198,6 +1198,16 @@ impl Host {
         }
     }
 
+    /// Stop every plugin before the program exits, waiting (blocking, a few seconds at
+    /// most) for Python and Node plugins to finish. Without this, quitting the app left
+    /// Stream Deck plugins and plugins' child processes running.
+    pub fn stop_plugins(&self) {
+        if let Some(sd) = &self.sd_plugins {
+            sd.shutdown();
+        }
+        self.plugins.shutdown_and_wait(Duration::from_secs(3));
+    }
+
     /// Stop the MCP endpoint (it also stops when the host is dropped).
     pub async fn stop_mcp(&self) {
         if let Some(server) = self.mcp.lock().await.server.take() {
@@ -2005,8 +2015,12 @@ fn spawn_focus_watch(shared: Arc<Shared>) {
             let Ok(app) = tokio::task::spawn_blocking(focus::foreground_app).await else {
                 continue;
             };
-            // Clicking over to PerritoDeck itself shouldn't switch the tablets away.
-            if app.as_deref().is_some_and(is_us) || app == last {
+            // Clicking over to PerritoDeck itself shouldn't switch the tablets away, and
+            // on Windows neither should a moment with no window in front, or the shell.
+            if app.as_deref().is_some_and(is_us)
+                || (app.is_none() && focus::NONE_KEEPS_LAST)
+                || app == last
+            {
                 continue;
             }
             last.clone_from(&app);

@@ -239,6 +239,7 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     info!("shutting down");
     host.stop_mcp().await;
+    tokio::task::block_in_place(|| host.stop_plugins());
     Ok(())
 }
 

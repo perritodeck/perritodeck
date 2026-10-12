@@ -5,7 +5,7 @@
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -48,6 +48,21 @@ pub fn ready_devices(output: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// An `adb` command that never opens a console window. The installed app is a GUI
+/// process with no console, so without `CREATE_NO_WINDOW` Windows would open a new
+/// console (a Terminal window on Windows 11) for every poll.
+fn adb_command(adb: &std::path::Path) -> Command {
+    let mut c = Command::new(adb);
+    c.stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
 pub fn spawn(port: u16, devices: UsbDevices) {
     let Some(adb) = find_adb() else {
         debug!("adb not found; USB tablets need Wi-Fi");
@@ -64,11 +79,11 @@ pub fn spawn(port: u16, devices: UsbDevices) {
             let adb = adb.clone();
             let known = devices.lock().expect("usb poisoned").clone();
             let Ok(now) = tokio::task::spawn_blocking(move || {
-                let out = Command::new(&adb).arg("devices").output().ok()?;
+                let out = adb_command(&adb).arg("devices").output().ok()?;
                 let ready = ready_devices(&String::from_utf8_lossy(&out.stdout));
                 for serial in ready.difference(&known) {
                     let spec = format!("tcp:{port}");
-                    let ok = Command::new(&adb)
+                    let ok = adb_command(&adb)
                         .args(["-s", serial, "reverse", &spec, &spec])
                         .output()
                         .is_ok_and(|o| o.status.success());

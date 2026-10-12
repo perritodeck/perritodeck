@@ -32,6 +32,13 @@ TIMEOUT = 8  # seconds for a capture that doesn't wait for the user
 PICK_TIMEOUT = 120  # seconds someone has to pick an area
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 MODES = ("screen", "region", "window")
+MAX_ERROR = 80  # characters of an error message shown on a key
+
+
+def short(message, limit=MAX_ERROR):
+    """One line of at most `limit` characters, for a key's alert."""
+    line = " ".join(str(message).split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
 def run(args, timeout=TIMEOUT, **kwargs):
@@ -161,13 +168,19 @@ using System;
 using System.Runtime.InteropServices;
 public static class PerritoShot {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT rect, int size);
 }
 '@
-    [void][PerritoShot]::SetProcessDPIAware()
+    # Per-monitor v2 (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4, Windows 10 1703+)
+    # gives real pixels on every monitor when their scaling differs. Older Windows has
+    # no such function (EntryPointNotFoundException): fall back to system awareness.
+    $aware = $false
+    try { $aware = [PerritoShot]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+    if (-not $aware) { [void][PerritoShot]::SetProcessDPIAware() }
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     if ($mode -eq 'window') {
         $hwnd = [PerritoShot]::GetForegroundWindow()
@@ -230,19 +243,26 @@ def windows_capture(mode, path, copy):
         return "Pick an area: Windows puts it on the clipboard, not in the folder"
     script = windows_script(mode, path, copy)
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-    out = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=TIMEOUT,
-        creationflags=CREATE_NO_WINDOW,
-    )
-    data = parse_ps(out.stdout, out.stderr)
+    try:
+        out = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=TIMEOUT,
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        # str() of it is the whole command line, with the base64 script.
+        raise RuntimeError(f"Windows didn't take the screenshot in {TIMEOUT} s") from None
+    try:
+        data = parse_ps(out.stdout, out.stderr)
+    except RuntimeError as e:
+        raise RuntimeError(short(e)) from None
     if not data.get("ok"):
-        raise RuntimeError(data.get("error") or "the screenshot failed")
+        raise RuntimeError(short(data.get("error") or "the screenshot failed"))
     remember(path)
     return None
 

@@ -478,6 +478,23 @@ impl PluginHost {
             p.request_stop();
         }
     }
+
+    /// Stop every plugin and wait (blocking, up to `limit`) for their processes to end,
+    /// for an app that's about to exit.
+    pub fn shutdown_and_wait(&self, limit: Duration) {
+        self.shutdown();
+        let until = Instant::now() + limit;
+        let running: Vec<Arc<Running>> = self
+            .plugins
+            .lock()
+            .expect("plugins poisoned")
+            .values()
+            .cloned()
+            .collect();
+        for p in running {
+            p.wait_exited(until.saturating_duration_since(Instant::now()));
+        }
+    }
 }
 
 impl PluginRunner for PluginHost {
@@ -525,6 +542,17 @@ fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
         ],
         Runtime::Exec => vec![(main, vec![])],
     }
+}
+
+/// Exit code of Windows' `python.exe` App Execution Alias when Python isn't installed:
+/// it prints "Python was not found; run without arguments to install from the Microsoft
+/// Store" and exits with 9009 (cmd.exe's "not recognized" code).
+const STORE_STUB_EXIT: i32 = 9009;
+
+/// Whether a Python plugin's process that exited with `code` after `ran_for` was the
+/// Store stub rather than Python (it exits at once). Checked on Windows only.
+fn is_store_python_stub(runtime: Runtime, code: Option<i32>, ran_for: Duration) -> bool {
+    runtime == Runtime::Python && code == Some(STORE_STUB_EXIT) && ran_for < Duration::from_secs(5)
 }
 
 /// Write a file only its owner can read (0600 on Unix, set when it's created).
@@ -605,6 +633,9 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
             return;
         };
 
+        // On Windows the plugin and everything it starts end together (job object).
+        let tree = perritodeck_actions::job::ProcessTree::adopt(&child);
+
         let mut stdin = child.stdin.take().expect("piped");
         let stdout = child.stdout.take().expect("piped");
         let stderr = child.stderr.take().expect("piped");
@@ -665,12 +696,25 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                 }
             }
         };
+        // Ends whatever the plugin left running.
+        drop(tree);
         reader.abort();
         writer.abort();
         *p.to_plugin.lock().expect("stdin poisoned") = None;
         p.fail_pending("it stopped");
         if p.stop.load(Ordering::Relaxed) {
             p.set_status(Status::Stopped);
+            return;
+        }
+        let code = status.as_ref().ok().and_then(|s| s.code());
+        if cfg!(windows) && is_store_python_stub(p.manifest.runtime, code, started.elapsed()) {
+            warn!(
+                "plugin {} needs Python 3; `python` is only the Microsoft Store shortcut",
+                p.manifest.id
+            );
+            p.set_status(Status::MissingRuntime {
+                runtime: "Python 3".into(),
+            });
             return;
         }
         let reason = match status {
