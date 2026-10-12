@@ -14,6 +14,38 @@ pub struct AppSettings {
     pub network: Network,
     /// Look for a newer version when the app starts.
     pub check_updates: bool,
+    /// Write debug-level messages to the log, for bug reports.
+    pub detailed_logs: bool,
+    /// The local MCP server for AI assistants.
+    pub mcp: Mcp,
+}
+
+/// The local MCP server that lets AI assistants see and use the keys. The access token
+/// isn't kept here but in its own owner-only file (`mcp-token`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Mcp {
+    pub enabled: bool,
+    /// Press existing keys and switch the profile a tablet shows.
+    pub press: bool,
+    /// Create and change keys, pages and profiles.
+    pub edit: bool,
+    /// Run any action, including programs and commands.
+    pub run: bool,
+    /// Its port on 127.0.0.1.
+    pub port: u16,
+}
+
+impl Default for Mcp {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            press: false,
+            edit: false,
+            run: false,
+            port: perritodeck_mcp::DEFAULT_PORT,
+        }
+    }
 }
 
 /// How tablets reach this computer. Changes apply when the host restarts.
@@ -138,5 +170,17 @@ mod tests {
         assert_eq!(AppSettings::load(&path), s);
         std::fs::write(&path, "{nope").unwrap();
         assert_eq!(AppSettings::load(&path), AppSettings::default());
+    }
+
+    #[test]
+    fn mcp_is_off_by_default_and_older_files_still_load() {
+        let s = AppSettings::default();
+        assert!(!s.mcp.enabled && !s.mcp.press && !s.mcp.edit && !s.mcp.run);
+        assert_eq!(s.mcp.port, 46711);
+        assert!(!s.detailed_logs);
+        let old: AppSettings =
+            serde_json::from_str(r#"{"checkUpdates": true, "mcp": {"enabled": true}}"#).unwrap();
+        assert!(old.check_updates && old.mcp.enabled);
+        assert_eq!(old.mcp.port, 46711);
     }
 }

@@ -31,7 +31,6 @@ serde_json = "1"
 base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Same patched enigo as the host workspace (see host/vendor/enigo/PERRITODECK.md).
 [patch.crates-io]

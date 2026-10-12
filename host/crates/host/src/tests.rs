@@ -826,3 +826,220 @@ async fn companion_profiles_can_be_made() {
             .contains("[companion]")
     );
 }
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// Talks to the host's MCP endpoint through the stdio bridge, as an assistant would.
+struct Assistant {
+    write: tokio::io::WriteHalf<tokio::io::DuplexStream>,
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>>,
+    next_id: u64,
+}
+
+impl Assistant {
+    fn connect(url: String, token: String) -> Self {
+        use tokio::io::AsyncBufReadExt;
+        let (client, bridge_side) = tokio::io::duplex(1 << 16);
+        let (bin, bout) = tokio::io::split(bridge_side);
+        tokio::spawn(async move { perritodeck_mcp::bridge(&url, &token, bin, bout).await });
+        let (read, write) = tokio::io::split(client);
+        Self {
+            write,
+            lines: tokio::io::BufReader::new(read).lines(),
+            next_id: 0,
+        }
+    }
+
+    async fn send(&mut self, v: serde_json::Value) {
+        use tokio::io::AsyncWriteExt;
+        self.write
+            .write_all(format!("{v}\n").as_bytes())
+            .await
+            .unwrap();
+    }
+
+    async fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.send(serde_json::json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+            .await;
+        let line = tokio::time::timeout(Duration::from_secs(10), self.lines.next_line())
+            .await
+            .expect("an answer in time")
+            .unwrap()
+            .expect("a line");
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["id"], id, "{v}");
+        v
+    }
+
+    async fn tool(&mut self, name: &str, args: serde_json::Value) -> (bool, String) {
+        let r = self
+            .request(
+                "tools/call",
+                serde_json::json!({"name": name, "arguments": args}),
+            )
+            .await;
+        let result = &r["result"];
+        (
+            result["isError"].as_bool().unwrap_or(true),
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    }
+}
+
+#[tokio::test]
+async fn the_mcp_endpoint_follows_the_settings_and_answers_from_the_host() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(quiet_host(dir.path()).await);
+    host.apply_mcp().await;
+    assert_eq!(host.mcp_state(), McpState::Off, "off by default");
+
+    let port = free_port();
+    let mut m = host.mcp_view().settings;
+    assert!(!m.enabled && !m.press && !m.edit && !m.run);
+    m.port = host.addr.port();
+    assert!(
+        host.set_mcp(m.clone()).await.is_err(),
+        "not the tablets' port"
+    );
+    m.enabled = true;
+    m.port = port;
+    let view = host.set_mcp(m.clone()).await.unwrap();
+    assert_eq!(
+        view.state,
+        McpState::Running {
+            url: format!("http://127.0.0.1:{port}/mcp")
+        }
+    );
+    let token = mcp::read_token(dir.path()).expect("a token was made");
+    assert!(view.snippets.http_config.contains(&token));
+    assert_eq!(view.snippets.args[0], "mcp");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(mcp::token_path(dir.path()))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "the token is owner-only");
+    }
+
+    let mut a = Assistant::connect(view.url.clone(), token.clone());
+    let init = a
+        .request(
+            "initialize",
+            serde_json::json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}),
+        )
+        .await;
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
+    a.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+        .await;
+    let tools = a.request("tools/list", serde_json::json!({})).await;
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"list_profiles"), "{names:?}");
+    assert!(!names.contains(&"press_key"), "pressing is off: {names:?}");
+
+    let (err, text) = a.tool("list_profiles", serde_json::json!({})).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("default"), "{text}");
+    let (err, text) = a
+        .tool("get_profile", serde_json::json!({"profile": "default"}))
+        .await;
+    assert!(!err && text.contains("Main"), "{text}");
+    let (err, text) = a
+        .tool("press_key", serde_json::json!({"row": 0, "col": 0}))
+        .await;
+    assert!(err && text.contains("press"), "{text}");
+
+    // Permissions apply to the next request, without a restart.
+    m.press = true;
+    m.edit = true;
+    host.set_mcp(m.clone()).await.unwrap();
+    let nav = host.profile_view(None).unwrap().pages[0]
+        .keys
+        .iter()
+        .find(|k| k.kind == "page")
+        .map(|k| [k.row, k.col])
+        .expect("the starter profile has a page key");
+    let (err, text) = a
+        .tool(
+            "press_key",
+            serde_json::json!({"row": nav[0], "col": nav[1]}),
+        )
+        .await;
+    assert!(err && text.contains("No connected tablet"), "{text}");
+
+    // Edits go through the host, so they can be undone in the app.
+    let (err, text) = a
+        .tool(
+            "set_key",
+            serde_json::json!({"page": "Main", "row": 2, "col": 4, "title": "From AI"}),
+        )
+        .await;
+    assert!(!err, "{text}");
+    let titled = |h: &Host| {
+        h.profile_view(None).unwrap().pages[0]
+            .keys
+            .iter()
+            .any(|k| k.title == "From AI")
+    };
+    assert!(titled(&host));
+    host.undo().unwrap();
+    assert!(!titled(&host));
+
+    // Running actions stays off.
+    let (err, text) = a
+        .tool(
+            "run_action",
+            serde_json::json!({"action": {"type": "text", "text": "x"}}),
+        )
+        .await;
+    assert!(err, "{text}");
+
+    // A new token restarts the endpoint; the old one stops working.
+    let view = host.new_mcp_token().await.unwrap();
+    let new_token = mcp::read_token(dir.path()).unwrap();
+    assert_ne!(new_token, token);
+    assert!(matches!(view.state, McpState::Running { .. }));
+    let mut stale = Assistant::connect(view.url.clone(), token);
+    let r = stale.request("tools/list", serde_json::json!({})).await;
+    assert!(r.get("error").is_some(), "{r}");
+
+    // Turning it off stops it.
+    m.enabled = false;
+    let view = host.set_mcp(m).await.unwrap();
+    assert_eq!(view.state, McpState::Off);
+    assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err());
+
+    // Diagnostics mention it, but never the token.
+    let report = host.diagnostics(Some("9.9.9"));
+    assert!(report.contains("AI assistants (MCP)"), "{report}");
+    assert!(report.contains("9.9.9"));
+    assert!(!report.contains(&new_token));
+}
+
+#[tokio::test]
+async fn detailed_logs_are_a_saved_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    assert!(!host.detailed_logs());
+    host.set_detailed_logs(true).unwrap();
+    assert!(host.detailed_logs());
+    assert!(AppSettings::load(&settings_path(dir.path())).detailed_logs);
+    assert!(host.status().logs_dir.ends_with("logs"));
+}

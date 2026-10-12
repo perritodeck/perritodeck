@@ -1101,3 +1101,230 @@ async fn random_keys_run_one_action() {
     // Instant actions don't get a ✓.
     assert!(!sent.take().iter().any(|m| matches!(m, Message::ShowOk(_))));
 }
+
+// ---- press_at (keys pressed by an AI assistant, by position) ----
+
+#[tokio::test]
+async fn press_at_runs_actions_with_feedback_on_tablets_showing_them() {
+    let (deck, sent, keys) = setup();
+    connect(&deck, false);
+    sent.take();
+    let pressed = deck.press_at("default", "Main", [0, 0], None).await;
+    assert_eq!(pressed, Ok(None));
+    assert_eq!(keys.0.lock().unwrap().as_slice(), ["Ctrl+C"]);
+    // Hotkeys are instant: no ✓, and nothing else changes on the tablet.
+    assert!(sent.take().is_empty());
+
+    // Commands confirm with ✓ on the tablets showing the key, and failures say why.
+    let profile = PROFILE.replace(
+        r#"action = { type = "hotkey", keys = "Ctrl+C" }"#,
+        r#"action = { type = "command", program = "definitely-not-a-program-xyz" }"#,
+    );
+    deck.load_profile("cmd", Profile::parse(&profile).unwrap(), None);
+    deck.assign("tab", Some("cmd"));
+    sent.take();
+    let failed = deck.press_at("cmd", "Main", [0, 0], None).await;
+    assert!(
+        failed.is_err() || matches!(failed, Ok(Some(_))),
+        "{failed:?}"
+    );
+    assert!(
+        sent.take()
+            .iter()
+            .any(|m| matches!(m, Message::ShowAlert(f) if f.key_index == 0)),
+        "the tablet flashes a warning"
+    );
+
+    // Empty spots do nothing; unknown profiles and pages are errors.
+    assert_eq!(
+        deck.press_at("default", "Main", [1, 2], None).await,
+        Ok(None)
+    );
+    assert!(deck.press_at("nope", "Main", [0, 0], None).await.is_err());
+    assert!(deck
+        .press_at("default", "Nope", [0, 0], None)
+        .await
+        .is_err());
+    assert!(deck
+        .press_at("default", "Main", [0, 0], Some("ghost"))
+        .await
+        .unwrap_err()
+        .contains("isn't connected"));
+}
+
+#[tokio::test]
+async fn press_at_refuses_while_paused() {
+    let (deck, _, keys) = setup();
+    deck.set_paused(true);
+    let err = deck
+        .press_at("default", "Main", [0, 0], None)
+        .await
+        .unwrap_err();
+    assert!(err.contains("paused"), "{err}");
+    assert!(keys.0.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn press_at_advances_toggles_shared_by_every_tablet() {
+    let (deck, sent, keys) = setup();
+    connect(&deck, false);
+    sent.take();
+    // Works with no tablet connected too; here one is, and sees the new state.
+    deck.press_at("default", "Main", [0, 1], None)
+        .await
+        .unwrap();
+    assert_eq!(keys.0.lock().unwrap().as_slice(), ["text toggle"]);
+    let msgs = sent.take();
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "Off")),
+        "{msgs:?}"
+    );
+    // The same state as a tap would have reached.
+    deck.key_down("tab", 1);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(sent
+        .take()
+        .iter()
+        .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "On")));
+}
+
+#[tokio::test]
+async fn press_at_runs_a_followed_toggle_without_flipping_it() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let profile = r##"
+schema_version = 1
+name = "f"
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+follow = "obs:recording"
+states = [
+  { title = "Rec", action = { type = "text", text = "start" } },
+  { title = "Stop", action = { type = "text", text = "stop" } },
+]
+"##;
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    deck.set_live([("obs:recording".to_owned(), "true".to_owned())]);
+    deck.press_at("default", "Main", [0, 0], None)
+        .await
+        .unwrap();
+    deck.press_at("default", "Main", [0, 0], None)
+        .await
+        .unwrap();
+    assert_eq!(
+        keys.0.lock().unwrap().as_slice(),
+        ["text stop", "text stop"]
+    );
+}
+
+#[tokio::test]
+async fn press_at_changes_pages_on_tablets_showing_the_profile() {
+    let (deck, sent, _) = setup();
+    // Nobody shows it: nothing to change the page on.
+    let err = deck
+        .press_at("default", "Main", [0, 2], None)
+        .await
+        .unwrap_err();
+    assert!(err.contains("No connected tablet"), "{err}");
+
+    connect(&deck, false);
+    deck.connected("tab2", GRID, hello().screen, &["keys".to_string()]);
+    sent.take();
+    deck.press_at("default", "Main", [0, 2], None)
+        .await
+        .unwrap();
+    assert_eq!(deck.device_page("tab").as_deref(), Some("More"));
+    assert_eq!(deck.device_page("tab2").as_deref(), Some("More"));
+    sent.take();
+
+    // Just one tablet when it's named; Back works from history.
+    deck.press_at("default", "More", [0, 0], Some("tab2"))
+        .await
+        .unwrap();
+    assert_eq!(deck.device_page("tab").as_deref(), Some("More"));
+    assert_eq!(deck.device_page("tab2").as_deref(), Some("Main"));
+
+    // A named tablet showing another profile is an error.
+    deck.load_profile("other", Profile::parse(PROFILE).unwrap(), None);
+    deck.assign("tab2", Some("other"));
+    let err = deck
+        .press_at("default", "Main", [0, 2], Some("tab2"))
+        .await
+        .unwrap_err();
+    assert!(err.contains("shows profile \"other\""), "{err}");
+}
+
+#[tokio::test]
+async fn press_at_switch_profile_keys_act_on_the_named_tablet() {
+    let (deck, sent, switched) = switching_setup();
+    deck.connected("tab2", GRID, hello().screen, &["keys".to_string()]);
+    sent.take();
+    // [1, 1] on Main switches to "streaming".
+    deck.press_at("default", "Main", [1, 1], Some("tab2"))
+        .await
+        .unwrap();
+    assert_eq!(deck.device_profile("tab2"), "streaming");
+    assert_eq!(deck.device_profile("tab"), "default");
+    assert_eq!(
+        *switched.lock().unwrap(),
+        [("tab2".to_owned(), "streaming".to_owned())],
+        "remembered like a choice made in the app"
+    );
+    // Without a tablet: every tablet showing the profile.
+    deck.press_at("default", "Main", [1, 1], None)
+        .await
+        .unwrap();
+    assert_eq!(deck.device_profile("tab"), "streaming");
+    // A missing target profile is an error, and nothing switches.
+    let err = deck
+        .press_at("default", "More", [0, 1], Some("tab"))
+        .await
+        .unwrap_err();
+    assert!(err.contains("\"nope\""), "{err}");
+}
+
+#[tokio::test]
+async fn press_at_presses_stream_deck_keys_and_random_keys_run_one_action() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(SD_PROFILE).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    let agents = Arc::new(FakeAgents::default());
+    deck.set_agents(agents.clone());
+    // Not on any tablet yet: the plugin doesn't know the key.
+    assert!(deck
+        .press_at("default", "Main", [0, 1], None)
+        .await
+        .is_err());
+    connect(&deck, false);
+    agents.0.lock().unwrap().clear();
+    assert_eq!(
+        deck.press_at("default", "Main", [0, 1], None).await,
+        Ok(None)
+    );
+    assert_eq!(
+        agents.0.lock().unwrap().as_slice(),
+        ["press default/0/0/1 true", "press default/0/0/1 false"]
+    );
+
+    let random = PROFILE.replace(
+        r#"action = { type = "hotkey", keys = "Ctrl+C" }"#,
+        r#"action = { type = "random", actions = [{ type = "text", text = "a" }, { type = "text", text = "b" }] }"#,
+    );
+    deck.load_profile("random", Profile::parse(&random).unwrap(), None);
+    deck.press_at("random", "Main", [0, 0], None).await.unwrap();
+    let ran = keys.0.lock().unwrap().clone();
+    assert!(ran == ["text a"] || ran == ["text b"], "{ran:?}");
+}

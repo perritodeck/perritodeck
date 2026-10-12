@@ -6,8 +6,11 @@
 //! returned [`Host`] answers the questions a UI asks (who's paired, open a pairing
 //! window, what's on each page), edits profiles, and broadcasts [`HostEvent`]s.
 
+pub mod diagnostics;
 pub mod focus;
 mod live;
+pub mod logging;
+pub mod mcp;
 pub mod settings;
 pub mod usb;
 pub mod views;
@@ -38,12 +41,14 @@ use serde::Serialize;
 use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::{info, warn};
 
+pub use mcp::{McpSnippets, McpState, McpView};
 pub use perritodeck_actions::ActionSpec;
+pub use perritodeck_mcp::bridge_stdio_to_http;
 pub use perritodeck_plugins::{
     BrokenPlugin, Manifest as PluginManifest, PluginInfo, Status as PluginStatus,
 };
 pub use perritodeck_profile::edit::{Edit, KeyFields};
-pub use settings::{AppSettings, AutoSwitch, Network, SwitchRule};
+pub use settings::{AppSettings, AutoSwitch, Mcp as McpSettings, Network, SwitchRule};
 pub mod companion;
 pub mod online;
 pub mod updates;
@@ -188,6 +193,8 @@ pub struct HostStatus {
     pub addresses: Vec<String>,
     pub insecure: bool,
     pub data_dir: String,
+    /// Where the log files are.
+    pub logs_dir: String,
     pub profile_path: String,
     pub profiles_dir: String,
     pub integrations: Vec<String>,
@@ -269,6 +276,22 @@ struct History {
 const HISTORY_LIMIT: usize = 200;
 const RECENT_APPS: usize = 12;
 
+/// What a tablet said about itself when it connected, for diagnostics.
+#[derive(Debug, Clone)]
+struct TabletDetails {
+    platform: perritodeck_protocol::Platform,
+    app_version: String,
+    os_version: String,
+}
+
+/// The MCP endpoint, when it runs, and what it was started with.
+#[derive(Default)]
+struct McpRuntime {
+    server: Option<perritodeck_mcp::HttpServer>,
+    port: u16,
+    token: String,
+}
+
 /// State the background tasks share with [`Host`].
 struct Shared {
     deck: Arc<Deck>,
@@ -277,6 +300,8 @@ struct Shared {
     foreground: Mutex<Option<String>>,
     recent_apps: Mutex<VecDeque<String>>,
     events: broadcast::Sender<HostEvent>,
+    /// What each tablet said about itself when it last connected.
+    tablet_details: Mutex<HashMap<String, TabletDetails>>,
     /// Tablets switched by a "switch profile" key since the app in front last changed.
     /// Auto-switch rules leave them be until it changes again, or the key would undo
     /// itself while the rule's app is in front.
@@ -369,6 +394,8 @@ pub struct Host {
     usb_available: bool,
     history: Mutex<History>,
     executor: Executor,
+    mcp: tokio::sync::Mutex<McpRuntime>,
+    mcp_state: Mutex<McpState>,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -516,6 +543,9 @@ impl Host {
 
         let settings_file = settings_path(&dir);
         let settings = AppSettings::load(&settings_file);
+        if settings.detailed_logs {
+            logging::set_detailed(true);
+        }
         for (device, profile) in &settings.device_profiles {
             if !deck.assign(device, Some(profile)) {
                 warn!("{device} was set to show profile {profile}, which isn't there; showing the default");
@@ -561,6 +591,7 @@ impl Host {
             foreground: Mutex::new(None),
             recent_apps: Mutex::new(VecDeque::new()),
             events: events.clone(),
+            tablet_details: Mutex::new(HashMap::new()),
             key_switched: Mutex::new(HashSet::new()),
         });
         let remember = Arc::downgrade(&shared);
@@ -615,6 +646,8 @@ impl Host {
             shared,
             history: Default::default(),
             executor: test_executor,
+            mcp: Default::default(),
+            mcp_state: Mutex::new(McpState::Off),
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -650,6 +683,7 @@ impl Host {
             addresses,
             insecure: self.insecure,
             data_dir: self.data_dir.display().to_string(),
+            logs_dir: self.logs_dir().display().to_string(),
             profile_path: self.profile_path.display().to_string(),
             profiles_dir: self.profiles_dir.display().to_string(),
             integrations: self.integrations.clone(),
@@ -905,6 +939,331 @@ impl Host {
             .lock()
             .expect("focus poisoned")
             .clone()
+    }
+
+    // ---- Logs and diagnostics ----
+
+    /// Where the log files are.
+    pub fn logs_dir(&self) -> PathBuf {
+        logging::logs_dir(&self.data_dir)
+    }
+
+    pub fn detailed_logs(&self) -> bool {
+        self.shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .detailed_logs
+    }
+
+    /// Log debug messages too (or stop); applies at once and is remembered.
+    pub fn set_detailed_logs(&self, on: bool) -> Result<(), String> {
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.detailed_logs = on;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        logging::set_detailed(on);
+        Ok(())
+    }
+
+    /// A plain-text report for bug reports: versions, paths, tablets, plugins,
+    /// integrations, network and MCP settings, and the last log lines. No keys,
+    /// certificates, tokens or passwords.
+    pub fn diagnostics(&self, app_version: Option<&str>) -> String {
+        use diagnostics::{Report, Section};
+        let settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        let mut sections = vec![
+            diagnostics::versions(app_version),
+            diagnostics::paths(&self.data_dir, &self.profile_path),
+        ];
+
+        let details = self
+            .shared
+            .tablet_details
+            .lock()
+            .expect("details poisoned")
+            .clone();
+        let mut tablets = Section::new("Tablets");
+        for d in self.devices() {
+            let mut line = format!(
+                "{} ({}): {}, profile {}",
+                d.name,
+                diagnostics::short_id(&d.id),
+                if d.connected {
+                    "connected"
+                } else {
+                    "not connected"
+                },
+                d.profile
+            );
+            if let Some(page) = d.connected.then(|| self.deck.device_page(&d.id)).flatten() {
+                line.push_str(&format!(", page {page}"));
+            }
+            if let Some(t) = details.get(&d.id) {
+                let platform = serde_json::to_value(t.platform)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                line.push_str(&format!(
+                    ", {platform} {}, Perrito {}",
+                    t.os_version, t.app_version
+                ));
+            }
+            tablets.line(line);
+        }
+        sections.push(tablets);
+
+        let state_text = |status: serde_json::Value| -> String {
+            let state = status["state"].as_str().unwrap_or("unknown").to_owned();
+            match (status["reason"].as_str(), status["runtime"].as_str()) {
+                (Some(r), _) => format!("{state}: {r}"),
+                (_, Some(r)) => format!("{state}: needs {r}"),
+                _ => state,
+            }
+        };
+        let mut plugins = Section::new("Plugins");
+        for p in self.plugins.list() {
+            plugins.line(format!(
+                "{} {}: {}",
+                p.manifest.id,
+                p.manifest.version,
+                state_text(serde_json::to_value(&p.status).unwrap_or_default())
+            ));
+        }
+        for b in self.plugins.broken() {
+            plugins.line(format!("broken: {}: {}", b.folder, b.problem));
+        }
+        sections.push(plugins);
+
+        let mut sd = Section::new("Stream Deck plugins");
+        match &self.sd_plugins {
+            Some(host) => {
+                for p in host.list() {
+                    sd.line(format!(
+                        "{} {}: {}",
+                        p.uuid,
+                        p.version,
+                        state_text(serde_json::to_value(&p.status).unwrap_or_default())
+                    ));
+                }
+                for b in host.broken() {
+                    sd.line(format!("broken: {}: {}", b.folder, b.problem));
+                }
+            }
+            None => {
+                sd.line("off (couldn't start on this computer)");
+            }
+        }
+        sections.push(sd);
+
+        let mut integrations = Section::new("Integrations");
+        let tokens = self.deck.live_tokens();
+        for (name, prefix) in [("OBS", "obs:"), ("Home Assistant", "ha:")] {
+            let state = if !self.integrations.iter().any(|i| i == name) {
+                "not set up".to_owned()
+            } else {
+                let values: Vec<Option<String>> = tokens
+                    .iter()
+                    .filter(|t| t.starts_with(prefix))
+                    .map(|t| self.deck.live_value(t))
+                    .collect();
+                if values.is_empty() {
+                    "set up (no key shows its values, so not checked)".to_owned()
+                } else if values.iter().any(|v| v.as_deref() == Some(live::UNKNOWN)) {
+                    "set up, but not reachable (its values show –)".to_owned()
+                } else if values.iter().any(Option::is_some) {
+                    "set up and answering".to_owned()
+                } else {
+                    "set up (not checked yet)".to_owned()
+                }
+            };
+            integrations.field(name, state);
+        }
+        integrations.field(
+            "Companion",
+            self.status()
+                .companion
+                .unwrap_or_else(|| "not set up".to_owned()),
+        );
+        sections.push(integrations);
+
+        let usb = if self.usb_available {
+            let n = self.usb.lock().expect("usb poisoned").len();
+            format!("adb found; {n} tablet(s) on a cable")
+        } else {
+            "off (adb not found, or turned off)".to_owned()
+        };
+        sections.push(diagnostics::network(
+            &settings,
+            Some(&self.addr.to_string()),
+            &usb,
+        ));
+        let state = self.mcp_state.lock().expect("mcp poisoned").describe();
+        sections.push(diagnostics::mcp_section(
+            &settings,
+            &state,
+            mcp::read_token(&self.data_dir).is_some(),
+        ));
+        let mut detail = Section::new("Logging");
+        detail.field(
+            "detailed",
+            if settings.detailed_logs { "on" } else { "off" },
+        );
+        sections.push(detail);
+
+        Report {
+            app_version: app_version.map(str::to_owned),
+            host_version: env!("CARGO_PKG_VERSION").to_owned(),
+            sections,
+            log: logging::tail(&self.logs_dir(), diagnostics::LOG_LINES),
+        }
+        .render()
+    }
+
+    // ---- AI assistants (MCP) ----
+
+    fn set_mcp_state(&self, state: McpState) {
+        *self.mcp_state.lock().expect("mcp poisoned") = state;
+    }
+
+    pub fn mcp_state(&self) -> McpState {
+        self.mcp_state.lock().expect("mcp poisoned").clone()
+    }
+
+    /// Start, restart or stop the MCP endpoint to match the settings (and token). Call
+    /// it once after starting the host.
+    pub async fn apply_mcp(self: &Arc<Self>) {
+        let wanted = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .mcp
+            .clone();
+        let mut rt = self.mcp.lock().await;
+        if !wanted.enabled {
+            if let Some(server) = rt.server.take() {
+                server.shutdown().await;
+                info!("AI assistants (MCP): stopped");
+            }
+            self.set_mcp_state(McpState::Off);
+            return;
+        }
+        let token = match mcp::token_or_new(&self.data_dir) {
+            Ok(t) => t,
+            Err(message) => {
+                warn!("AI assistants (MCP): {message}");
+                self.set_mcp_state(McpState::Error { message });
+                return;
+            }
+        };
+        if rt.server.is_some() && rt.port == wanted.port && rt.token == token {
+            return;
+        }
+        if let Some(server) = rt.server.take() {
+            server.shutdown().await;
+        }
+        let backend = Arc::new(mcp::HostBackend(Arc::downgrade(self)));
+        let opts = perritodeck_mcp::HttpOptions::new(token.clone()).port(wanted.port);
+        match perritodeck_mcp::serve_http(backend, opts).await {
+            Ok(server) => {
+                let url = server.url();
+                info!("AI assistants (MCP) can connect at {url}");
+                *rt = McpRuntime {
+                    server: Some(server),
+                    port: wanted.port,
+                    token,
+                };
+                self.set_mcp_state(McpState::Running { url });
+            }
+            Err(e) => {
+                let message = if e.kind() == std::io::ErrorKind::AddrInUse {
+                    format!("port {} is in use by another program", wanted.port)
+                } else {
+                    e.to_string()
+                };
+                warn!("AI assistants (MCP) couldn't start: {message}");
+                self.set_mcp_state(McpState::Error { message });
+            }
+        }
+    }
+
+    /// Stop the MCP endpoint (it also stops when the host is dropped).
+    pub async fn stop_mcp(&self) {
+        if let Some(server) = self.mcp.lock().await.server.take() {
+            server.shutdown().await;
+        }
+        self.set_mcp_state(McpState::Off);
+    }
+
+    /// The MCP settings, state and the snippets assistants need. Makes the access
+    /// token if there isn't one yet.
+    pub fn mcp_view(&self) -> McpView {
+        let settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .mcp
+            .clone();
+        let token = mcp::token_or_new(&self.data_dir).unwrap_or_default();
+        let command = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "perritodeck-host".into());
+        McpView {
+            url: mcp::url(settings.port),
+            snippets: mcp::snippets(
+                &command,
+                &mcp::bridge_args(&self.data_dir),
+                settings.port,
+                &token,
+            ),
+            state: self.mcp_state(),
+            settings,
+        }
+    }
+
+    /// Save the MCP settings and start, restart or stop the endpoint to match.
+    /// Permission changes apply to the next request.
+    pub async fn set_mcp(self: &Arc<Self>, next: McpSettings) -> Result<McpView, String> {
+        if next.port < 1024 {
+            return Err("Use a port from 1024 up.".into());
+        }
+        if next.port == self.addr.port() {
+            return Err(format!(
+                "Port {} is the one tablets use; pick another.",
+                next.port
+            ));
+        }
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        settings.mcp = next;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        self.apply_mcp().await;
+        Ok(self.mcp_view())
+    }
+
+    /// Replace the access token; assistants set up with the old one stop working.
+    pub async fn new_mcp_token(self: &Arc<Self>) -> Result<McpView, String> {
+        mcp::new_token(&self.data_dir)?;
+        info!("AI assistants (MCP): made a new access token");
+        self.apply_mcp().await;
+        Ok(self.mcp_view())
     }
 
     // ---- Plugins ----
@@ -1560,8 +1919,23 @@ fn spawn_event_loop(
                     grid,
                     screen,
                     capabilities,
+                    platform,
+                    app_version,
+                    os_version,
                     ..
                 } => {
+                    shared
+                        .tablet_details
+                        .lock()
+                        .expect("details poisoned")
+                        .insert(
+                            device_id.clone(),
+                            TabletDetails {
+                                platform,
+                                app_version,
+                                os_version,
+                            },
+                        );
                     deck.connected(&device_id, grid, screen, &capabilities);
                     shared.apply_auto_switch();
                     Some(HostEvent::Connected {

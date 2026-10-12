@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 const EVERY: Duration = Duration::from_secs(2);
 /// Shown when a value can't be fetched (Home Assistant down, OBS closed).
-const UNKNOWN: &str = "–";
+pub(crate) const UNKNOWN: &str = "–";
 
 pub fn spawn(deck: Arc<Deck>, integrations: Option<Arc<dyn Integrations>>) {
     tokio::spawn(async move {

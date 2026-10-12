@@ -14,6 +14,25 @@ been compiled.** Run the Android build and unit tests locally first (section 1),
 anything before the Kindle check. Windows and macOS code (focus detection, volume) has
 only been compiled for Linux since then too: `cargo test` in `host\` on Windows checks it.
 
+**Later on 2026-10-11 (cloud session, not committed yet):** debugging aids and the MCP
+server were wired in. Tested on Linux only (Rust tests, Playwright, the real app under Xvfb,
+and a manual CLI run piping JSON-RPC through `perritodeck-host mcp`):
+
+- **Logs:** `logs/` in the data folder, rotating daily or at 1.4 MB, seven files kept,
+  everything redacted (`host/crates/host/src/logging.rs`). Settings → Getting help has
+  "Copy diagnostics", "Open logs folder" and "Detailed logs" (live). CLI:
+  `perritodeck-host diagnostics`; `paths` shows the logs folder and MCP token file.
+- **MCP:** Settings → "AI assistants (MCP)" turns on the local server (127.0.0.1:46711,
+  off by default, press/edit/run permissions off by default) and shows copyable snippets.
+  Assistants launch `perritodeck-host mcp` or `perritodeck-app mcp` (the app handles that
+  argument before Tauri starts), a stdio bridge to the running host. `mcp --config`
+  prints the snippets. New: `Deck::press_at`, `Host::apply_mcp/set_mcp/new_mcp_token`.
+- **Untested:** Windows and macOS for all of it. Worth checking on Windows: the app
+  binary as a stdio bridge (it's a GUI-subsystem exe in release builds; stdio should work
+  when the assistant pipes it, but try it with Claude Desktop), the log folder opening,
+  and log rotation while the file is open (the writer closes it before renaming). The
+  Claude Desktop/Code wording in the website guide wasn't checked against their current docs.
+
 ## 1. Set up the Windows clone (`C:\perritodeck\perritodeck`)
 
 In PowerShell:
@@ -132,6 +151,11 @@ needed for the v0.1.0 release, which is on hold.
   `[patch.crates-io]` entry, so keep the two in sync.
 - The Android unit test `DeckConnectionTest` used to flake on MockWebServer shutdown. The
   fake host now answers the close handshake. If it flakes again, look there first.
+- Log output goes through `logging::redact`; a field whose name ends in `token`,
+  `secret`, `password`… has its value hidden, so don't name ordinary fields that way
+  (diagnostics says "token file", not "token").
+- `perritodeck-host mcp` must never print anything but protocol on stdout; logging is on
+  stderr at `warn` there.
 - The E2E test pairs with the fixed code `424242`, using the hidden `--pair-code` host flag
   (testing only).
 - Android UI tests find keys by accessibility label, not by visible text, because keys are

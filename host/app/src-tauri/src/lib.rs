@@ -6,8 +6,9 @@
 use std::sync::{Arc, Mutex};
 
 use perritodeck_host::{
-    updates, ActionSpec, AutoSwitch, DeviceInfo, Edit, Host, HostEvent, HostOptions, HostStatus,
-    Network, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView, SdPluginsView,
+    logging, updates, ActionSpec, AppSettings, AutoSwitch, DeviceInfo, Edit, Host, HostEvent,
+    HostOptions, HostStatus, McpSettings, McpView, Network, OnlineEntry, PairingOffer, PluginsView,
+    ProfileSummary, ProfileView, SdPluginsView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -463,6 +464,70 @@ fn open_profile_file(handle: AppHandle, app: State<'_, App>, id: Option<String>)
         .map_err(|e| format!("Couldn't open {}: {e}", path.display()))
 }
 
+/// Show the log files' folder in the file manager.
+#[tauri::command]
+fn open_logs_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
+    let dir = match app.host() {
+        Ok(h) => h.logs_dir(),
+        Err(_) => logging::logs_dir(&data_dir()?),
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    handle
+        .opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Couldn't open {}: {e}", dir.display()))
+}
+
+/// The report for "Copy diagnostics" (the window copies it to the clipboard).
+#[tauri::command]
+fn get_diagnostics(app: State<'_, App>) -> Res<String> {
+    let version = env!("CARGO_PKG_VERSION");
+    Ok(match app.host() {
+        Ok(h) => h.diagnostics(Some(version)),
+        // Even when the host didn't start, the files and log can say why.
+        Err(e) => {
+            let dir = data_dir()?;
+            let mut report = perritodeck_host::diagnostics::offline(
+                &dir,
+                &perritodeck_host::default_profile_path(&dir),
+            );
+            report.app_version = Some(version.to_owned());
+            let mut why = perritodeck_host::diagnostics::Section::new("The host didn't start");
+            why.line(e);
+            report.sections.insert(0, why);
+            report.render()
+        }
+    })
+}
+
+#[tauri::command]
+fn get_detailed_logs(app: State<'_, App>) -> Res<bool> {
+    Ok(app.host()?.detailed_logs())
+}
+
+#[tauri::command]
+fn set_detailed_logs(app: State<'_, App>, enabled: bool) -> Res<()> {
+    app.host()?.set_detailed_logs(enabled)
+}
+
+#[tauri::command]
+fn get_mcp(app: State<'_, App>) -> Res<McpView> {
+    Ok(app.host()?.mcp_view())
+}
+
+/// Save the AI assistant settings; the endpoint starts, restarts or stops to match.
+#[tauri::command]
+async fn set_mcp(app: State<'_, App>, mcp: McpSettings) -> Res<McpView> {
+    let host = app.host()?.clone();
+    host.set_mcp(mcp).await
+}
+
+#[tauri::command]
+async fn new_mcp_token(app: State<'_, App>) -> Res<McpView> {
+    let host = app.host()?.clone();
+    host.new_mcp_token().await
+}
+
 /// Show the settings folder in the file manager.
 #[tauri::command]
 fn open_data_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
@@ -481,12 +546,16 @@ fn show_window(app: &AppHandle) {
     }
 }
 
+/// The host's data folder: `PERRITODECK_DATA_DIR`, or the usual per-user one.
+fn data_dir() -> Result<std::path::PathBuf, String> {
+    match std::env::var_os("PERRITODECK_DATA_DIR") {
+        Some(d) => Ok(d.into()),
+        None => perritodeck_host::default_data_dir().map_err(|e| e.to_string()),
+    }
+}
+
 fn start_host(app: &tauri::App) -> Result<Host, String> {
-    let data_dir = match std::env::var_os("PERRITODECK_DATA_DIR") {
-        Some(d) => d.into(),
-        None => perritodeck_host::default_data_dir().map_err(|e| e.to_string())?,
-    };
-    let mut opts = HostOptions::new(data_dir).with_saved_network();
+    let mut opts = HostOptions::new(data_dir()?).with_saved_network();
     opts.profile = std::env::var_os("PERRITODECK_PROFILE").map(Into::into);
     // First-party plugins ship inside the app, ready to add from the Plugins page.
     opts.plugin_catalog = app
@@ -590,14 +659,68 @@ fn update_tooltip(handle: &AppHandle) {
     }
 }
 
+/// `perritodeck-app mcp [--data-dir <folder>] [--config]`: the app doubles as the stdio
+/// bridge for AI assistants (the installed app has no separate command-line host).
+/// Handled before Tauri starts, so it never opens a window or takes the
+/// single-instance lock. Returns the exit code.
+pub fn run_mcp_bridge(args: &[String]) -> i32 {
+    let mut config = false;
+    let mut dir = None;
+    let mut rest = args.iter();
+    while let Some(a) = rest.next() {
+        match a.as_str() {
+            "--config" => config = true,
+            "--data-dir" => dir = rest.next().map(std::path::PathBuf::from),
+            other => {
+                eprintln!("perritodeck-app mcp: unexpected argument {other:?}");
+                return 2;
+            }
+        }
+    }
+    let dir = match dir.map(Ok).unwrap_or_else(data_dir) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("perritodeck-app mcp: {e}");
+            return 1;
+        }
+    };
+    // stdout carries the protocol: problems go to stderr only.
+    let mut log = logging::LogOptions::new(None);
+    log.console = logging::Console::Stderr;
+    log.level = "warn";
+    logging::init(log);
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("perritodeck-app mcp: {e}");
+            return 1;
+        }
+    };
+    match runtime.block_on(perritodeck_host::mcp::run_command(&dir, config)) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("perritodeck-app mcp: {e}");
+            1
+        }
+    }
+}
+
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_target(false)
-        .init();
+    let logs = data_dir().ok();
+    let mut log = logging::LogOptions::new(logs.as_deref().map(logging::logs_dir));
+    log.detailed = logs
+        .as_deref()
+        .is_some_and(|d| AppSettings::load(&perritodeck_host::settings_path(d)).detailed_logs);
+    if let Some(file) = logging::init(log) {
+        info!(
+            "PerritoDeck {} logging to {}",
+            env!("CARGO_PKG_VERSION"),
+            file.display()
+        );
+    }
 
     let result = tauri::Builder::default()
         // Must come first: a second launch focuses this one instead.
@@ -615,6 +738,7 @@ pub fn run() {
             match &host {
                 Ok(h) => {
                     info!("host running on {}", h.addr);
+                    tauri::async_runtime::block_on(h.apply_mcp());
                     forward_events(app.handle().clone(), h);
                 }
                 Err(e) => error!("host didn't start: {e}"),
@@ -663,6 +787,13 @@ pub fn run() {
             set_autostart,
             open_profile_file,
             open_data_folder,
+            open_logs_folder,
+            get_diagnostics,
+            get_detailed_logs,
+            set_detailed_logs,
+            get_mcp,
+            set_mcp,
+            new_mcp_token,
             choose_icon,
             import_icon_data,
             list_plugins,

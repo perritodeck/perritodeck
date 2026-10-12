@@ -43,6 +43,7 @@
               <li><a href="#obs">OBS Studio</a></li>
               <li><a href="#home-assistant">Home Assistant</a></li>
               <li><a href="#companion">Bitfocus Companion</a></li>
+              <li><a href="#ai-assistants">AI assistants</a></li>
             </ul>
           </li>
           <li><a href="plugins.html">Plugins</a></li>
@@ -52,7 +53,7 @@
 
       <article class="guide-body">
 <h1>Integrations</h1>
-<p class="lede">PerritoDeck can talk directly to OBS Studio and Home Assistant, and it can turn your tablet into a panel for Bitfocus Companion.</p>
+<p class="lede">PerritoDeck can talk directly to OBS Studio and Home Assistant, it can turn your tablet into a panel for Bitfocus Companion, and AI assistants can use it if you let them.</p>
 
 <h2 id="integrations-file">The integrations file</h2>
 <p>OBS, Home Assistant and Companion are set up in a small text file called <code>integrations.toml</code>. It's kept separate from your button layouts because it holds passwords, so you can share a profile without giving away your logins.</p>
@@ -173,6 +174,32 @@ port = 16622</code></pre>
 <div class="tech">
   <p class="box-label">Technical details</p>
   <p>PerritoDeck connects to Companion's Satellite API over TCP as a client. Each tablet is registered as its own device, with id <code>perritodeck-&lt;tablet id&gt;</code>, at the tablet's grid size and button resolution. Companion's button images go to the tablet as they are (PNG from Satellite API 1.12; older raw images are converted). PerritoDeck pings every 2 seconds and reconnects with backoff, from 1 up to 15 seconds.</p>
+</div>
+
+<h2 id="ai-assistants">AI assistants</h2>
+<p>AI assistants that support the Model Context Protocol (MCP), such as Claude Desktop and Claude Code, can look at your profiles, press your keys and make new ones for you: "add a key that mutes my mic", "make me a page for my video calls". It's off until you turn it on, and works only on this computer.</p>
+<ol>
+  <li>In PerritoDeck, open <span class="ui">Settings</span> → <strong>AI assistants (MCP)</strong> and tick <span class="ui">Let AI assistants use PerritoDeck</span>. It should say <strong>Running at http://127.0.0.1:46711/mcp</strong>.</li>
+  <li>Choose what assistants may do. Each is off until you tick it:
+    <ul>
+      <li><strong>Press keys</strong>: press keys already on your profiles, and switch the profile a tablet shows.</li>
+      <li><strong>Edit profiles</strong>: make, change, move and remove keys, pages and profiles. Their edits can be undone on the <span class="ui">Buttons</span> page like your own.</li>
+      <li><strong>Run actions</strong>: run any action straight away, including programs and commands. An assistant allowed this can do anything you can do on the computer, so turn it on only for an assistant you trust, and only while you need it. Giving a key an action that runs a program or a plugin also needs this.</li>
+    </ul>
+    Changes apply straight away. Without any of them, an assistant can still see your profiles (including what each key does, such as its commands and web addresses), your tablets and live values.</li>
+  <li>Copy the setup for your assistant from the same section:
+    <ul>
+      <li><strong>Claude Desktop</strong>, and other apps that start a program: copy the first snippet into the app's MCP settings file (for Claude Desktop, <code>claude_desktop_config.json</code>, which its developer settings open for you), then restart the app.</li>
+      <li><strong>Claude Code</strong>: copy the <code>claude mcp add perritodeck -- …</code> command and run it in a terminal.</li>
+      <li>Apps that connect to a web address instead: open <span class="ui">Connect by address instead</span>. These snippets contain an access token, so keep them private. <span class="ui">Make a new token</span> replaces it if it leaks.</li>
+    </ul></li>
+  <li>Ask the assistant something like "What's on my PerritoDeck?" to check it works.</li>
+</ol>
+<p>PerritoDeck must be running for the assistant to reach it. If it isn't, or the connection is turned off, the assistant gets a message saying so.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>The server listens on <code>127.0.0.1</code> only (port 46711 by default; change it in the same section) and speaks MCP over Streamable HTTP at <code>/mcp</code>, protocol versions 2024-11-05 to 2025-11-25 and the stateless 2026-07-28. Every request needs <code>Authorization: Bearer &lt;token&gt;</code>; requests whose <code>Host</code> or <code>Origin</code> isn't this computer are refused, so web pages can't reach it, and tool calls are rate-limited. The token is in <code>mcp-token</code> in the settings folder, readable only by you.</p>
+  <p>Apps that start a program run PerritoDeck itself with the argument <code>mcp</code> (the desktop app, or <code>perritodeck-host mcp</code>). That doesn't start a second PerritoDeck: it passes messages between the assistant (stdin and stdout) and the running one, reading the port and token from the settings folder. With the command-line host, turn the server on by adding <code>"mcp": {"enabled": true}</code> (and <code>"press"</code>, <code>"edit"</code> or <code>"run"</code> set to <code>true</code> as you like) to <code>app-settings.json</code> before starting it; <code>perritodeck-host mcp --config</code> prints every snippet. Any MCP client works the same way: either start that command, or connect to the address with the token.</p>
 </div>
         <nav class="next-page" aria-label="Previous and next"><a href="buttons.html">← Buttons and profiles</a><a href="plugins.html">Plugins →</a></nav>
       </article>

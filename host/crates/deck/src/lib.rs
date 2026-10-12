@@ -1293,51 +1293,21 @@ impl Deck {
             page: target_page,
         }) = &key.nav
         {
-            let found = st.slots.get(target).map(|slot| match target_page {
-                Some(name) => slot.profile.page_index(name),
-                None => Some(0),
-            });
-            let to_page = match found {
-                Some(Some(i)) => i,
-                missing => {
-                    let message = match (missing, target_page) {
-                        (Some(None), Some(name)) => {
-                            format!("Profile {target:?} has no page called {name:?}")
-                        }
-                        _ => format!("There's no profile called {target:?}"),
-                    };
-                    warn!(device = device_id, key = key_index + 1, "{message}");
-                    self.outbox.send(
-                        device_id,
-                        Message::ShowAlert(KeyFeedback {
-                            key_index,
-                            message: Some(message),
-                        }),
-                    );
-                    return;
-                }
-            };
-            // Remembered like a choice made in the app.
-            if *target == st.default {
-                st.assignments.remove(device_id);
-            } else {
-                st.assignments.insert(device_id.to_owned(), target.clone());
-            }
-            if *target != profile {
-                self.switch_device_to(&mut st, device_id, target, to_page);
-            } else if target_page.is_some() && to_page != page {
-                if let Some(d) = st.devices.get_mut(device_id) {
-                    d.back.push(page);
-                    d.page = to_page;
-                }
-                self.show_page(&mut st, device_id);
+            if let Err(message) =
+                self.key_switch(&mut st, device_id, target, target_page.as_deref())
+            {
+                warn!(device = device_id, key = key_index + 1, "{message}");
+                self.outbox.send(
+                    device_id,
+                    Message::ShowAlert(KeyFeedback {
+                        key_index,
+                        message: Some(message),
+                    }),
+                );
+                return;
             }
             drop(st);
-            self.bump();
-            let listener = self.on_switch.lock().expect("listener poisoned").clone();
-            if let Some(f) = listener {
-                f(device_id, target);
-            }
+            self.switched_by_key(device_id, target);
             return;
         }
 
@@ -1374,8 +1344,244 @@ impl Deck {
             let device = device_id.to_owned();
             tokio::spawn(async move {
                 let result = deck.executor.run(&action).await;
-                deck.report(&device, key_index, &action, result);
+                deck.report(&device, key_index, &action, &result);
             });
+        }
+    }
+
+    /// A switch-profile key on `device_id`: show `target` (at `target_page`), and
+    /// remember it as the tablet's choice. `Err` says why not (no such profile or page).
+    /// Call [`Deck::switched_by_key`] once the state is unlocked.
+    fn key_switch(
+        &self,
+        st: &mut State,
+        device_id: &str,
+        target: &str,
+        target_page: Option<&str>,
+    ) -> Result<(), String> {
+        let found = st.slots.get(target).map(|slot| match target_page {
+            Some(name) => slot.profile.page_index(name),
+            None => Some(0),
+        });
+        let to_page = match found {
+            Some(Some(i)) => i,
+            missing => {
+                return Err(match (missing, target_page) {
+                    (Some(None), Some(name)) => {
+                        format!("Profile {target:?} has no page called {name:?}")
+                    }
+                    _ => format!("There's no profile called {target:?}"),
+                })
+            }
+        };
+        let Some(d) = st.devices.get(device_id) else {
+            return Err(format!("Tablet {device_id:?} isn't connected"));
+        };
+        let (profile, page) = (d.profile.clone(), d.page);
+        // Remembered like a choice made in the app.
+        if target == st.default {
+            st.assignments.remove(device_id);
+        } else {
+            st.assignments
+                .insert(device_id.to_owned(), target.to_owned());
+        }
+        if target != profile {
+            self.switch_device_to(st, device_id, target, to_page);
+        } else if target_page.is_some() && to_page != page {
+            if let Some(d) = st.devices.get_mut(device_id) {
+                d.back.push(page);
+                d.page = to_page;
+            }
+            self.show_page(st, device_id);
+        }
+        Ok(())
+    }
+
+    /// After [`Deck::key_switch`]: tell UIs and the switch listener.
+    fn switched_by_key(&self, device_id: &str, target: &str) {
+        self.bump();
+        let listener = self.on_switch.lock().expect("listener poisoned").clone();
+        if let Some(f) = listener {
+            f(device_id, target);
+        }
+    }
+
+    /// The name of the page a connected device shows (`None` for a Companion profile).
+    pub fn device_page(&self, device_id: &str) -> Option<String> {
+        let st = self.lock();
+        let d = st.devices.get(device_id)?;
+        let slot = st.slot(&d.profile);
+        if slot.profile.companion {
+            return None;
+        }
+        slot.profile.pages.get(d.page).map(|p| p.name.clone())
+    }
+
+    /// Press the key at `at` (`[row, col]`) on a page of a profile, as if it were tapped
+    /// on a tablet; for AI assistants (the MCP server), which name keys by position.
+    ///
+    /// * Keys paused → `Err`.
+    /// * An action key runs its action and flashes ✓/⚠ on the tablets showing it.
+    /// * A toggle advances its (shared) state like a tap; one that follows a live value
+    ///   runs the action for the state it shows, without flipping.
+    /// * A page key changes the page on `tablet`, or else on every connected tablet
+    ///   showing this profile; with none, it's an `Err`. A switch-profile key switches
+    ///   `tablet` (or those same tablets) to its profile.
+    /// * A Stream Deck plugin key gets a key down and a key up.
+    /// * An empty position, or a key with nothing to do, gives `Ok(None)`.
+    ///
+    /// `Ok(Some(note))` means the action ran but reported a problem.
+    pub async fn press_at(
+        self: &Arc<Self>,
+        profile: &str,
+        page: &str,
+        at: [u32; 2],
+        tablet: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        if self.paused() {
+            return Err(
+                "Keys are paused on the computer; resume them in PerritoDeck first.".into(),
+            );
+        }
+        let (action, showing) = {
+            let mut st = self.lock();
+            let slot = st
+                .slots
+                .get(profile)
+                .ok_or_else(|| format!("There's no profile called {profile:?}."))?;
+            if slot.profile.companion {
+                return Err(format!(
+                    "Profile {profile:?} shows Bitfocus Companion's buttons, which are pressed in Companion."
+                ));
+            }
+            let page_index = slot
+                .profile
+                .page_index(page)
+                .ok_or_else(|| format!("Profile {profile:?} has no page called {page:?}."))?;
+            let Some(key) = slot.profile.pages[page_index]
+                .keys
+                .iter()
+                .find(|k| k.at == at)
+                .cloned()
+            else {
+                return Ok(None);
+            };
+            if let Some(t) = tablet {
+                if !st.devices.contains_key(t) {
+                    return Err(format!("Tablet {t:?} isn't connected."));
+                }
+            }
+            if key.slider.is_some() {
+                return Err("That key is a slider; sliders can't be pressed.".into());
+            }
+
+            if let Some(ActionSpec::SdPlugin { .. }) = key.action(0) {
+                let context = format!("{profile}/{page_index}/{}/{}", at[0], at[1]);
+                let Some((mut agent, _)) = st.agent_refs.get(&context).cloned() else {
+                    return Err("A Stream Deck plugin key works only while a tablet shows it; show its page on a tablet first.".into());
+                };
+                let agents = self
+                    .agents()
+                    .ok_or("Stream Deck plugins aren't running on this computer.")?;
+                if let Some(t) = tablet {
+                    agent.device = t.to_owned();
+                }
+                drop(st);
+                agents.press(&agent, true);
+                agents.press(&agent, false);
+                return Ok(None);
+            }
+
+            // Tablets a page or profile key acts on.
+            let targets = || -> Result<Vec<String>, String> {
+                match tablet {
+                    Some(t) => Ok(vec![t.to_owned()]),
+                    None => {
+                        let mut on: Vec<String> = st
+                            .devices
+                            .iter()
+                            .filter(|(_, d)| d.profile == profile)
+                            .map(|(id, _)| id.clone())
+                            .collect();
+                        on.sort();
+                        if on.is_empty() {
+                            Err(format!(
+                                "No connected tablet shows profile {profile:?}; say which tablet to use."
+                            ))
+                        } else {
+                            Ok(on)
+                        }
+                    }
+                }
+            };
+
+            if let Some(NavSpec::Profile {
+                profile: target,
+                page: target_page,
+            }) = &key.nav
+            {
+                let devices = targets()?;
+                for d in &devices {
+                    self.key_switch(&mut st, d, target, target_page.as_deref())
+                        .map_err(|e| format!("{e}."))?;
+                }
+                drop(st);
+                for d in &devices {
+                    self.switched_by_key(d, target);
+                }
+                return Ok(None);
+            }
+
+            if let Some(nav) = &key.nav {
+                let devices = targets()?;
+                for id in &devices {
+                    let mut d = st.devices.remove(id).expect("checked above");
+                    if d.profile != profile {
+                        let showing = d.profile.clone();
+                        st.devices.insert(id.clone(), d);
+                        return Err(format!(
+                            "Tablet {id:?} shows profile {showing:?}, not {profile:?}."
+                        ));
+                    }
+                    d.page = navigate(&st.slot(profile).profile, &mut d, page_index, nav);
+                    st.devices.insert(id.clone(), d);
+                    self.show_page(&mut st, id);
+                }
+                return Ok(None);
+            }
+
+            let slot = st.slot(profile);
+            let state = state_of(slot, page_index, &key);
+            let action = key.action(state).cloned();
+            let showing: Vec<(String, u32)> = st
+                .devices
+                .iter()
+                .filter(|(_, d)| {
+                    d.profile == profile && d.page == page_index && in_grid(&key, d.grid)
+                })
+                .map(|(id, d)| (id.clone(), at[0] * d.grid.cols + at[1]))
+                .collect();
+            if key.states.len() >= 2 && key.follow.is_none() {
+                st.slot_mut(profile)
+                    .toggles
+                    .insert((page_index, at), (state + 1) % key.states.len());
+                for (id, idx) in &showing {
+                    self.refresh_key(&mut st, id, *idx);
+                }
+            }
+            (action, showing)
+        };
+        let Some(action) = action else {
+            return Ok(None);
+        };
+        let result = self.executor.run(&action).await;
+        for (id, idx) in &showing {
+            self.report(id, *idx, &action, &result);
+        }
+        match result {
+            Ok(Outcome::Ok) => Ok(None),
+            Ok(Outcome::Alert(m)) => Ok(Some(m)),
+            Err(e) => Err(e.to_string()),
         }
     }
 
@@ -1384,7 +1590,7 @@ impl Deck {
         device_id: &str,
         key_index: u32,
         action: &ActionSpec,
-        result: Result<Outcome, ActionError>,
+        result: &Result<Outcome, ActionError>,
     ) {
         let feedback = |message: Option<String>| KeyFeedback { key_index, message };
         match result {
@@ -1401,7 +1607,7 @@ impl Deck {
                     "action reported a problem: {m}"
                 );
                 self.outbox
-                    .send(device_id, Message::ShowAlert(feedback(Some(m))));
+                    .send(device_id, Message::ShowAlert(feedback(Some(m.clone()))));
             }
             Err(e) => {
                 warn!(

@@ -47,7 +47,7 @@
               <li><a href="#nothing-happens">Buttons do nothing</a></li>
               <li><a href="#linux">Linux notes</a></li>
               <li><a href="#settings-folder">Where settings live</a></li>
-              <li><a href="#logs">Logs</a></li>
+              <li><a href="#logs">Getting help and logs</a></li>
               <li><a href="#faq">Questions</a></li>
             </ul>
           </li>
@@ -154,21 +154,24 @@
     <tr><td><code>app-settings.json</code></td><td>The app's own settings, such as the port and switching rules</td></tr>
     <tr><td><code>plugins/</code>, <code>plugin-settings/</code></td><td>Installed plugins and their settings</td></tr>
     <tr><td><code>sdplugins/</code></td><td>Plugins made for the Elgato Stream Deck</td></tr>
+    <tr><td><code>logs/</code></td><td>Log files (see <a href="#logs">Getting help and logs</a>)</td></tr>
+    <tr><td><code>mcp-token</code></td><td>The access token for AI assistants, readable only by you</td></tr>
   </tbody>
 </table></div>
 <p><strong>To back up</strong> your setup, copy the whole folder while PerritoDeck isn't running. To share just a layout, <a href="buttons.html#export">export a profile</a> instead.</p>
 <p><strong>To start over</strong>, quit PerritoDeck and delete the folder. You'll then need to pair your tablets again.</p>
 
-<h2 id="logs">Logs</h2>
-<p>PerritoDeck doesn't write a log file yet <span class="soon">coming</span>, along with a button to copy debug information for bug reports. Until then:</p>
+<h2 id="logs">Getting help and logs</h2>
+<p>When you report a problem, two buttons in <span class="ui">Settings</span> → <strong>Getting help</strong> save a lot of back and forth:</p>
 <ul>
-  <li>Most problems show up in the app itself: as a message on the page, a plugin's status, or the result of <span class="ui">Try it</span>.</li>
-  <li>On macOS and Linux, starting PerritoDeck from a terminal prints its log there.</li>
-  <li>The command-line version, <code>perritodeck-host</code>, prints its log in any terminal, including on Windows. Quit the app first, since only one can run at a time.</li>
+  <li><span class="ui">Copy diagnostics</span> copies a short report to paste into a bug report: the versions of PerritoDeck and your system, where files are kept, your tablets, plugins and their state, which integrations are set up, network and AI assistant settings, and the last 200 lines of the log. It leaves out keys, certificates, tokens and passwords.</li>
+  <li><span class="ui">Open logs folder</span> shows the log files. They're in the <code>logs</code> folder inside the <a href="#settings-folder">settings folder</a>: <code>perritodeck.log</code> is the newest, and older ones are numbered. A new file starts each day; PerritoDeck keeps seven, about 10 MB at most.</li>
 </ul>
+<p>To capture more detail while you reproduce a problem, tick <span class="ui">Detailed logs</span> in the same place. It takes effect straight away; untick it afterwards, as it writes a lot.</p>
+<p>Plugins' error messages go to the same log, marked with the plugin's id.</p>
 <div class="tech">
   <p class="box-label">Technical details</p>
-  <p>Set <code>RUST_LOG=debug</code> before starting either one for more detail. <code>perritodeck-host paths</code> prints where every file is kept. Plugins' error output goes to the same log.</p>
+  <p>With the command-line host, <code>perritodeck-host diagnostics</code> prints the same report (it reads the files, so it doesn't know which tablets are connected right now), and <code>perritodeck-host paths</code> prints where every file is, the logs included. The log also goes to the terminal. <code>RUST_LOG</code> still works for finer control, for example <code>RUST_LOG=debug</code>. Tokens, passwords and similar values are replaced with <code>[redacted]</code> before anything is written.</p>
 </div>
 
 <h2 id="faq">Questions</h2>
@@ -187,8 +190,10 @@
   <dd><p>PerritoDeck can run many <a href="plugins.html#stream-deck">plugins made for the Elgato Stream Deck</a>. Using Stream Deck hardware itself as a PerritoDeck panel isn't supported. PerritoDeck isn't affiliated with Elgato or Corsair.</p></dd>
   <dt><strong>Is there an iPhone or iPad version?</strong></dt>
   <dd><p>It's <span class="soon">coming</span>. The app is written but hasn't been built and tested yet.</p></dd>
+  <dt><strong>Can an AI assistant use PerritoDeck?</strong></dt>
+  <dd><p>Yes, if you allow it. See <a href="integrations.html#ai-assistants">AI assistants</a>.</p></dd>
   <dt><strong>Where do I report a bug or a security problem?</strong></dt>
-  <dd><p>Bugs and ideas go to the project on <a href="https://github.com/perritodeck/perritodeck">GitHub</a>. Please report security problems privately with GitHub's "Report a vulnerability" button rather than in a public issue.</p></dd>
+  <dd><p>Bugs and ideas go to the project on <a href="https://github.com/perritodeck/perritodeck">GitHub</a>; paste the <a href="#logs">diagnostics</a> into the report. Please report security problems privately with GitHub's "Report a vulnerability" button rather than in a public issue.</p></dd>
 </dl>
         <nav class="next-page" aria-label="Previous and next"><a href="plugins.html">← Plugins</a><span></span></nav>
       </article>

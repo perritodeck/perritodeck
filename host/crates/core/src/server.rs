@@ -94,6 +94,10 @@ pub enum ServerEvent {
         grid: Grid,
         screen: Screen,
         capabilities: Vec<String>,
+        /// What the tablet said about itself, for diagnostics.
+        platform: perritodeck_protocol::Platform,
+        app_version: String,
+        os_version: String,
     },
     Paired {
         device_id: String,
@@ -331,6 +335,9 @@ impl Connection {
             grid,
             screen: hello.screen,
             capabilities: hello.capabilities.clone(),
+            platform: hello.platform,
+            app_version: hello.app_version.clone(),
+            os_version: hello.os_version.clone(),
         });
 
         let welcome = Message::Welcome(Welcome {

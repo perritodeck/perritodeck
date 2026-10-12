@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { McpSettings, McpView, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -13,6 +13,7 @@ const status: HostStatus = {
   addresses: ["192.168.1.20:46710"],
   insecure: false,
   dataDir: "/home/me/.config/PerritoDeck",
+  logsDir: "/home/me/.config/PerritoDeck/logs",
   profilePath: "/home/me/.config/PerritoDeck/profiles/default.toml",
   profilesDir: "/home/me/.config/PerritoDeck/profiles",
   integrations: ["OBS"],
@@ -576,6 +577,30 @@ export const mock = {
       case "open_profile_file":
       case "open_data_folder":
         return out(undefined);
+      case "open_logs_folder":
+        this.opened.push("logs");
+        return out(undefined);
+      case "get_diagnostics":
+        return out(
+          `PerritoDeck diagnostics\n=======================\n\n## Versions\napp:            ${status.version}\n\n## Last 1 log lines\nINFO host running\n`,
+        );
+      case "get_detailed_logs":
+        return out(this.detailedLogs);
+      case "set_detailed_logs":
+        this.detailedLogs = !!args?.enabled;
+        return out(undefined);
+      case "get_mcp":
+        return out(mcpView(this));
+      case "set_mcp": {
+        const m = args?.mcp as McpSettings;
+        if (m.port < 1024) throw "Use a port from 1024 up.";
+        if (m.port === 46710) throw `Port ${m.port} is the one tablets use; pick another.`;
+        this.mcpSettings = { ...m };
+        return out(mcpView(this));
+      }
+      case "new_mcp_token":
+        this.mcpToken = `mocktoken${String(Number(this.mcpToken.slice(9)) + 1).padStart(4, "0")}`;
+        return out(mcpView(this));
     }
     throw `unknown command ${cmd}`;
   },
@@ -609,6 +634,11 @@ export const mock = {
   /** What check_for_updates answers; a string is an error. */
   latest: (init().latest ?? null) as { version: string; url: string } | string | null,
   restarted: false,
+  detailedLogs: false,
+  mcpSettings: { enabled: false, press: false, edit: false, run: false, port: 46711 } as McpSettings,
+  mcpToken: "mocktoken0001",
+  /** A port "another program" holds, so turning MCP on there fails. */
+  busyPort: 46799,
   pluginSettings: {} as Record<string, Record<string, unknown>>,
   /** The online catalogue; a string is an error. */
   onlineIndex: [
@@ -626,6 +656,34 @@ export const mock = {
     failStart = msg;
   },
 };
+
+function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: number }): McpView {
+  const settings = { ...m.mcpSettings };
+  const url = `http://127.0.0.1:${settings.port}/mcp`;
+  const command = "/usr/bin/perritodeck-app";
+  const state: McpView["state"] = !settings.enabled
+    ? { state: "off" }
+    : settings.port === m.busyPort
+      ? { state: "error", message: `port ${settings.port} is in use by another program` }
+      : { state: "running", url };
+  return {
+    settings,
+    state,
+    url,
+    snippets: {
+      command,
+      args: ["mcp"],
+      stdioConfig: JSON.stringify({ mcpServers: { perritodeck: { command, args: ["mcp"] } } }, null, 2),
+      httpConfig: JSON.stringify(
+        { mcpServers: { perritodeck: { type: "http", url, headers: { Authorization: `Bearer ${m.mcpToken}` } } } },
+        null,
+        2,
+      ),
+      claudeCodeStdio: `claude mcp add perritodeck -- ${command} mcp`,
+      claudeCodeHttp: `claude mcp add --transport http perritodeck ${url} --header "Authorization: Bearer ${m.mcpToken}"`,
+    },
+  };
+}
 
 function init(): { checkUpdates?: boolean; latest?: { version: string; url: string } | string | null } {
   return typeof window !== "undefined" ? ((window as unknown as { __perritoMockInit?: object }).__perritoMockInit ?? {}) : {};

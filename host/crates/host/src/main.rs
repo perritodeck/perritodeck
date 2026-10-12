@@ -15,12 +15,13 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use perritodeck_core::{pairing::PairingStore, HostIdentity};
 use perritodeck_host::{
-    default_profile_path, devices_path, integrations_path, Host, HostEvent, HostOptions,
+    default_profile_path, devices_path, integrations_path,
+    logging::{self, Console, LogOptions},
+    mcp, settings_path, AppSettings, Host, HostEvent, HostOptions,
 };
 use perritodeck_protocol::DEFAULT_PORT;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(version, about = "PerritoDeck desktop host")]
@@ -33,7 +34,7 @@ struct Cli {
     #[arg(long, default_value_t = 2000, value_parser = clap::value_parser!(u64).range(250..=60_000))]
     heartbeat_ms: u64,
     /// Where the host keeps its certificate and paired devices.
-    #[arg(long, env = "PERRITODECK_DATA_DIR")]
+    #[arg(long, env = "PERRITODECK_DATA_DIR", global = true)]
     data_dir: Option<PathBuf>,
     /// Profile to show on the tablets (created with examples if missing).
     #[arg(long, env = "PERRITODECK_PROFILE")]
@@ -67,6 +68,16 @@ enum Command {
     Revoke { device_id: String },
     /// Show where the host keeps its data.
     Paths,
+    /// Print a report to attach to a bug report: versions, paths, paired tablets,
+    /// plugins, settings and the last log lines (secrets left out).
+    Diagnostics,
+    /// Connect an AI assistant: speaks MCP on stdin/stdout and passes it to the
+    /// running host (Settings → AI assistants in the app, or `mcp` in app-settings.json).
+    Mcp {
+        /// Print what to put in an assistant's settings instead.
+        #[arg(long)]
+        config: bool,
+    },
     /// Run one action now, for testing, e.g.
     /// `perritodeck-host action '{"type":"hotkey","keys":"Ctrl+Alt+T"}'`.
     /// Waits 3 seconds first so you can focus the target window.
@@ -140,16 +151,33 @@ fn ago(unix: u64) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_target(false)
-        .init();
-
     let cli = Cli::parse();
     let dir = data_dir(&cli)?;
+    let settings = AppSettings::load(&settings_path(&dir));
+    let mut log = LogOptions::new(None);
+    log.detailed = settings.detailed_logs;
     match &cli.command {
+        // stdout carries the protocol (or the report): log to stderr, and only problems.
+        Some(Command::Mcp { .. } | Command::Diagnostics) => {
+            log.console = Console::Stderr;
+            log.level = "warn";
+        }
+        Some(Command::Serve) | None => log.dir = Some(logging::logs_dir(&dir)),
+        _ => {}
+    }
+    logging::init(log);
+
+    match &cli.command {
+        Some(Command::Diagnostics) => {
+            let report = perritodeck_host::diagnostics::offline(&dir, &profile_path(&cli, &dir));
+            print!("{}", report.render());
+            return Ok(());
+        }
+        Some(Command::Mcp { config }) => {
+            return mcp::run_command(&dir, *config)
+                .await
+                .map_err(anyhow::Error::msg)
+        }
         Some(Command::Action { json, delay_secs }) => return run_action(json, *delay_secs).await,
         Some(Command::Devices) => {
             print_devices(&PairingStore::open(&devices_path(&dir))?);
@@ -171,6 +199,8 @@ async fn main() -> Result<()> {
             println!("devices:      {}", devices_path(&dir).display());
             println!("profile:      {}", profile_path(&cli, &dir).display());
             println!("integrations: {}", integrations_path(&dir).display());
+            println!("logs:         {}", logging::logs_dir(&dir).display());
+            println!("mcp token:    {}", mcp::token_path(&dir).display());
             return Ok(());
         }
         Some(Command::Serve) | None => {}
@@ -186,6 +216,7 @@ async fn main() -> Result<()> {
     opts.usb = !cli.no_usb;
     opts.pair_codes = cli.pair_code.clone();
     let host = Arc::new(Host::start(opts).await?);
+    host.apply_mcp().await;
 
     print_banner(&host);
     if host.store.is_some() {
@@ -207,6 +238,7 @@ async fn main() -> Result<()> {
 
     tokio::signal::ctrl_c().await?;
     info!("shutting down");
+    host.stop_mcp().await;
     Ok(())
 }
 
@@ -300,6 +332,11 @@ fn print_banner(host: &Host) {
         println!("  listening on {}", host.addr);
     } else {
         println!("  listening on {}", status.addresses.join(", "));
+    }
+    if let perritodeck_host::McpState::Running { url } = host.mcp_state() {
+        println!(
+            "  AI assistants (MCP): {url}  (`perritodeck-host mcp --config` shows how to connect)"
+        );
     }
     println!("  type `pair` to pair a tablet, `devices` to list them");
     println!();

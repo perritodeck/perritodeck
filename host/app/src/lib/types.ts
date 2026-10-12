@@ -7,6 +7,8 @@ export interface HostStatus {
   addresses: string[];
   insecure: boolean;
   dataDir: string;
+  /** Where the log files are. */
+  logsDir: string;
   profilePath: string;
   profilesDir: string;
   integrations: string[];
@@ -236,6 +238,36 @@ export interface Network {
   port: number;
   /** Accept tablets over Wi-Fi/Ethernet; off means USB (and this computer) only. */
   lan: boolean;
+}
+
+/** The local MCP server for AI assistants. Everything is off by default. */
+export interface McpSettings {
+  enabled: boolean;
+  /** Press existing keys and switch the profile a tablet shows. */
+  press: boolean;
+  /** Create and change keys, pages and profiles. */
+  edit: boolean;
+  /** Run any action, including programs and commands. */
+  run: boolean;
+  port: number;
+}
+
+export type McpState = { state: "off" } | { state: "running"; url: string } | { state: "error"; message: string };
+
+export interface McpSnippets {
+  command: string;
+  args: string[];
+  stdioConfig: string;
+  httpConfig: string;
+  claudeCodeStdio: string;
+  claudeCodeHttp: string;
+}
+
+export interface McpView {
+  settings: McpSettings;
+  state: McpState;
+  url: string;
+  snippets: McpSnippets;
 }
 
 export interface Update {

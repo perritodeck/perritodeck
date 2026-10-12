@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, Network, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, McpSettings, McpView, Network, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -60,6 +60,14 @@ export const api = {
   openReleasePage: (url: string) => call<void>("open_release_page", { url }),
   openProfileFile: (id?: string) => call<void>("open_profile_file", { id: id ?? null }),
   openDataFolder: () => call<void>("open_data_folder"),
+  openLogsFolder: () => call<void>("open_logs_folder"),
+  /** The plain-text report for bug reports (secrets left out). */
+  diagnostics: () => call<string>("get_diagnostics"),
+  detailedLogs: () => call<boolean>("get_detailed_logs"),
+  setDetailedLogs: (enabled: boolean) => call<void>("set_detailed_logs", { enabled }),
+  mcp: () => call<McpView>("get_mcp"),
+  setMcp: (mcp: McpSettings) => call<McpView>("set_mcp", { mcp }),
+  newMcpToken: () => call<McpView>("new_mcp_token"),
   plugins: () => call<PluginsView>("list_plugins"),
   installCatalogPlugin: (id: string) => call<string>("install_catalog_plugin", { id }),
   /** Pick a plugin folder; resolves to the plugin's id, or null if cancelled. */

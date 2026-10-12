@@ -5,7 +5,7 @@
 //
 //   APP=src-tauri/target/debug/perritodeck-app FAKEDECK=../target/debug/perritodeck-fakedeck node e2e/real-app.mjs
 
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, existsSync, cpSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -19,6 +19,9 @@ const W = "http://127.0.0.1:4444";
 // A Stream Deck plugin with a settings page, preinstalled.
 const sdFixture = resolve("../crates/sdcompat/tests/fixtures/com.perritodeck.test-counter.sdPlugin");
 cpSync(sdFixture, join(dataDir, "sdplugins", "com.perritodeck.test-counter.sdPlugin"), { recursive: true });
+// The MCP server for AI assistants, on (it's off by default), on a port of its own.
+const mcpPort = 46911;
+writeFileSync(join(dataDir, "app-settings.json"), JSON.stringify({ mcp: { enabled: true, port: mcpPort } }));
 
 const children = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -162,6 +165,35 @@ try {
     return existsSync(f) && readFileSync(f, "utf8").includes('"step": 7');
   });
   log("Stream Deck settings page works in the real app");
+
+  // Settings: the MCP server runs, and the app itself is the stdio bridge assistants start.
+  await js("[...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Settings')).click()");
+  await waitFor("MCP running", async () => (await text("main")).includes(`Running at http://127.0.0.1:${mcpPort}/mcp`));
+  const rpc = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_profiles", arguments: {} } },
+  ];
+  const bridged = spawnSync(app, ["mcp", "--data-dir", dataDir], {
+    input: rpc.map((m) => JSON.stringify(m)).join("\n") + "\n",
+    encoding: "utf8",
+    timeout: 20000,
+  });
+  const answers = bridged.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  if (answers.length !== 3) throw new Error(`the bridge answered ${answers.length} of 3: ${bridged.stdout} ${bridged.stderr}`);
+  if (answers[0].result?.protocolVersion !== "2025-11-25") throw new Error(`initialize: ${JSON.stringify(answers[0])}`);
+  if (!answers[1].result.tools.some((t) => t.name === "list_profiles")) throw new Error("no list_profiles tool");
+  if (answers[1].result.tools.some((t) => t.name === "press_key")) throw new Error("press_key offered without permission");
+  if (!answers[2].result.content[0].text.includes("SD")) throw new Error(`list_profiles: ${JSON.stringify(answers[2])}`);
+  log("MCP over the app's stdio bridge works");
+
+  // Logs are written to files next to the data, with the secrets left out.
+  const logFile = join(dataDir, "logs", "perritodeck.log");
+  await waitFor("the log file", () => existsSync(logFile) && readFileSync(logFile, "utf8").includes("host running"));
+  const token = readFileSync(join(dataDir, "mcp-token"), "utf8").trim();
+  if (readFileSync(logFile, "utf8").includes(token)) throw new Error("the MCP token is in the log");
+  log("log file written, no token in it");
   log("PASS");
 } catch (e) {
   failed = true;

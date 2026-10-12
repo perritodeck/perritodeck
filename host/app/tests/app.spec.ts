@@ -481,6 +481,85 @@ test.describe("profiles, tablets and switching", () => {
   });
 });
 
+test.describe("getting help and AI assistants", () => {
+  test.beforeEach(async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+  });
+  const mock = (page: Page) => page.evaluate(() => (window as any).__perritoMock);
+  const clipboard = (page: Page) => page.evaluate(() => navigator.clipboard.readText());
+
+  test("copies diagnostics, opens the logs folder and turns on detailed logs", async ({ page }) => {
+    await expect(page.getByText("/home/me/.config/PerritoDeck/logs")).toBeVisible();
+    await page.getByRole("button", { name: "Copy diagnostics" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+    expect(await clipboard(page)).toContain("PerritoDeck diagnostics");
+    await page.getByRole("button", { name: "Open logs folder" }).click();
+    await expect.poll(async () => (await mock(page)).opened).toContain("logs");
+    await page.getByLabel("Detailed logs").check();
+    await expect.poll(async () => (await mock(page)).detailedLogs).toBe(true);
+  });
+
+  test("the MCP server is off until turned on, and each permission is separate", async ({ page }) => {
+    const enabled = page.getByLabel("Let AI assistants use PerritoDeck");
+    await expect(enabled).not.toBeChecked();
+    await expect(page.locator(".mcp-state")).toHaveText("Off");
+    await expect(page.getByLabel("Press keys")).toBeDisabled();
+
+    await enabled.check();
+    await expect(page.getByText("Running at http://127.0.0.1:46711/mcp")).toBeVisible();
+    for (const name of ["Press keys", "Edit profiles", "Run actions"]) {
+      await expect(page.getByLabel(name)).not.toBeChecked();
+    }
+    await page.getByLabel("Press keys").check();
+    await expect.poll(async () => (await mock(page)).mcpSettings).toMatchObject({ enabled: true, press: true, edit: false, run: false });
+
+    // Running actions comes with a warning.
+    await expect(page.getByRole("note")).toHaveCount(0);
+    await page.getByLabel("Run actions").check();
+    await expect(page.getByRole("note")).toContainText("can do anything you can do on this computer");
+    await page.getByLabel("Run actions").uncheck();
+    await expect(page.getByRole("note")).toHaveCount(0);
+
+    // The port: checked, and a port in use is reported.
+    const port = page.getByLabel("Port for assistants");
+    await expect(port).toHaveValue("46711");
+    await port.fill("80");
+    await expect(page.getByRole("button", { name: "Save port" })).toBeDisabled();
+    await port.fill("46799");
+    await page.getByRole("button", { name: "Save port" }).click();
+    await expect(page.getByText("Couldn’t start: port 46799 is in use by another program")).toBeVisible();
+    await port.fill("46710");
+    await page.getByRole("button", { name: "Save port" }).click();
+    await expect(page.getByRole("alert")).toContainText("the one tablets use");
+    await port.fill("46712");
+    await page.getByRole("button", { name: "Save port" }).click();
+    await expect(page.getByText("Running at http://127.0.0.1:46712/mcp")).toBeVisible();
+
+    await enabled.uncheck();
+    await expect(page.locator(".mcp-state")).toHaveText("Off");
+  });
+
+  test("copies the snippets and makes a new token", async ({ page }) => {
+    await page.getByLabel("Let AI assistants use PerritoDeck").check();
+    await expect(page.getByLabel("Settings for apps that start a command")).toContainText('"args": [');
+    await page.getByRole("button", { name: "Copy" }).first().click();
+    expect(JSON.parse(await clipboard(page))).toEqual({
+      mcpServers: { perritodeck: { command: "/usr/bin/perritodeck-app", args: ["mcp"] } },
+    });
+    await expect(page.getByLabel("Claude Code command", { exact: true })).toHaveText("claude mcp add perritodeck -- /usr/bin/perritodeck-app mcp");
+
+    await page.getByText("Connect by address instead").click();
+    const http = page.getByLabel("Settings for apps that connect to a URL");
+    await expect(http).toContainText("Bearer mocktoken0001");
+    await page.getByRole("button", { name: "Make a new token" }).click();
+    await expect(page.getByText("New token made.")).toBeVisible();
+    await expect(http).toContainText("Bearer mocktoken0002");
+    await expect(page.getByLabel("Claude Code command by address")).toContainText("mocktoken0002");
+  });
+});
+
 test("says when a new version is out, if asked to", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).__perritoMockInit = {

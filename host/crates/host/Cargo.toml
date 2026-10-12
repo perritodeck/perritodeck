@@ -26,6 +26,7 @@ perritodeck-companion.workspace = true
 perritodeck-sdcompat.workspace = true
 perritodeck-integrations.workspace = true
 perritodeck-plugins.workspace = true
+perritodeck-mcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
@@ -43,7 +44,7 @@ qrcode.workspace = true
 gethostname.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "registry"] }
 sysinfo = { version = "0.36.1", default-features = false, features = ["system"] }
 
 tempfile.workspace = true
