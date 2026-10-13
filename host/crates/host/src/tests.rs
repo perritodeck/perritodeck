@@ -1115,3 +1115,20 @@ async fn background_loops_skip_the_ticks_they_missed() {
     // Catching up would tick about ten times at once.
     assert!(ticks <= 2, "{ticks} ticks");
 }
+
+#[test]
+fn network_addresses() {
+    let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+    let lan = || vec![ip("192.168.1.60"), ip("172.17.0.1")];
+    let any = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+    let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+    // Listening everywhere: this machine's addresses, looked up when asked.
+    assert_eq!(lan_addrs_for(any, lan), lan());
+    // On one address: only that one. On loopback: none (and no lookup).
+    assert_eq!(
+        lan_addrs_for(ip("192.168.1.60"), || unreachable!()),
+        [ip("192.168.1.60")]
+    );
+    assert!(lan_addrs_for(localhost, || unreachable!()).is_empty());
+}

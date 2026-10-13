@@ -56,23 +56,30 @@ fn sanitize_label(name: &str) -> String {
     }
 }
 
-/// Non-loopback IPv4 addresses of this machine, for the pairing link. The address of
-/// the default-route interface comes first: the tablet tries them in order with a
+/// This machine's IPv4 addresses a tablet could use, for the pairing link. The address
+/// of the default-route interface comes first: the tablet tries them in order with a
 /// timeout each, and on Windows the WSL and Hyper-V adapters (172.16–31.x) would
 /// otherwise sort before a 192.168.x Wi-Fi address and cost seconds per pairing.
+///
+/// Cheap enough to call whenever the addresses are shown: they change when a laptop
+/// moves to another network or Wi-Fi comes up after the host started.
 pub fn lan_addresses() -> Vec<IpAddr> {
-    let ips: Vec<IpAddr> = if_addrs::get_if_addrs()
+    let ips = if_addrs::get_if_addrs()
         .unwrap_or_default()
         .into_iter()
-        .filter(|i| !i.is_loopback())
         .map(|i| i.ip())
-        .filter(|ip| ip.is_ipv4())
         .collect();
     order_addresses(ips, default_route_ipv4())
 }
 
-/// Sorted and deduplicated, with `first` moved to the front when it's in the list.
-fn order_addresses(mut ips: Vec<IpAddr>, first: Option<IpAddr>) -> Vec<IpAddr> {
+/// Keeps the addresses a tablet could use: IPv4, and neither loopback nor link-local
+/// (169.254.x, which Windows gives an adapter that found no DHCP server). Sorted and
+/// deduplicated, with `first` moved to the front when it's in the list.
+fn order_addresses(ips: Vec<IpAddr>, first: Option<IpAddr>) -> Vec<IpAddr> {
+    let mut ips: Vec<IpAddr> = ips
+        .into_iter()
+        .filter(|ip| matches!(ip, IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local()))
+        .collect();
     ips.sort();
     ips.dedup();
     if let Some(pos) = first.and_then(|f| ips.iter().position(|ip| *ip == f)) {
@@ -144,6 +151,31 @@ mod tests {
         assert_eq!(
             order_addresses(all, Some(ip("10.0.0.5"))),
             [ip("172.24.0.1"), ip("192.168.1.20")]
+        );
+    }
+
+    #[test]
+    fn only_addresses_a_tablet_can_use() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let all = vec![
+            ip("169.254.221.130"),
+            ip("192.168.1.60"),
+            ip("127.0.0.1"),
+            ip("fd24:3c13:226:491f::5"),
+            ip("fe80::1"),
+            ip("172.17.0.1"),
+        ];
+        assert_eq!(
+            order_addresses(all, Some(ip("192.168.1.60"))),
+            [ip("192.168.1.60"), ip("172.17.0.1")]
+        );
+        // A link-local default route (an adapter with no DHCP) isn't put first or at all.
+        assert_eq!(
+            order_addresses(
+                vec![ip("169.254.1.2"), ip("172.17.0.1")],
+                Some(ip("169.254.1.2"))
+            ),
+            [ip("172.17.0.1")]
         );
     }
 

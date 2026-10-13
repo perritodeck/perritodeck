@@ -375,7 +375,6 @@ impl Shared {
 pub struct Host {
     pub host_name: String,
     pub addr: SocketAddr,
-    pub lan: Vec<IpAddr>,
     /// The default profile's file.
     pub profile_path: PathBuf,
     /// Where every profile lives (the default profile's folder).
@@ -574,11 +573,6 @@ impl Host {
                 )
             })
             .ok();
-        let lan = if opts.listen.is_loopback() {
-            vec![]
-        } else {
-            discovery::lan_addresses()
-        };
         let mdns = match (&identity, opts.mdns && !opts.listen.is_loopback()) {
             (Some(id), true) => discovery::advertise(&host_name, id.fingerprint(), addr.port())
                 .map_err(|e| warn!("could not advertise on the network (tablets can still connect by address): {e}"))
@@ -636,7 +630,6 @@ impl Host {
             usb_available,
             host_name,
             addr,
-            lan,
             profile_path,
             profiles_dir,
             data_dir: dir,
@@ -675,7 +668,10 @@ impl Host {
         let addresses = if self.addr.ip().is_loopback() {
             vec![format!("127.0.0.1:{port}")]
         } else {
-            self.lan.iter().map(|ip| format!("{ip}:{port}")).collect()
+            self.lan_addrs()
+                .iter()
+                .map(|ip| format!("{ip}:{port}"))
+                .collect()
         };
         HostStatus {
             host_name: self.host_name.clone(),
@@ -705,12 +701,19 @@ impl Host {
         }
     }
 
+    /// The addresses tablets on the network can reach this host at. Looked up each
+    /// time rather than once at start-up: the app starts at logon, often before Wi-Fi
+    /// or DHCP is up, and a laptop changes networks while it runs.
+    fn lan_addrs(&self) -> Vec<IpAddr> {
+        lan_addrs_for(self.addr.ip(), discovery::lan_addresses)
+    }
+
     /// Addresses to put in pairing links.
     fn pairing_addrs(&self) -> Vec<IpAddr> {
         if self.addr.ip().is_loopback() {
             vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]
         } else {
-            self.lan.clone()
+            self.lan_addrs()
         }
     }
 
@@ -1825,6 +1828,18 @@ impl Host {
                 .load_profile(&id, profile, Some(self.profiles_dir.clone()));
         }
         Ok(())
+    }
+}
+
+/// Where tablets on the network reach a host listening on `listen`: nowhere for
+/// loopback, every usable address of this machine for 0.0.0.0, else that address.
+fn lan_addrs_for(listen: IpAddr, all: impl FnOnce() -> Vec<IpAddr>) -> Vec<IpAddr> {
+    if listen.is_loopback() {
+        vec![]
+    } else if listen.is_unspecified() {
+        all()
+    } else {
+        vec![listen]
     }
 }
 
