@@ -74,6 +74,14 @@ plugins, so their actions can go on a tablet key.
   Tested with a fixture page, over WebSocket and in the real app on Linux (WebKitGTK).
 - **Supervision:** a plugin that exits is restarted with backoff and given up after five
   crashes; the Plugins page shows the state ("Needs Node.js", "Can't run here: …").
+- **Programs a plugin starts (Windows):** each plugin runs in a job object with
+  kill-on-close and only explicit breakaway, so everything it leaves behind ends with it
+  when it stops, restarts or is removed. `openUrl` is opened by the host, so a browser it
+  opens stays. But a program the plugin starts itself with `child_process` ends with the
+  plugin, because libuv can't ask for breakaway. Elgato's SDK has no other way to ask
+  for one, and we keep the job as it is: dropping it for these plugins would leave their
+  helpers running after Quit. PerritoDeck's own Node SDK has `openForUser` and
+  `startForUser` for this (the plugin protocol's `open`).
 - **Tests:** `host/crates/sdcompat/tests` runs a small Node.js fixture plugin against a
   real deck (needs Node 22+ for its built-in WebSocket; skipped otherwise).
 

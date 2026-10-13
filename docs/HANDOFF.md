@@ -127,9 +127,11 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   Settings still offers USB, although adb reverse then points at a closed port.
 - `actions` test `a_command_that_starts_a_program_finishes_when_it_exits` has a 1.5 s limit
   that a heavily loaded machine overshot once (1.73 s).
-- Node plugins and Stream Deck plugins can't start programs outside their job (libuv can't
-  ask for breakaway), so anything they launch ends with them; a host-side "open" message
-  would fix it.
+- ~~Node plugins can't start programs outside their job.~~ Fixed (next-steps item 3): the
+  plugin protocol's `open` and Node SDK 1.1.0's `openForUser`/`startForUser`. Programs
+  Stream Deck plugins start with `child_process` still end with them (documented in
+  phase-7). A Node plugin doesn't exit by itself on `shutdown` (the host ends it after
+  about 2 s).
 - ~~The MCP bridge is the app exe, so a connected assistant locks it.~~ Fixed (next-steps
   item 1): assistants start `perritodeck-mcp` from `<data dir>/bin`; verified with Claude Code
   connected across a quit, rebuild and restart. The updated real-app e2e still needs a Linux

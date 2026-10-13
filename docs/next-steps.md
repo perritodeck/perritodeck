@@ -71,8 +71,10 @@ SECURITY.
 **Detection ✅ done.**
 
 - Perrito sends `networkFailed` in `hello` over the cable after its Wi-Fi connection timed
-  out. Refusals don't count (a restarting PerritoDeck refuses). While on the cable it
-  re-checks the network every 30 s, and reconnects once when it answers.
+  out. Refusals don't count (a restarting PerritoDeck refuses). Because Windows Firewall
+  also drops connections while PerritoDeck isn't running, Perrito tries the network once
+  more after the cable gets in before reporting. While flagged it re-checks every 30 s,
+  and reconnects once when the network answers.
 - The host names those tablets. On Windows it also reads Windows Firewall's rules
   (read-only) instead of guessing from the network category: that guess stayed on for good
   on this PC (Public network, PerritoDeck allowed, tablet always on the cable).
@@ -104,7 +106,19 @@ allows it, tablets only work over the cable, and nothing says why.
   - Record the decision in DECISIONS and SECURITY.
 - Guide: a "Tablet only works with the cable" entry in troubleshooting.
 
-## 3. Programs started by Node and Stream Deck plugins die with the plugin
+## 3. Programs started by Node and Stream Deck plugins die with the plugin — ✅ done (2026-10-12)
+
+**Landed.**
+- The plugin protocol has `open` (`target`, or `program` + `args`) answered by `opened`,
+  and `hello` lists `open` in `features`. The host opens things with its Open and Launch
+  code, outside the plugin's job.
+- Node SDK 1.1.0 has `openForUser` and `startForUser`, falling back to starting the
+  program itself with older hosts. `plugins/PROTOCOL.md` and the phase-7 notes are
+  updated.
+- Verified on Windows with a test Node plugin: Character Map started through the host
+  survived a plugin restart, while the copy the plugin started itself was ended with it.
+- Noticed on the way: a Node plugin doesn't exit by itself on `shutdown`, so the host
+  ends it after its grace period (about 2 s per stop). Small SDK follow-up.
 
 Each plugin runs in a Windows Job object with kill-on-close, and breakaway is explicit only.
 Python plugins can now use `open_for_user` / `start_for_user` (SDK 1.3.0). Node and Stream
