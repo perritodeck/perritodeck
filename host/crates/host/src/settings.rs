@@ -92,11 +92,23 @@ impl AutoSwitch {
         let app = app?;
         self.rules
             .iter()
-            .find(|r| {
-                r.app.eq_ignore_ascii_case(app) && r.device.as_deref().map_or(true, |d| d == device)
-            })
+            .find(|r| same_app(&r.app, app) && r.device.as_deref().map_or(true, |d| d == device))
             .map(|r| r.profile.as_str())
     }
+}
+
+/// Whether a rule's app is `app`, ignoring case, spaces around it and a trailing `.exe`:
+/// on Windows the app in front is `obs64`, but people know it as `obs64.exe`.
+fn same_app(rule: &str, app: &str) -> bool {
+    fn bare(name: &str) -> &str {
+        let name = name.trim();
+        let cut = name.len().saturating_sub(4);
+        match name.get(cut..) {
+            Some(ext) if cut > 0 && ext.eq_ignore_ascii_case(".exe") => &name[..cut],
+            _ => name,
+        }
+    }
+    bare(rule).eq_ignore_ascii_case(bare(app))
 }
 
 impl AppSettings {
@@ -152,6 +164,41 @@ mod tests {
         assert_eq!(a.profile_for(None, "desk"), None);
         a.enabled = false;
         assert_eq!(a.profile_for(Some("code"), "desk"), None);
+    }
+
+    #[test]
+    fn rules_typed_with_exe_or_spaces_still_match() {
+        let a = AutoSwitch {
+            enabled: true,
+            rules: vec![
+                SwitchRule {
+                    app: "firefox.exe".into(),
+                    profile: "browsing".into(),
+                    device: None,
+                },
+                SwitchRule {
+                    app: " Code.EXE ".into(),
+                    profile: "coding".into(),
+                    device: None,
+                },
+                SwitchRule {
+                    app: ".exe".into(),
+                    profile: "nothing".into(),
+                    device: None,
+                },
+            ],
+        };
+        assert_eq!(a.profile_for(Some("firefox"), "desk"), Some("browsing"));
+        assert_eq!(a.profile_for(Some("Firefox"), "desk"), Some("browsing"));
+        assert_eq!(a.profile_for(Some("code"), "desk"), Some("coding"));
+        assert_eq!(a.profile_for(Some("firefox-esr"), "desk"), None);
+        assert_eq!(a.profile_for(Some("exe"), "desk"), None);
+        assert!(same_app("obs64", "obs64.exe"));
+        assert!(!same_app("obs64.exe.bak", "obs64"));
+        assert!(!same_app("notepad", "notepad++"));
+        // Not every name is ASCII; looking for ".exe" mustn't split a character.
+        assert!(same_app("café.exe", "Café"));
+        assert!(same_app("a€xe", "A€XE"));
     }
 
     #[test]
