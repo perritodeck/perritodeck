@@ -168,6 +168,10 @@ class DeckConnection(
             var end = runSession(url, hello, client)
             // Over a USB cable 127.0.0.1 leads to whichever computer the tablet is plugged
             // into, which needn't be this one. That's no reason to give up on the others.
+            // It can also be this one with a new identity (PerritoDeck reinstalled, its data
+            // folder wiped), which looks the same from here, so the message covers both.
+            // Giving up instead would strand a tablet plugged into a second computer for
+            // good while this one sleeps.
             if (end is SessionEnd.Fatal && end.reason == PIN_MISMATCH && urls.size > 1 && isLoopback(hostOf(url))) {
                 end = SessionEnd.Retry(OTHER_COMPUTER_ON_USB, false)
             }
@@ -327,7 +331,8 @@ class DeckConnection(
     }
 
     companion object {
-        const val OTHER_COMPUTER_ON_USB = "The USB cable leads to a different computer."
+        const val OTHER_COMPUTER_ON_USB =
+            "The computer on the USB cable isn't the one this tablet paired with. If you reinstalled PerritoDeck there, pair again."
         const val NOTHING_ON_USB = "Nothing answers over the USB cable."
         const val NOT_RUNNING_ON_USB = "PerritoDeck isn't running on the computer this tablet is plugged into."
 

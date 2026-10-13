@@ -276,6 +276,29 @@ class DeckConnectionTest {
     }
 
     @Test
+    fun aNewIdentityOnTheCableKeepsTryingAndSaysToPairAgain() = runBlocking {
+        // PerritoDeck reinstalled on the computer the tablet is plugged into, whose network
+        // address can't be reached: from the tablet that looks just like a second computer
+        // on the cable, so it keeps trying, and the message says what to do after a reinstall.
+        val pinned = http.newBuilder().addInterceptor { chain ->
+            if (chain.request().url.host == "127.0.0.1") throw IOException("pin", CertificateException("new identity"))
+            chain.proceed(chain.request())
+        }.build()
+        val deadLan = ServerSocket(0).use { it.localPort }
+        val conn = DeckConnection(http, scope)
+        conn.connect("ws://127.0.0.1:1", hello, pinned, fallbacks = listOf("ws://127.0.0.2:$deadLan"))
+        // Even attempts go to the network address; from the 4th they show what the cable said.
+        val shown = withTimeout(10_000) {
+            conn.state.first { it is ConnState.Failed || it is ConnState.Connecting && it.attempt >= 4 && it.attempt % 2 == 0 }
+        }
+        assertTrue("still trying: $shown", shown is ConnState.Connecting)
+        val reason = (shown as ConnState.Connecting).lastError
+        assertEquals(DeckConnection.OTHER_COMPUTER_ON_USB, reason)
+        assertTrue(reason!!.contains("pair again"))
+        conn.disconnect()
+    }
+
+    @Test
     fun backoffGrowsAndCaps() {
         assertEquals(500, DeckConnection.backoffMs(1))
         assertEquals(1_000, DeckConnection.backoffMs(2))
