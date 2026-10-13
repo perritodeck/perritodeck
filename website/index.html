@@ -6,6 +6,7 @@
   <title>PerritoDeck — your old tablet as a Stream Deck–style control deck</title>
   <meta name="description" content="Free, open-source app that turns an Android tablet or phone into a Stream Deck–style grid of buttons for Windows, macOS and Linux. No account, no cloud.">
   <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -27,7 +28,7 @@
   </header>
 
   <main>
-    <section class="hero" style="border-top:0">
+    <section class="hero">
       <div class="wrap">
         <div>
           <p class="pill">Pre-release · free and open source</p>
@@ -162,55 +163,6 @@
     </div>
   </footer>
 
-  <script>
-    // A tiny imitation of the real app's demo deck: a live clock, a press counter, and a few keys that react.
-    (() => {
-      const deck = document.getElementById("deck");
-      const caption = document.getElementById("deck-caption");
-      const keys = [
-        ["clock", "--:--", 0], ["counter", "Pressed\n0×", 1], ["Mic\nmuted", "Mic muted", 2, "Mic\nlive"],
-        ["Scene:\nGame", "Scene switched", 3, "Scene:\nCam"], ["Lights", "Lights toggled", 4, "Lights\noff"],
-        ["Play /\npause", "Music toggled", 5], ["Screen-\nshot", "Screenshot taken", 6], ["Open\nterminal", "Terminal opened", 7],
-        ["Go live", "You're live", 1, "End\nstream"], ["Clip it", "Clip saved", 2], ["Volume\nup", "Volume up", 3],
-        ["Volume\ndown", "Volume down", 4], ["BRB", "Be right back", 5], ["Copy", "Copied", 6], ["Paste", "Pasted", 7],
-        ["Coffee", "Coffee break", 0], ["Lock\nscreen", "Screen locked", 1], ["Timer\n5:00", "Timer started", 2],
-        ["Sound-\nboard", "Woof.", 3], ["Fetch", "Good dog.", 4],
-      ];
-      let presses = 0;
-      const els = keys.map(([label, message, tone, alt], i) => {
-        const b = document.createElement("button");
-        b.className = "key";
-        b.type = "button";
-        b.dataset.tone = String(tone);
-        b.textContent = label;
-        let toggled = false;
-        b.addEventListener("click", () => {
-          if (label === "counter") {
-            presses += 1;
-            b.textContent = `Pressed\n${presses}×`;
-            caption.textContent = `Counted ${presses} ${presses === 1 ? "press" : "presses"}.`;
-            return;
-          }
-          if (label === "clock") { caption.textContent = "That clock is live, pushed from the host every second."; return; }
-          if (alt) {
-            toggled = !toggled;
-            b.textContent = toggled ? alt : label;
-            caption.textContent = b.textContent.replace(/-?\n/g, (m) => (m.startsWith("-") ? "" : " "));
-            return;
-          }
-          caption.textContent = message;
-        });
-        deck.appendChild(b);
-        return b;
-      });
-      const clock = els[0];
-      const tick = () => {
-        clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      };
-      tick();
-      setInterval(tick, 1000);
-      els[1].textContent = "Pressed\n0×";
-    })();
-  </script>
+  <script src="deck.js"></script>
 </body>
 </html>

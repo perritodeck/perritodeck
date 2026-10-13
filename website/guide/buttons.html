@@ -6,6 +6,7 @@
   <title>Buttons and profiles — PerritoDeck</title>
   <meta name="description" content="Make buttons, pages, toggles and sliders in PerritoDeck, show live values in titles, and use different profiles per tablet or per app.">
   <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
   <link rel="stylesheet" href="../style.css">
   <link rel="stylesheet" href="guide.css">
 </head>
@@ -135,7 +136,7 @@
 </ol>
 <p>Each press runs the current state's action, then moves to the next state.</p>
 <h3 id="follow">Toggles that follow what's really happening</h3>
-<p>A plain toggle can get out of step: if you stop recording with the mouse, the tablet still says "recording". To fix that, fill in <strong>Follow a live value</strong> (or use <span class="ui">Choose a value to follow…</span>). The toggle then shows its second state exactly while that value is on, however it changed. For example, follow <code>obs:recording</code> to have a REC button that's red while OBS records.</p>
+<p>A plain toggle can get out of step: if you stop recording with the mouse, the tablet still says "recording". To fix that, fill in <strong>Follow a live value</strong> (or use <span class="ui">Choose a value to follow…</span>). The toggle then shows its second state exactly while that value is on, however it changed. For example, follow <code>obs:recording</code> to have a REC button that's red while OBS records. Write the name with or without braces: <code>obs:recording</code> and <code>{obs:recording}</code> both work.</p>
 
 <h2 id="sliders">Sliders</h2>
 <p>A slider fills one spot; drag up and down on it to set a level. The tablet gives a small tick every 10% as you drag. Choose <strong>Slider</strong> under <strong>When pressed</strong>, then pick what it sets in <strong>Slider sets</strong>:</p>
@@ -146,6 +147,7 @@
   <li><strong>A program, with the value</strong>: runs a program with the slider's position (0 to 100) wherever you write <code>{value}</code> in its arguments.</li>
   <li>Plugin sliders, such as the HTTP plugin's <strong>Send the slider's value</strong> or MQTT's <strong>Publish the slider's value</strong>.</li>
 </ul>
+<p>A plugin slider can also follow one of the plugin's values, so it sits where the plugin says: pick the value under <strong>The slider follows</strong>. For a value that needs more, such as the OBS plugin's <strong>Source volume (0–100)</strong>, type the rest in the box that appears (here <strong>Audio source to follow</strong>), for example <code>Desktop Audio</code>.</p>
 <p>If the level changes on the computer, the slider moves to match within a few seconds, and every tablet showing it stays in step. Dials and touch strips like those on some hardware decks are <span class="soon">coming</span>; sliders cover the main uses for now.</p>
 
 <h2 id="several-steps">Several steps</h2>
@@ -337,8 +339,9 @@ states = [
 <pre><code>slider = { type = "volume" }
 slider = { type = "homeAssistant", entity = "light.desk" }
 slider = { type = "obs", input = "Mic/Aux" }
-slider = { type = "command", program = "brightnessctl", args = ["set", "{value}%"] }</code></pre>
-  <p>A slider key also takes <code>title</code>, <code>bg</code> and <code>fg</code>.</p>
+slider = { type = "command", program = "brightnessctl", args = ["set", "{value}%"] }
+slider = { type = "plugin", plugin = "dev.perritodeck.obs", action = "volume", settings = { input = "Desktop Audio" }, follow = "volume:Desktop Audio" }</code></pre>
+  <p>A slider key also takes <code>title</code>, <code>bg</code> and <code>fg</code>. A plugin slider's optional <code>follow</code> names one of the plugin's values by its id, such as <code>volume</code>, with anything it needs after a colon.</p>
 
   <h3 id="file-where">Where the files are</h3>
   <p>Profiles are in the <code>profiles</code> folder inside PerritoDeck's settings folder; <span class="ui">Settings</span> shows the exact path under <strong>Profiles</strong>. Each <code>.toml</code> file there is one profile, and files you add, change or delete there show up in the app straight away. See <a href="troubleshooting.html#settings-folder">where settings live</a>.</p>

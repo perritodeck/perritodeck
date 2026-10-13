@@ -6,6 +6,7 @@
   <title>Download — PerritoDeck</title>
   <meta name="description" content="Download PerritoDeck Host for Windows, macOS and Linux, and Perrito for Android tablets and phones. Free and open source.">
   <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
   <!--
     Release links point at GitHub release assets for one version. scripts/release-version.py
@@ -13,68 +14,7 @@
     the version is bumped. The repository is private until launch, so these links 404 until
     it's public and the first release is published.
   -->
-  <style>
-    .page-head { max-width: 46em; }
-    .page-head .lede { margin-bottom: 20px; }
-    .notice {
-      max-width: 46em; margin: 0 0 8px; padding: 14px 18px;
-      background: var(--paper); border: 1px solid var(--line); border-left: 6px solid var(--apricot);
-      border-radius: 10px; color: var(--ink-soft);
-    }
-    .notice strong { color: var(--ink); }
-    .prose h2 { max-width: none; }
-    .lead-in { color: var(--ink-soft); }
-
-    .os-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 20px 0 8px; }
-    .os-card {
-      background: var(--paper); border: 1px solid var(--line); border-radius: 18px;
-      padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
-    }
-    .os-card.is-yours { border-color: var(--apricot); box-shadow: 0 0 0 2px var(--apricot); }
-    .os-card h3 { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .os-card .yours { display: none; font: 700 0.75rem/1 var(--body); background: var(--apricot); color: #11111B; padding: 5px 9px; border-radius: 999px; }
-    .os-card.is-yours .yours { display: inline-block; }
-    .os-card p { margin: 0; color: var(--ink-soft); font-size: 0.95rem; }
-    .os-card .button { text-align: center; }
-    .os-card .more { list-style: none; margin: 0; padding: 0; font-size: 0.95rem; }
-    .os-card .more li { margin: 0 0 4px; }
-    .os-card .needs { font-size: 0.85rem; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
-    .os-card .state { font-size: 0.85rem; font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
-    .os-card .state::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 2px var(--line); }
-    .os-card .state.ok::before { background: #A6E3A1; box-shadow: none; }
-    .steps-list { max-width: 46em; padding-left: 1.4em; }
-    .steps-list li { margin-bottom: 0.6em; }
-
-    .store-list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; max-width: 46em; }
-    .store-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 14px 18px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
-    .store-list strong { font: 700 1.05rem/1.3 var(--display); min-width: 9.5em; }
-    .store-list span:not(.badge) { color: var(--ink-soft); flex: 1 1 16em; }
-    .badge { flex: none; margin-left: auto; text-decoration: none; font: 700 0.75rem/1 var(--body); padding: 5px 9px; border-radius: 999px; background: var(--fog); border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap; }
-    .badge.now { background: var(--apricot); border-color: var(--apricot); color: #11111B; }
-
-    .prose .download-table { max-width: 900px; }
-    .download-table th { width: 26%; }
-    .download-table td code { overflow-wrap: anywhere; }
-
-    pre {
-      max-width: 46em; margin: 0 0 1.2em; padding: 14px 16px; overflow-x: auto;
-      background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
-      font-size: 0.88rem; line-height: 1.5;
-    }
-    pre code { background: none; border: 0; padding: 0; font-size: inherit; }
-    .os-label { font: 700 0.95rem/1.3 var(--display); margin: 18px 0 6px; }
-
-    @media (max-width: 860px) {
-      .os-grid { grid-template-columns: 1fr; }
-      .download-table th { width: 34%; }
-    }
-    @media (max-width: 520px) {
-      .download-table, .download-table tbody, .download-table tr, .download-table th, .download-table td { display: block; width: 100%; }
-      .download-table th { padding-bottom: 2px; border-bottom: 0; }
-      .download-table td { padding-top: 0; }
-      .store-list strong { min-width: 0; }
-    }
-  </style>
+  <link rel="stylesheet" href="download.css">
 </head>
 <body>
   <header class="site-header">
@@ -178,7 +118,7 @@
         <li><strong>Windows:</strong> SmartScreen says "Windows protected your PC". Click <em>More info</em>, then <em>Run anyway</em>.</li>
         <li><strong>macOS:</strong> if macOS says the app can't be opened, open System Settings → Privacy &amp; Security and click <em>Open Anyway</em> next to the PerritoDeck message.</li>
         <li><strong>Linux AppImage:</strong> make it executable first: <code>chmod +x perritodeck-*.AppImage</code>.</li>
-        <li><strong>Android:</strong> allow your browser or file manager to install unknown apps when it asks.</li>
+        <li><strong>Android:</strong> the APK is signed (<a href="#android-certificate">see below</a>), but Android still asks before your browser or file manager installs an app from outside an app store. Allow it when it asks.</li>
       </ul>
 
       <h2 id="verify">Check your download</h2>
@@ -191,7 +131,15 @@
       <p class="os-label">Windows (PowerShell)</p>
       <pre><code>Get-FileHash .\perritodeck-0.1.0-windows-x64-setup.exe -Algorithm SHA256</code></pre>
       <p>On Linux and macOS each file should say <code>OK</code>. On Windows, compare the long hash with the line for that file in SHA256SUMS (upper or lower case doesn't matter).</p>
-      <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums. When the Android app is signed, its certificate fingerprint will be published here too, so you can check it with <code>apksigner verify --print-certs perrito-0.1.0.apk</code>.</p>
+      <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums.</p>
+
+      <h3 class="os-label" id="android-certificate">Android: the signing certificate</h3>
+      <p>The APK on this page and in GitHub Releases, which IzzyOnDroid and Obtainium use, is signed with the PerritoDeck release key. Copies from F-Droid and Google Play are signed by those stores instead. The SHA-256 fingerprint of the release key's certificate is published here with the first signed release:</p>
+      <!-- Filled in before the first signed release, from keytool's SHA-256 (docs/releasing.md, step 1). The release notes show the same value. -->
+      <pre><code>Not published yet</code></pre>
+      <p>To check an APK from here or from GitHub Releases, run <code>apksigner</code> from the Android SDK's build tools:</p>
+      <pre><code>apksigner verify --print-certs perrito-0.1.0.apk</code></pre>
+      <p>The line with <code>certificate SHA-256 digest:</code> should end in the fingerprint above, and there should be no <code>ERROR</code> lines (warnings about files in <code>META-INF/</code> are normal). Some tools show the fingerprint in capitals with colons between the pairs; it's the same value. If it doesn't match, don't install the file. Android won't install an update signed with a different key over the app you have, so this check matters most the first time. For the same reason, a copy from F-Droid or Google Play can't be updated with the APK from here, or the other way round.</p>
 
       <h2 id="cli">Command-line host</h2>
       <p>For servers, kiosks and scripting: the same host without a window, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. It's in the release as <code>perritodeck-host-0.1.0-linux-x86_64.tar.gz</code>, <code>-windows-x86_64.zip</code> and <code>-macos-universal.tar.gz</code>. Run <code>perritodeck-host --pair</code> to pair a tablet.</p>
@@ -223,17 +171,6 @@
     </div>
   </footer>
 
-  <script>
-    // Highlight the visitor's own system. Without JavaScript all three cards look the same.
-    (() => {
-      const ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
-      const os = /win/i.test(ua) ? "windows" : /mac/i.test(ua) && !/iphone|ipad/i.test(navigator.userAgent) ? "mac" : /linux|x11/i.test(ua) && !/android/i.test(navigator.userAgent) ? "linux" : "";
-      const card = os && document.querySelector(`.os-card[data-os="${os}"]`);
-      if (card) {
-        card.classList.add("is-yours");
-        card.parentNode.prepend(card);
-      }
-    })();
-  </script>
+  <script src="download.js"></script>
 </body>
 </html>

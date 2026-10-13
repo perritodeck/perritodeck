@@ -78,7 +78,7 @@ a:hover { text-decoration-thickness: 2px; }
 .nav a[aria-current="page"] { color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--apricot); }
 
 /* Hero */
-.hero { padding: 40px 0 72px; }
+.hero { padding: 40px 0 72px; border-top: 0; }
 .hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; }
 .hero h1 {
   font: 800 clamp(2.4rem, 5.4vw, 4.1rem)/1.02 var(--display);

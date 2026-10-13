@@ -6,6 +6,7 @@
   <title>Integrations — PerritoDeck</title>
   <meta name="description" content="Control OBS Studio and Home Assistant from PerritoDeck, or use your tablet as a Bitfocus Companion surface.">
   <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
   <link rel="stylesheet" href="../style.css">
   <link rel="stylesheet" href="guide.css">
 </head>
@@ -78,6 +79,7 @@ port = 16622</code></pre>
   <p class="box-label">Keep it private</p>
   <p>This file contains passwords. Don't post it online or attach it to bug reports.</p>
 </div>
+<p>If the file has a mistake, such as a misspelt name or a missing quote, PerritoDeck ignores the whole file, so OBS, Home Assistant and Companion all stay off. <span class="ui">Settings</span> → <strong>Integrations</strong> then says <strong>integrations.toml has a mistake</strong> and which line it's on. Fix it and restart PerritoDeck.</p>
 
 <h2 id="obs">OBS Studio</h2>
 <p>Switch scenes, start and stop recording or streaming, mute your mic, and see what OBS is doing, right on the tablet. It works with OBS 28 and newer, which have remote control built in.</p>
@@ -104,9 +106,10 @@ password = "the password from OBS"</code></pre>
   <li>Start or stop the replay buffer; save the replay</li>
 </ul>
 <p>You can also show OBS's state in titles with <code>{obs:scene}</code>, <code>{obs:recording}</code> and <code>{obs:streaming}</code>, make a <a href="buttons.html#follow">toggle that follows</a> <code>obs:recording</code> so it's red exactly while you record, and set an audio source's volume with a <a href="buttons.html#sliders">slider</a>.</p>
+<p>If OBS can't do what a button asks, the button flashes ⚠, and <span class="ui">Try it</span> on the <span class="ui">Buttons</span> page says why, for example <strong>OBS: already recording</strong> or <strong>OBS: the replay buffer is turned off (Settings → Output → Replay Buffer)</strong>. While OBS is closed, the <code>{obs:…}</code> values show <strong>–</strong>, and PerritoDeck tries to reach OBS again after 5 seconds, then waits longer each time, up to 30 seconds. Pressing an OBS button always tries straight away.</p>
 
 <h3 id="obs-plugin">Want more? The OBS Studio plugin</h3>
-<p>The built-in OBS support covers the everyday buttons. For much more, such as Studio Mode and transitions, showing or hiding sources, filters, screenshots, the virtual camera, chapter markers, stream time, dropped frames and a live "is this scene on air?" value, add the <strong>OBS Studio</strong> plugin from the <span class="ui">Plugins</span> page. It's set up on the Plugins page rather than in the integrations file. See <a href="plugins.html#first-party">Plugins</a>.</p>
+<p>The built-in OBS support covers the everyday buttons. For much more, such as Studio Mode and transitions, showing or hiding sources, filters, screenshots, the virtual camera, chapter markers, stream time, dropped frames (from the network, and skipped while rendering or encoding) and a live "is this scene on air?" value, add the <strong>OBS Studio</strong> plugin from the <span class="ui">Plugins</span> page. It's set up on the Plugins page rather than in the integrations file. See <a href="plugins.html#first-party">Plugins</a>.</p>
 <p>You can use both at once: they're independent.</p>
 
 <h2 id="home-assistant">Home Assistant</h2>

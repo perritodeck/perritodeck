@@ -7,13 +7,17 @@ index.html, a page listing them for people.
 OUT_DIR defaults to website/plugins/. Publish that folder at
 https://perritodeck.dev/plugins/ (the app reads index.json there). Zips are
 reproducible: same files in, same bytes (and SHA-256) out. Tests and caches are
-left out. Standard library only.
+left out, and each zip carries this folder's MIT LICENSE unless the plugin has
+its own. The page loads ../style.css, ../catalogue.css and ../catalogue.js from
+the website, so it has no inline code for the site's Content-Security-Policy to
+allow. Standard library only.
 """
 
 import hashlib
 import html
 import json
 import os
+import re
 import sys
 import zipfile
 
@@ -22,6 +26,13 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".git"}
 # Plugin folders that aren't plugins themselves.
 NOT_PLUGINS = {"sdk-python", "sdk-node"}
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
+# Everything in this folder is MIT-licensed; a zip on its own should still say so.
+LICENSE = os.path.join(HERE, "LICENSE")
+# A plugin's own licence file, at the top of its folder: LICENSE, LICENCE or COPYING, in
+# any case, optionally with a qualifier and a text extension (LICENSE-MIT, LICENSE.md,
+# COPYING.txt). A name that only starts like one, such as license_check.py, copying.py or
+# licenses.json, is a file of the plugin's, not a licence.
+LICENCE_FILE = re.compile(r"^(licen[cs]e|copying)(-[a-z0-9]+)*(\.(md|markdown|txt|text|rst))?$", re.I)
 
 
 def plugin_files(folder):
@@ -33,10 +44,18 @@ def plugin_files(folder):
             yield os.path.join(root, name)
 
 
+def zip_entries(folder):
+    """(name in the zip, file on disk) for everything a plugin's zip holds, in a fixed order:
+    the plugin's own files, then LICENSE unless the plugin has a licence file of its own."""
+    entries = [(os.path.relpath(path, folder).replace(os.sep, "/"), path) for path in plugin_files(folder)]
+    if not any("/" not in rel and LICENCE_FILE.fullmatch(rel) for rel, _ in entries):
+        entries.append(("LICENSE", LICENSE))
+    return entries
+
+
 def build_zip(folder, dest):
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
-        for path in plugin_files(folder):
-            rel = os.path.relpath(path, folder).replace(os.sep, "/")
+        for rel, path in zip_entries(folder):
             info = zipfile.ZipInfo(rel, FIXED_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
             executable = os.access(path, os.X_OK)
@@ -157,35 +176,9 @@ def page(entries):
   <title>Plugins — PerritoDeck</title>
   <meta name="description" content="Plugins that add actions and live values to PerritoDeck: OBS Studio, Home Assistant helpers, Proxmox, timers and more.">
   <link rel="icon" href="../paw.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
   <link rel="stylesheet" href="../style.css">
-  <style>
-    .plugins {{ display: grid; gap: 0; max-width: 900px; }}
-    .plugin {{ display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 22px; padding: 28px 0; border-top: 1px solid var(--line); }}
-    .plugin .key, .plugin .icon {{ width: 64px; height: 64px; cursor: default; font-size: 1.1rem; }}
-    .plugin .icon {{ border-radius: var(--radius-key); }}
-    .finder {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 8px; max-width: 900px; }}
-    .finder label {{ font-weight: 700; }}
-    .finder input {{
-      flex: 1 1 16em; min-width: 0; padding: 11px 14px; border-radius: 12px; font: inherit;
-      background: var(--paper); color: var(--ink); border: 1px solid var(--line);
-    }}
-    .finder output {{ color: var(--ink-soft); font-size: 0.95rem; }}
-    .none {{ color: var(--ink-soft); padding: 28px 0; border-top: 1px solid var(--line); }}
-    .plugin h2 {{ font-size: 1.45rem; margin: 0 0 6px; max-width: none; }}
-    .version {{ font: 400 0.95rem/1 var(--body); color: var(--ink-soft); }}
-    .plugin p {{ color: var(--ink-soft); }}
-    .columns {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 32px; margin: 4px 0 14px; }}
-    .columns h3 {{ font-size: 1rem; margin: 0 0 4px; }}
-    .columns ul {{ margin: 0; padding-left: 1.1em; color: var(--ink-soft); font-size: 0.95rem; }}
-    .columns li {{ margin-bottom: 0.1em; }}
-    .columns .more {{ list-style: none; margin-left: -1.1em; font-style: italic; }}
-    .get {{ font-size: 0.95rem; margin: 0; }}
-    .sha {{ font-size: 0.75rem; overflow-wrap: anywhere; color: var(--ink-soft); }}
-    @media (max-width: 640px) {{
-      .plugin {{ grid-template-columns: 1fr; gap: 12px; }}
-      .columns {{ grid-template-columns: 1fr; }}
-    }}
-  </style>
+  <link rel="stylesheet" href="../catalogue.css">
 </head>
 <body>
   <header class="site-header">
@@ -230,31 +223,8 @@ def page(entries):
       </nav>
     </div>
   </footer>
-  <script>
-    // The search box filters the list as you type. Without JavaScript it stays hidden and
-    // every plugin is listed.
-    (() => {{
-      const finder = document.querySelector(".finder");
-      const box = document.getElementById("find");
-      const found = document.getElementById("found");
-      const none = document.getElementById("none");
-      const plugins = [...document.querySelectorAll(".plugin")];
-      const show = () => {{
-        const words = box.value.toLowerCase().split(/\\s+/).filter(Boolean);
-        let shown = 0;
-        for (const p of plugins) {{
-          const hit = words.every((w) => p.dataset.words.includes(w));
-          p.hidden = !hit;
-          if (hit) shown += 1;
-        }}
-        found.textContent = words.length ? `${{shown}} of ${{plugins.length}}` : `${{plugins.length}} plugins`;
-        none.hidden = shown > 0;
-      }};
-      finder.hidden = false;
-      box.addEventListener("input", show);
-      show();
-    }})();
-  </script>
+  <!-- The search box: website/catalogue.js, a committed file, because this folder is generated. -->
+  <script src="../catalogue.js"></script>
 </body>
 </html>
 """

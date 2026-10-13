@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every page, at the address Cloudflare Pages serves it on (no ".html"). Add new pages here. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://perritodeck.dev/</loc></url>
+  <url><loc>https://perritodeck.dev/features</loc></url>
+  <url><loc>https://perritodeck.dev/compatibility</loc></url>
+  <url><loc>https://perritodeck.dev/faq</loc></url>
+  <url><loc>https://perritodeck.dev/download</loc></url>
+  <url><loc>https://perritodeck.dev/privacy</loc></url>
+  <url><loc>https://perritodeck.dev/plugins/</loc></url>
+  <url><loc>https://perritodeck.dev/guide/</loc></url>
+  <url><loc>https://perritodeck.dev/guide/getting-started</loc></url>
+  <url><loc>https://perritodeck.dev/guide/buttons</loc></url>
+  <url><loc>https://perritodeck.dev/guide/integrations</loc></url>
+  <url><loc>https://perritodeck.dev/guide/plugins</loc></url>
+  <url><loc>https://perritodeck.dev/guide/troubleshooting</loc></url>
+</urlset>

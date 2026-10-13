@@ -44,3 +44,8 @@ folder into the host's settings folder under `plugins/`.
 `index.html` and one reproducible zip per plugin. Publishing that folder at `https://perritodeck.dev/plugins/`
 makes the plugins available from the app's Plugins page ("Look online"). The app
 refuses a zip whose SHA-256 doesn't match the index.
+
+Each zip carries this folder's MIT [LICENSE](LICENSE), unless the plugin has a licence
+file of its own at the top of its folder: `LICENSE`, `LICENCE` or `COPYING`, optionally
+with a qualifier and a text extension, such as `LICENSE-MIT`, `LICENSE.md` or
+`COPYING.txt`. Tests (`test_*` files), caches and `node_modules` are left out.
