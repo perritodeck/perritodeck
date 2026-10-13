@@ -1,10 +1,15 @@
 //! Real OS backends: synthetic input via `enigo`, opening via the `open` crate.
 
-use std::sync::Mutex;
+use std::{sync::Mutex, time::Duration};
 
 use enigo::{Direction, Enigo, Keyboard, Settings};
 
 use crate::{ActionError, Chord, InputBackend, Key, MediaKey, Modifier, SystemBackend};
+
+/// How long a hotkey's main key stays down. Apps that poll the keyboard instead of reading
+/// key messages miss a key that goes down and up in the same instant: OBS checks its
+/// global hotkeys every 25 ms on Windows, and some games and overlays work the same way.
+const KEY_HOLD: Duration = Duration::from_millis(50);
 
 /// Keyboard input through `enigo`. The connection to the display server is made on
 /// first use, so the host still starts on a machine where input isn't available
@@ -50,6 +55,52 @@ impl EnigoInput {
 
 fn input_err(e: impl std::fmt::Display) -> ActionError {
     ActionError::Input(e.to_string())
+}
+
+/// Run input work that waits (a held key) without stalling the async runtime: on
+/// tokio's multi-thread runtime the worker first hands its other tasks to another
+/// thread. Elsewhere (no runtime, or a single-threaded one) it just runs.
+fn blocking<T>(f: impl FnOnce() -> T) -> T {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
+
+/// Press a chord through `key`: the modifiers in order, then the main key, held down for
+/// `hold` (or down and up at once without it), then the modifiers released in reverse.
+/// Whatever was pressed is released even after an error, so no modifier sticks.
+fn press_chord<E: std::fmt::Display>(
+    modifiers: &[Modifier],
+    main: enigo::Key,
+    hold: Option<Duration>,
+    mut key: impl FnMut(enigo::Key, Direction) -> Result<(), E>,
+) -> Result<(), ActionError> {
+    let mut pressed = Vec::new();
+    let mut result = Ok(());
+    for &m in modifiers {
+        if let Err(err) = key(modifier_key(m), Direction::Press) {
+            result = Err(input_err(err));
+            break;
+        }
+        pressed.push(m);
+    }
+    if result.is_ok() {
+        result = match hold {
+            Some(hold) => key(main, Direction::Press)
+                .map_err(input_err)
+                .and_then(|()| {
+                    std::thread::sleep(hold);
+                    key(main, Direction::Release).map_err(input_err)
+                }),
+            None => key(main, Direction::Click).map_err(input_err),
+        };
+    }
+    for &m in pressed.iter().rev() {
+        let _ = key(modifier_key(m), Direction::Release);
+    }
+    result
 }
 
 fn modifier_key(m: Modifier) -> enigo::Key {
@@ -126,24 +177,8 @@ fn function_key(n: u8) -> Result<enigo::Key, ActionError> {
 impl InputBackend for EnigoInput {
     fn chord(&self, chord: &Chord) -> Result<(), ActionError> {
         let key = main_key(chord.key)?;
-        self.with(|e| {
-            let mut pressed = Vec::new();
-            let mut result = Ok(());
-            for &m in &chord.modifiers {
-                if let Err(err) = e.key(modifier_key(m), Direction::Press) {
-                    result = Err(input_err(err));
-                    break;
-                }
-                pressed.push(m);
-            }
-            if result.is_ok() {
-                result = e.key(key, Direction::Click).map_err(input_err);
-            }
-            // Always release what we pressed, even after an error, so no modifier sticks.
-            for &m in pressed.iter().rev() {
-                let _ = e.key(modifier_key(m), Direction::Release);
-            }
-            result
+        blocking(|| {
+            self.with(|e| press_chord(&chord.modifiers, key, Some(KEY_HOLD), |k, d| e.key(k, d)))
         })
     }
 
@@ -166,6 +201,101 @@ impl InputBackend for EnigoInput {
             MediaKey::Mute => E::VolumeMute,
         };
         self.with(|e| e.key(k, Direction::Click).map_err(input_err))
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use std::time::Instant;
+
+    use enigo::Key as E;
+
+    use super::*;
+
+    /// Each key event and when it happened.
+    type Log = Vec<(E, Direction, Instant)>;
+
+    /// Press a chord against a log instead of the OS; `fail` makes that key's press fail.
+    fn pressed(
+        modifiers: &[Modifier],
+        main: E,
+        hold: Option<Duration>,
+        fail: Option<E>,
+    ) -> (Result<(), ActionError>, Log) {
+        let mut log = Vec::new();
+        let result = press_chord(modifiers, main, hold, |k, d| {
+            log.push((k, d, Instant::now()));
+            if Some(k) == fail && d != Direction::Release {
+                return Err("blocked");
+            }
+            Ok(())
+        });
+        (result, log)
+    }
+
+    fn keys(log: &[(E, Direction, Instant)]) -> Vec<(E, Direction)> {
+        log.iter().map(|&(k, d, _)| (k, d)).collect()
+    }
+
+    #[test]
+    fn chord_holds_the_main_key_inside_the_modifiers() {
+        let hold = Duration::from_millis(30);
+        let (result, log) = pressed(
+            &[Modifier::Ctrl, Modifier::Shift],
+            E::Other(0x4D),
+            Some(hold),
+            None,
+        );
+        result.unwrap();
+        use Direction::{Press, Release};
+        assert_eq!(
+            keys(&log),
+            [
+                (E::Control, Press),
+                (E::Shift, Press),
+                (E::Other(0x4D), Press),
+                (E::Other(0x4D), Release),
+                (E::Shift, Release),
+                (E::Control, Release),
+            ]
+        );
+        assert!(log[3].2 - log[2].2 >= hold, "the key was held");
+    }
+
+    #[test]
+    fn chord_without_hold_clicks() {
+        let (result, log) = pressed(&[], E::Unicode('€'), None, None);
+        result.unwrap();
+        assert_eq!(keys(&log), [(E::Unicode('€'), Direction::Click)]);
+    }
+
+    #[test]
+    fn chord_releases_what_it_pressed_after_an_error() {
+        use Direction::{Press, Release};
+        // A modifier fails: the ones before it are released, the main key never pressed.
+        let (result, log) = pressed(
+            &[Modifier::Ctrl, Modifier::Alt, Modifier::Shift],
+            E::F13,
+            Some(Duration::ZERO),
+            Some(E::Alt),
+        );
+        assert!(matches!(result, Err(ActionError::Input(m)) if m == "blocked"));
+        assert_eq!(
+            keys(&log),
+            [(E::Control, Press), (E::Alt, Press), (E::Control, Release)]
+        );
+        // The main key fails: the modifiers are still released.
+        let (result, log) = pressed(
+            &[Modifier::Ctrl],
+            E::F13,
+            Some(Duration::ZERO),
+            Some(E::F13),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            keys(&log),
+            [(E::Control, Press), (E::F13, Press), (E::Control, Release)]
+        );
     }
 }
 
