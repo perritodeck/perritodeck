@@ -60,17 +60,31 @@ fn has_python() -> bool {
 }
 
 #[test]
-fn store_python_stub_means_missing_python() {
-    let quick = Duration::from_millis(300);
-    assert!(is_store_python_stub(Runtime::Python, Some(9009), quick));
-    assert!(!is_store_python_stub(Runtime::Python, Some(1), quick));
-    assert!(!is_store_python_stub(Runtime::Node, Some(9009), quick));
-    // A plugin that ran for a while and happened to exit with 9009 is just a crash.
-    assert!(!is_store_python_stub(
-        Runtime::Python,
-        Some(9009),
-        Duration::from_secs(60)
-    ));
+fn a_python_must_name_its_interpreter() {
+    let me = std::env::current_exe().unwrap();
+    let printed = format!("{}\r\n", me.display());
+    assert_eq!(interpreter_from(true, printed.as_bytes()), Some(me));
+    // The Microsoft Store shortcut fails (9009), Python 2 prints nothing, and MSYS's
+    // Python names a path Windows doesn't have.
+    assert_eq!(interpreter_from(false, printed.as_bytes()), None);
+    assert_eq!(interpreter_from(true, b""), None);
+    assert_eq!(interpreter_from(true, b"/no/such/bin/python"), None);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_finds_python_3_or_says_there_is_none() {
+    // `py` exits with 103 when it has no such Python, and a missing program can't
+    // start: both mean "no Python 3", not a plugin that crashes over and over.
+    assert_eq!(
+        find_python(&[("perritodeck-no-such-python", &[]), ("py", &["-3.99"])]).await,
+        None
+    );
+    if has_python() {
+        let python = find_python(WINDOWS_PYTHONS).await.expect("Python 3");
+        let name = python.file_name().unwrap().to_string_lossy().to_lowercase();
+        assert!(name.starts_with("python"), "{}", python.display());
+    }
 }
 
 async fn wait_for(what: &str, mut f: impl FnMut() -> bool) {
@@ -329,9 +343,7 @@ for line in sys.stdin:
     # ignores shutdown on purpose
 "#;
 
-/// Whether process `pid` is still running. On Windows, the PID file holds
-/// `python.exe`'s PID, not that of the `py.exe` launcher the host started, so this also
-/// checks that the job object ended the launcher's child.
+/// Whether process `pid` is still running.
 fn process_alive(pid: &str) -> bool {
     if cfg!(windows) {
         let out = std::process::Command::new("tasklist")
@@ -424,8 +436,8 @@ async fn a_plugin_that_isnt_ready_yet_is_asked_to_stop_too() {
 }
 
 /// Starts a program of its own as soon as it runs, like the soundboard's players.
-/// `py.exe`'s job lets Python's children break away from it, so only the host's job
-/// object ends this one.
+/// Ending the plugin's process doesn't end its children on Windows; only the host's
+/// job object does.
 #[cfg(windows)]
 const PARENT_PLUGIN: &str = r#"
 import json, os, subprocess, sys

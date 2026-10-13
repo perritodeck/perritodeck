@@ -546,15 +546,17 @@ fn still_in_use(e: &std::io::Error) -> bool {
     cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 145))
 }
 
-/// The program and arguments that run a plugin.
-fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
+/// The programs and arguments that may run a plugin, in the order to try them.
+async fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
     let main = dir.join(&m.main).display().to_string();
     match m.runtime {
         Runtime::Node => vec![("node".into(), vec![main])],
-        Runtime::Python if cfg!(windows) => vec![
-            ("py".into(), vec!["-3".into(), main.clone()]),
-            ("python".into(), vec![main]),
-        ],
+        // None when there's no Python 3, so the plugin shows as missing its runtime.
+        Runtime::Python if cfg!(windows) => windows_python()
+            .await
+            .map(|python| (python, vec![main]))
+            .into_iter()
+            .collect(),
         Runtime::Python => vec![
             ("python3".into(), vec![main.clone()]),
             ("python".into(), vec![main]),
@@ -563,15 +565,80 @@ fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
     }
 }
 
-/// Exit code of Windows' `python.exe` App Execution Alias when Python isn't installed:
-/// it prints "Python was not found; run without arguments to install from the Microsoft
-/// Store" and exits with 9009 (cmd.exe's "not recognized" code).
-const STORE_STUB_EXIT: i32 = 9009;
+/// Where to look for Python 3 on Windows, in order: the launcher's choice (`py -3`),
+/// then `python` on PATH.
+const WINDOWS_PYTHONS: &[(&str, &[&str])] = &[("py", &["-3"]), ("python", &[])];
 
-/// Whether a Python plugin's process that exited with `code` after `ran_for` was the
-/// Store stub rather than Python (it exits at once). Checked on Windows only.
-fn is_store_python_stub(runtime: Runtime, code: Option<i32>, ran_for: Duration) -> bool {
-    runtime == Runtime::Python && code == Some(STORE_STUB_EXIT) && ran_for < Duration::from_secs(5)
+/// Prints the interpreter's own path, or nothing if it's Python 2.
+const PRINT_EXECUTABLE: &str =
+    "import sys; sys.stdout.write(sys.executable if sys.version_info[0] >= 3 else '')";
+
+/// The `python.exe` Python plugins run with on Windows, found once and remembered.
+///
+/// Plugins run Python itself rather than `py -3`. The launcher runs Python as a child
+/// of its own, in a job of its own that lets Python's children break away, so the
+/// process the host watched and killed was only the launcher. Looking first also tells
+/// a missing Python from a crashing plugin: `py` exits with 103 when it knows no
+/// Python 3, and `python` may be the Microsoft Store shortcut, which exits with 9009.
+async fn windows_python() -> Option<String> {
+    static FOUND: tokio::sync::Mutex<Option<PathBuf>> = tokio::sync::Mutex::const_new(None);
+    // Held while looking, so plugins starting together look only once.
+    let mut found = FOUND.lock().await;
+    // Look again if that Python has gone (uninstalled, or replaced by an upgrade).
+    if !found.as_deref().is_some_and(exists) {
+        *found = find_python(WINDOWS_PYTHONS).await;
+    }
+    found.as_ref().map(|p| p.display().to_string())
+}
+
+/// The first of `candidates` (program, arguments) that is Python 3, as the path of
+/// its interpreter.
+async fn find_python(candidates: &[(&str, &[&str])]) -> Option<PathBuf> {
+    for (program, args) in candidates {
+        let mut cmd = Command::new(program);
+        cmd.args(*args)
+            .args(["-c", PRINT_EXECUTABLE])
+            // A path with non-ASCII letters (a user name) must come back intact.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let out = match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) => {
+                debug!("{program} isn't Python 3: {e}");
+                continue;
+            }
+            Err(_) => {
+                debug!("{program} didn't answer");
+                continue;
+            }
+        };
+        match interpreter_from(out.status.success(), &out.stdout) {
+            Some(python) => {
+                info!("Python plugins run with {}", python.display());
+                return Some(python);
+            }
+            None => debug!("{program} isn't Python 3 ({})", out.status),
+        }
+    }
+    None
+}
+
+/// The interpreter a [`PRINT_EXECUTABLE`] run named, if it ran fine and named a file
+/// that's there. The Store shortcut fails, and Python 2 prints nothing.
+fn interpreter_from(ok: bool, stdout: &[u8]) -> Option<PathBuf> {
+    let path = PathBuf::from(String::from_utf8_lossy(stdout).trim());
+    (ok && !path.as_os_str().is_empty() && exists(&path)).then_some(path)
+}
+
+/// Whether something is at `path`. Not `is_file`: a Microsoft Store Python's path is an
+/// app execution alias, a link that can't always be followed.
+fn exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
 }
 
 /// Windows process creation flag: no console window for the process.
@@ -612,7 +679,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         }
         let started = Instant::now();
         let mut spawned = None;
-        for (program, args) in command_for(&p.manifest, &p.dir) {
+        for (program, args) in command_for(&p.manifest, &p.dir).await {
             let mut cmd = Command::new(&program);
             cmd.args(&args)
                 .current_dir(&p.dir)
@@ -727,17 +794,6 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         p.fail_pending("it stopped");
         if p.stop.load(Ordering::Relaxed) {
             p.set_status(Status::Stopped);
-            return;
-        }
-        let code = status.as_ref().ok().and_then(|s| s.code());
-        if cfg!(windows) && is_store_python_stub(p.manifest.runtime, code, started.elapsed()) {
-            warn!(
-                "plugin {} needs Python 3; `python` is only the Microsoft Store shortcut",
-                p.manifest.id
-            );
-            p.set_status(Status::MissingRuntime {
-                runtime: "Python 3".into(),
-            });
             return;
         }
         let reason = match status {
