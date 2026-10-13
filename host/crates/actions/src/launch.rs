@@ -24,6 +24,17 @@ const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
 /// `.js`, `.msc`) need the shell, so the search skips them.
 const RUNNABLE: [&str; 4] = [".com", ".exe", ".bat", ".cmd"];
 
+/// A program or path as typed, without surrounding spaces or the quotes that Explorer's
+/// "Copy as path" adds. Windows would take the quotes as part of the name (os error
+/// 123), and no one means a file whose name starts and ends with a quote.
+pub(crate) fn unquote(s: &str) -> &str {
+    let s = s.trim();
+    s.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .filter(|inner| !inner.contains('"'))
+        .map_or(s, str::trim)
+}
+
 /// Whether `program` names a file by path (`C:\x\y.exe`, `.\y`, `C:y`) rather than
 /// a bare name to look up.
 pub(crate) fn has_path(program: &str) -> bool {
@@ -270,6 +281,19 @@ mod tests {
         assert_eq!(q(&[r"C:\a b\"]), r#""C:\a b\\""#);
         assert_eq!(q(&[r"C:\plain\"]), r"C:\plain\");
         assert_eq!(q(&[r#"a\"b"#]), r#""a\\\"b""#);
+    }
+
+    #[test]
+    fn pasted_quotes_come_off() {
+        let obs = r"C:\Program Files\obs-studio\bin\64bit\obs64.exe";
+        assert_eq!(unquote(&format!("\"{obs}\"")), obs);
+        assert_eq!(unquote(&format!("  \" {obs} \"\n")), obs);
+        assert_eq!(unquote(obs), obs);
+        assert_eq!(unquote(" notepad "), "notepad");
+        // Only a pair around the whole thing.
+        assert_eq!(unquote("\"half"), "\"half");
+        assert_eq!(unquote("\""), "\"");
+        assert_eq!(unquote(r#""a" "b""#), r#""a" "b""#);
     }
 
     #[test]

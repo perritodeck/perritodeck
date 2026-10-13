@@ -283,6 +283,18 @@ fn specs_round_trip_through_json() {
 }
 
 #[tokio::test]
+async fn pasted_paths_lose_their_quotes() {
+    let (ex, r) = setup();
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().display().to_string();
+    let open = ActionSpec::OpenPath {
+        path: format!("\"{folder}\"").into(),
+    };
+    ex.run(&open).await.unwrap();
+    assert_eq!(r.take(), vec![format!("open {folder}")]);
+}
+
+#[tokio::test]
 async fn launch_errors_show_the_path_as_typed() {
     let (ex, _) = setup();
     let missing = if cfg!(windows) {
@@ -330,6 +342,9 @@ mod commands {
             ex.run(&missing).await,
             Err(ActionError::Spawn { .. })
         ));
+
+        let quoted = spec(r#"{"type":"command","program":"\"/bin/sh\"","args":["-c","exit 0"]}"#);
+        assert_eq!(ex.run(&quoted).await.unwrap(), Outcome::Ok);
     }
 
     #[tokio::test]
@@ -361,5 +376,57 @@ mod commands {
         );
         assert!(matches!(ex.run(&m).await.unwrap(), Outcome::Alert(_)));
         assert_eq!(r.take(), vec!["text after"]);
+    }
+}
+
+// The same through cmd.exe, which every Windows machine has. Commands get
+// CREATE_NO_WINDOW, so nothing shows on screen.
+#[cfg(windows)]
+mod windows_commands {
+    use super::*;
+
+    fn command(program: &str, args: &[&str], timeout_ms: Option<u64>) -> ActionSpec {
+        ActionSpec::Command {
+            program: program.into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            cwd: None,
+            timeout_ms,
+        }
+    }
+
+    fn system32() -> std::path::PathBuf {
+        std::path::Path::new(&std::env::var("SystemRoot").unwrap()).join("System32")
+    }
+
+    #[tokio::test]
+    async fn success_failure_timeout_and_missing_program() {
+        let (ex, _) = setup();
+        let ok = command("cmd", &["/c", "exit 0"], None);
+        assert_eq!(ex.run(&ok).await.unwrap(), Outcome::Ok);
+
+        let fail = command("cmd", &["/c", "echo boom 1>&2 & exit 3"], None);
+        assert_eq!(
+            ex.run(&fail).await.unwrap(),
+            Outcome::Alert("exit 3: boom".into())
+        );
+
+        let slow = command("cmd", &["/c", "ping -n 5 127.0.0.1 >nul"], Some(300));
+        assert!(
+            matches!(ex.run(&slow).await.unwrap(), Outcome::Alert(a) if a.contains("timed out"))
+        );
+
+        let missing = command("definitely-not-a-real-program-xyz", &[], None);
+        assert!(matches!(
+            ex.run(&missing).await,
+            Err(ActionError::Spawn { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_pasted_quoted_path_runs() {
+        let (ex, _) = setup();
+        let cmd = system32().join("cmd.exe");
+        let quoted = command(&format!("\"{}\"", cmd.display()), &["/c", "exit 0"], None);
+        assert_eq!(ex.run(&quoted).await.unwrap(), Outcome::Ok);
     }
 }

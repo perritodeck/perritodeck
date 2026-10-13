@@ -329,10 +329,11 @@ impl Executor {
                     Ok(Outcome::Ok)
                 }
                 ActionSpec::OpenPath { path } => {
-                    self.system.open(&path.to_string_lossy())?;
+                    self.system.open(launch::unquote(&path.to_string_lossy()))?;
                     Ok(Outcome::Ok)
                 }
                 ActionSpec::Launch { program, args } => {
+                    let program = launch::unquote(program);
                     let build = |p: &std::ffi::OsStr| {
                         let mut cmd = Command::new(p);
                         cmd.args(args);
@@ -367,14 +368,14 @@ impl Executor {
                                 Err(code) => {
                                     debug!(code, "ShellExecute couldn't start {program} either");
                                     Err(ActionError::Spawn {
-                                        program: program.clone(),
+                                        program: program.to_owned(),
                                         source: launch::shell_error(code, source),
                                     })
                                 }
                             }
                         }
                         Err(source) => Err(ActionError::Spawn {
-                            program: program.clone(),
+                            program: program.to_owned(),
                             source,
                         }),
                     }
@@ -538,6 +539,7 @@ pub(crate) async fn run_command(
     cwd: Option<&std::path::Path>,
     timeout_ms: Option<u64>,
 ) -> Result<Outcome, ActionError> {
+    let program = launch::unquote(program);
     let build = |p: &std::ffi::OsStr| {
         let mut cmd = Command::new(p);
         cmd.args(args)
