@@ -8,5 +8,7 @@ ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/paired.json:generic-a
 # The made-up deviceSecret in a protocol fixture, and the iOS test that checks it.
 4cf724097577820d3b73e091d210ab9874fef4cb:protocol/fixtures/hello-network-failed.json:generic-api-key:23
 4b4236e86940c5d20ff33cae27fb08f07fbbdf9c:ios/PerritoKit/Tests/PerritoKitTests/ProtocolFixturesTests.swift:generic-api-key:88
-# A hotkey in an example command: "keys":"Ctrl+Shift+Esc".
+# A hotkey (Ctrl+Shift+Esc) in an example command in the host README, and an earlier
+# version of this file's comment that quoted it.
 0476653575c766ee0ff6dc62d69ca2b3ebe01149:host/README.md:generic-api-key:34
+ca45eb16ad4b7e825264f8dde3709a8cc6e1715b:.gitleaksignore:generic-api-key:11
