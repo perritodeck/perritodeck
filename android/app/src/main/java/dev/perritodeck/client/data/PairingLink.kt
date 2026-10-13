@@ -13,6 +13,23 @@ data class PairingLink(
     val fingerprint: String,
     val code: String,
 ) {
+    /**
+     * Where to try pairing. 127.0.0.1 is tried too, whatever the link says: on a USB
+     * cable the computer forwards its port there (adb reverse), which works even when
+     * the network doesn't let the tablet through, and with no cable it's refused at once.
+     * The fingerprint check keeps anything else answering there from passing as the computer.
+     */
+    val candidates: List<HostPort>
+        get() = (listOf(HostPort(LOCALHOST, addresses.first().port)) + addresses).distinct()
+
+    /**
+     * The address to save for reconnecting after pairing through [used]. Over the cable
+     * that's the link's first network address: every connect tries 127.0.0.1 by itself,
+     * and unplugged the tablet should still find the computer over Wi-Fi.
+     */
+    fun addressToSave(used: HostPort): HostPort =
+        if (isLoopback(used.host)) addresses.firstOrNull { !isLoopback(it.host) } ?: used else used
+
     companion object {
         fun parse(uri: String): PairingLink? {
             if (!uri.startsWith("perritodeck://pair?")) return null
@@ -50,3 +67,8 @@ data class HostPort(val host: String, val port: Int) {
         }
     }
 }
+
+const val LOCALHOST = "127.0.0.1"
+
+/** This tablet itself, which over a USB cable is the computer too (adb reverse). */
+fun isLoopback(host: String): Boolean = host == LOCALHOST || host == "localhost" || host == "::1"

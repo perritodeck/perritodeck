@@ -4,10 +4,22 @@ import dev.perritodeck.client.data.HostPort
 import dev.perritodeck.client.data.PairingLink
 import dev.perritodeck.client.net.Base64Url
 import dev.perritodeck.client.net.Fingerprint
+import dev.perritodeck.client.net.Pairing
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.ConnectException
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.util.Base64
 import kotlin.random.Random
 
@@ -55,6 +67,64 @@ class PairingTest {
         assertNull(PairingLink.parse(ok.replace("fp=$fp", "fp=short")))
         assertNull(PairingLink.parse(ok.replace("&a=1.2.3.4%3A1", "")))
         assertNull(PairingLink.parse("https://evil.example/pair?v=1"))
+    }
+
+    @Test
+    fun pairingTriesTheCableFirstButSavesTheNetworkAddress() {
+        val usb = HostPort("127.0.0.1", 46710)
+        val lan = HostPort("192.168.1.60", 46710)
+        val wsl = HostPort("172.17.0.1", 46710)
+        val link = PairingLink.parse("perritodeck://pair?v=1&n=PC&a=192.168.1.60%3A46710&a=172.17.0.1%3A46710&fp=$fp&c=042913")!!
+        assertEquals(listOf(usb, lan, wsl), link.candidates)
+        // Paired over the cable: reconnects add 127.0.0.1 by themselves, so save Wi-Fi's.
+        assertEquals(lan, link.addressToSave(usb))
+        assertEquals(wsl, link.addressToSave(wsl))
+
+        // A host with adb lists 127.0.0.1 itself, last; it's still tried once, first.
+        val withUsb = PairingLink.parse("perritodeck://pair?v=1&n=PC&a=192.168.1.60%3A46710&a=127.0.0.1%3A46710&fp=$fp&c=042913")!!
+        assertEquals(listOf(usb, lan), withUsb.candidates)
+        assertEquals(lan, withUsb.addressToSave(usb))
+
+        // Wi-Fi off on the computer: 127.0.0.1 is all there is, and that's what's saved.
+        val usbOnly = PairingLink.parse("perritodeck://pair?v=1&n=PC&a=127.0.0.1%3A46710&fp=$fp&c=042913")!!
+        assertEquals(listOf(usb), usbOnly.candidates)
+        assertEquals(usb, usbOnly.addressToSave(usb))
+    }
+
+    @Test
+    fun pairsOverTheFirstAddressThatAnswersAsTheComputer() = runBlocking {
+        val usb = HostPort("127.0.0.1", 46710)
+        val impostor = HostPort("172.17.0.1", 46710)
+        val dropped = HostPort("10.9.9.9", 46710)
+        val lan = HostPort("192.168.1.60", 46710)
+        val stopped = CompletableDeferred<Unit>()
+        val found = withTimeout(2_000) {
+            Pairing.firstReachable(listOf(usb, impostor, dropped, lan), fp) { addr ->
+                when (addr) {
+                    usb -> throw ConnectException("refused") // no USB cable
+                    impostor -> "another computer's fingerprint"
+                    dropped -> try { awaitCancellation() } finally { stopped.complete(Unit) } // a firewall
+                    else -> { delay(50); fp }
+                }
+            }
+        }
+        assertEquals(lan, found)
+        assertTrue("the probe that hung was stopped", stopped.isCompleted)
+
+        assertNull(Pairing.firstReachable(listOf(usb, lan), fp) { throw ConnectException("refused") })
+        assertNull(Pairing.firstReachable(listOf(impostor), fp) { "another computer's fingerprint" })
+    }
+
+    @Test
+    fun cancellingAProbeStopsItAtOnce() = runBlocking {
+        // Accepts connections (the OS does that) but never answers the TLS handshake.
+        ServerSocket(0, 50, InetAddress.getLoopbackAddress()).use { silent ->
+            val probe = launch(Dispatchers.Default) { runCatching { Pairing.probe("127.0.0.1", silent.localPort) } }
+            delay(300)
+            probe.cancel()
+            // Without closing its socket the probe would sit out its 5 s read timeout.
+            withTimeout(2_000) { probe.join() }
+        }
     }
 
     @Test

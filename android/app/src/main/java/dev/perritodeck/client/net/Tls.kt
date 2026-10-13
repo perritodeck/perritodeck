@@ -98,10 +98,13 @@ object Tls {
             .build()
     }
 
-    /** Connect once and return the fingerprint the host presents (blocking; call off the main thread). */
-    fun probe(host: String, port: Int, timeoutMs: Int = 5_000): String {
+    /**
+     * Connect once and return the fingerprint the host presents (blocking; call off the
+     * main thread). Closing [raw] from another thread ends it early.
+     */
+    fun probe(host: String, port: Int, timeoutMs: Int = 5_000, raw: Socket = Socket()): String {
         val tm = PinningTrustManager(null)
-        Socket().use { raw ->
+        raw.use {
             raw.connect(InetSocketAddress(host, port), timeoutMs)
             raw.soTimeout = timeoutMs
             (context(tm).socketFactory.createSocket(raw, host, port, true) as SSLSocket).use { tls ->

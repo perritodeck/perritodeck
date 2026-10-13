@@ -169,24 +169,34 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
         pairJob?.cancel()
         pairJob = viewModelScope.launch {
             _pairState.value = PairState.Working("Pairing with ${link.hostName}…")
-            // The host lists every address it has; use the first one this tablet can reach.
-            for (addr in link.addresses) {
-                val fp = runCatching { Pairing.probe(addr.host, addr.port) }.getOrNull() ?: continue
-                if (fp != link.fingerprint) continue
-                finishPairing(addr.host, addr.port, link.fingerprint, link.code, "${addr.host}:${addr.port}")
+            // The host lists every address it has, and 127.0.0.1 covers a USB cable; use
+            // the first that answers as this computer.
+            val addr = Pairing.firstReachable(link.candidates, link.fingerprint)
+            if (addr != null) {
+                finishPairing(addr.host, addr.port, link.fingerprint, link.code, "${addr.host}:${addr.port}", link.addressToSave(addr))
                 return@launch
             }
             _pairState.value = PairState.Form(
                 link.addresses.first().let { "${it.host}:${it.port}" },
-                "Couldn't reach ${link.hostName}. Make sure this tablet is on the same Wi-Fi network.",
+                "Couldn't reach ${link.hostName} over Wi-Fi or USB. Make sure this tablet is on the same " +
+                    "Wi-Fi network and the computer's firewall allows PerritoDeck.",
             )
         }
     }
 
-    private suspend fun finishPairing(host: String, port: Int, fingerprint: String, code: String, address: String) {
+    /** [save] is the address to reconnect to later, when it isn't the one used to pair. */
+    private suspend fun finishPairing(
+        host: String,
+        port: Int,
+        fingerprint: String,
+        code: String,
+        address: String,
+        save: HostPort = HostPort(host, port),
+    ) {
         _pairState.value = PairState.Working("Pairing…")
         try {
             val paired = Pairing.pair(Tls.defaultClient, host, port, fingerprint, code, settings.deviceId, deviceName())
+                .copy(address = save.host, port = save.port)
             settings.savePaired(paired)
             _paired.value = settings.pairedHosts
             _pairState.value = PairState.Form("")
