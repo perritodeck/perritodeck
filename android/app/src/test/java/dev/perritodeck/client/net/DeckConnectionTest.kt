@@ -185,6 +185,47 @@ class DeckConnectionTest {
     }
 
     @Test
+    fun failuresAreExplainedInPlainWords() {
+        val cable = "wss://127.0.0.1:46710"
+        val lan = "wss://192.168.1.60:46710"
+        val describe = DeckConnection.Companion::describeFailure
+        // What a Fire 7 showed with the computer's app quit and adb reverse still in place.
+        val reset = javax.net.ssl.SSLHandshakeException(
+            "SSL handshake aborted: ssl=0x8eac8ec8: I/O error during system call, Connection reset by peer",
+        )
+        assertEquals(DeckConnection.NOT_RUNNING_ON_USB, describe(reset, cable))
+        assertEquals(
+            "The connection to 192.168.1.60 was cut. Is PerritoDeck running on the computer?",
+            describe(reset, lan),
+        )
+        val refused = java.net.ConnectException("Failed to connect to /192.168.1.60:46710")
+        assertEquals(DeckConnection.NOTHING_ON_USB, describe(refused, cable))
+        assertEquals("Nothing answers at 192.168.1.60. Is PerritoDeck running on the computer?", describe(refused, lan))
+        val noWifi = java.net.ConnectException("connect failed: ENETUNREACH (Network is unreachable)")
+        assertEquals("Can't reach 192.168.1.60 from this network.", describe(noWifi, lan))
+        assertTrue(describe(java.net.SocketTimeoutException("timeout"), lan).startsWith("192.168.1.60 didn't answer."))
+        assertEquals(DeckConnection.PIN_MISMATCH, describe(IOException("pin", CertificateException("x")), lan))
+        // Anything else keeps its own words, without native pointers.
+        assertEquals("odd failure", describe(IllegalStateException("ssl=0xdeadbeef: odd failure"), lan))
+    }
+
+    @Test
+    fun aRefusedCableDoesNotHideWhatTheNetworkAddressSaid() = runBlocking {
+        // No cable (127.0.0.1 refused) and nothing at the network address either: after the
+        // first pass, the network address's explanation is the one shown.
+        val deadCable = ServerSocket(0).use { it.localPort }
+        val deadLan = ServerSocket(0).use { it.localPort }
+        val conn = DeckConnection(http, scope)
+        conn.connect("ws://127.0.0.1:$deadCable", hello, fallbacks = listOf("ws://127.0.0.2:$deadLan"))
+        // Attempt 4 comes after the cable was refused a second time.
+        val shown = withTimeout(10_000) {
+            conn.state.first { it is ConnState.Connecting && it.attempt >= 4 }
+        } as ConnState.Connecting
+        assertEquals("Nothing answers at 127.0.0.2. Is PerritoDeck running on the computer?", shown.lastError)
+        conn.disconnect()
+    }
+
+    @Test
     fun fallsThroughADeadAddressWithoutReportingIt() = runBlocking {
         // 127.0.0.1 comes first on every connect, and without a USB cable it's refused.
         val deadPort = ServerSocket(0).use { it.localPort }

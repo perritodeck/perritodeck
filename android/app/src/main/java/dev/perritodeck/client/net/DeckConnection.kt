@@ -177,7 +177,9 @@ class DeckConnection(
                     return
                 }
                 is SessionEnd.Retry -> {
-                    lastError = end.reason
+                    // 127.0.0.1 is refused whenever there's no cable, so with other addresses
+                    // to try, what they said is the better explanation.
+                    if (end.reason != NOTHING_ON_USB || urls.size == 1) lastError = end.reason
                     if (end.wasConnected) {
                         attempt = 0
                         first = i
@@ -225,8 +227,7 @@ class DeckConnection(
                 events.trySend(WsEvent.Closed(reason.ifEmpty { "connection closed" }))
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                val pinFailure = generateSequence(t) { it.cause }.any { it is java.security.cert.CertificateException }
-                events.trySend(WsEvent.Failure(if (pinFailure) PIN_MISMATCH else t.message ?: t.javaClass.simpleName))
+                events.trySend(WsEvent.Failure(describeFailure(t, url)))
             }
         })
         socket = ws
@@ -327,6 +328,34 @@ class DeckConnection(
 
     companion object {
         const val OTHER_COMPUTER_ON_USB = "The USB cable leads to a different computer."
+        const val NOTHING_ON_USB = "Nothing answers over the USB cable."
+        const val NOT_RUNNING_ON_USB = "PerritoDeck isn't running on the computer this tablet is plugged into."
+
+        /**
+         * What to tell the person when connecting to [url] failed with [t]. The exception's
+         * own text is written for developers: Conscrypt's reads "SSL handshake aborted:
+         * ssl=0x8eac8ec8: I/O error during system call, Connection reset by peer".
+         */
+        fun describeFailure(t: Throwable, url: String): String {
+            val chain = generateSequence(t) { it.cause }.toList()
+            if (chain.any { it is java.security.cert.CertificateException }) return PIN_MISMATCH
+            val host = hostOf(url)
+            val overCable = isLoopback(host)
+            val text = chain.joinToString(" ") { it.message.orEmpty() }.lowercase()
+            return when {
+                chain.any { it is java.net.SocketTimeoutException } ->
+                    if (overCable) NOTHING_ON_USB else "$host didn't answer. Is this tablet on the same network as the computer?"
+                chain.any { it is java.net.NoRouteToHostException || it is java.net.UnknownHostException } ||
+                    "unreachable" in text -> "Can't reach $host from this network."
+                chain.any { it is java.net.ConnectException } ->
+                    if (overCable) NOTHING_ON_USB else "Nothing answers at $host. Is PerritoDeck running on the computer?"
+                // Over the cable, adb on the tablet takes the connection and then drops it
+                // when nothing listens on the computer's end.
+                chain.any { it is javax.net.ssl.SSLException || it is java.net.SocketException || it is java.io.EOFException } ->
+                    if (overCable) NOT_RUNNING_ON_USB else "The connection to $host was cut. Is PerritoDeck running on the computer?"
+                else -> (t.message ?: t.javaClass.simpleName).replace(Regex("ssl=0x[0-9a-fA-F]+: "), "")
+            }
+        }
 
         private fun hostOf(url: String): String =
             url.substringAfter("://").substringBefore('/').substringBeforeLast(':').removeSurrounding("[", "]")
