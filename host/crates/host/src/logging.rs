@@ -67,6 +67,16 @@ impl LogOptions {
 type Reloader = Box<dyn Fn(bool) + Send + Sync>;
 static RELOAD: OnceLock<Reloader> = OnceLock::new();
 
+/// Libraries quietened unless `RUST_LOG` says otherwise. fontdb (the font list key
+/// images are drawn with) warns at every start about each broken font file in the
+/// system's fonts folder, which PerritoDeck can do nothing about.
+const QUIET: &str = "fontdb=error";
+
+/// The filter when `RUST_LOG` isn't set.
+fn default_filter(level: &str) -> String {
+    format!("{level},{QUIET}")
+}
+
 fn filter(base: &str, detailed: bool) -> EnvFilter {
     let text = if detailed {
         format!("{base},perritodeck=debug")
@@ -82,7 +92,7 @@ pub fn init(opts: LogOptions) -> Option<PathBuf> {
     let base = std::env::var("RUST_LOG")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| opts.level.to_owned());
+        .unwrap_or_else(|| default_filter(opts.level));
     let (filter_layer, handle) = reload::Layer::new(filter(&base, opts.detailed));
     let mut file_problem = None;
     let file = opts
@@ -692,6 +702,48 @@ mod tests {
         assert_eq!(current.trim_end(), line(45));
         let all: Vec<String> = (0..46).map(line).collect();
         assert_eq!(tail(dir.path(), 1000), all);
+    }
+
+    #[test]
+    fn font_warnings_stay_out_of_the_default_log() {
+        #[derive(Clone, Default)]
+        struct Seen(Arc<Mutex<Vec<u8>>>);
+        impl Write for Seen {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let logged = |text: &str, detailed: bool| {
+            let seen = Seen::default();
+            let writer = seen.clone();
+            let subscriber = tracing_subscriber::registry()
+                .with(filter(text, detailed))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(move || writer.clone()),
+                );
+            tracing::subscriber::with_default(subscriber, || {
+                tracing::warn!(target: "fontdb", "Failed to load a font face 0");
+                tracing::error!(target: "fontdb", "no fonts at all");
+                tracing::warn!(target: "perritodeck_host", "one of ours");
+            });
+            let out = seen.0.lock().unwrap().clone();
+            String::from_utf8(out).unwrap()
+        };
+        for detailed in [false, true] {
+            let out = logged(&default_filter("info"), detailed);
+            assert!(!out.contains("font face"), "{out}");
+            assert!(out.contains("no fonts at all"), "{out}");
+            assert!(out.contains("one of ours"), "{out}");
+        }
+        // `RUST_LOG` replaces the default, so it can bring them back.
+        let out = logged("info", false);
+        assert!(out.contains("font face"), "{out}");
     }
 
     #[test]
