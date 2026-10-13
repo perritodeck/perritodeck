@@ -45,7 +45,13 @@ pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Windows processes whose windows are the shell rather than an app. Their windows
 /// being in front shouldn't switch profiles.
-const SHELL_PROCESSES: [&str; 14] = [
+const SHELL_PROCESSES: [&str; 16] = [
+    // Stands in for a hung app: Windows swaps a window that stops responding for a
+    // "Not Responding" copy of it, which the Desktop Window Manager owns.
+    "dwm",
+    // Windows' own error boxes ("There is no disk in the drive", an app that can't
+    // start), and the hung apps' copies on older Windows.
+    "csrss",
     "ShellExperienceHost", // notifications and calendar; Windows 10's Action Center too
     "ShellHost",           // Windows 11 24H2+: Quick Settings, the volume mixer, Cast
     "StartMenuExperienceHost",
@@ -173,7 +179,8 @@ mod imp {
         };
         // Another account's processes can't be opened (an app run as administrator
         // with an admin's password, as work PCs do), nor games under some anti-cheat.
-        // The system's process list still names them.
+        // The system's process list still names them. Windows' own processes can't be
+        // opened either; those with windows that come to the front are shell.
         named.or_else(|| listed_name(pid))
     }
 
@@ -382,6 +389,10 @@ mod tests {
         assert!(is_windows_shell("TextInputHost", ""));
         // The Store apps' frame host is never the app itself.
         assert!(is_windows_shell("ApplicationFrameHost", ""));
+        // A hung app's stand-in window, and Windows' error boxes. Neither process can be
+        // opened, so they're named from the process list.
+        assert!(is_windows_shell("dwm", "Ghost"));
+        assert!(is_windows_shell("csrss", "#32770"));
         // Explorer's hidden window while an app starts, its XAML surfaces and the Run box.
         assert!(is_windows_shell("explorer", "ForegroundStaging"));
         assert!(is_windows_shell("explorer", "Windows.UI.Core.CoreWindow"));
@@ -406,6 +417,28 @@ mod tests {
         assert_eq!(imp::process_name(4).as_deref(), Some("System"));
         // Process ids are multiples of 4, so there's never a 4001.
         assert_eq!(imp::listed_name(4001), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_own_processes_with_windows_in_front_are_shell() {
+        use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+
+        let system = System::new_with_specifics(
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
+        );
+        let mut checked = 0;
+        for (pid, process) in system.processes() {
+            let exe = process.name().to_string_lossy();
+            if exe.eq_ignore_ascii_case("dwm.exe") || exe.eq_ignore_ascii_case("csrss.exe") {
+                // They can't be opened, so this is the name from the process list.
+                let name = imp::process_name(pid.as_u32()).unwrap();
+                assert!(is_windows_shell(&name, ""), "{name}");
+                checked += 1;
+            }
+        }
+        // There's a csrss for every session, and one for the services.
+        assert!(checked >= 2);
     }
 
     #[cfg(windows)]
