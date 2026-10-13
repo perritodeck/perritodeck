@@ -141,6 +141,21 @@ pub fn network_categories() -> Vec<String> {
 
 #[cfg(windows)]
 fn windows_network_categories() -> Option<Vec<String>> {
+    let out = powershell(
+        "Get-NetConnectionProfile | ForEach-Object { '{0}: {1}' -f $_.InterfaceAlias, $_.NetworkCategory }",
+    )?;
+    Some(parse_categories(&out))
+}
+
+/// Runs a Windows PowerShell command and returns what it printed, or `None` if it
+/// couldn't start or didn't finish within a few seconds.
+///
+/// Windows PowerShell writes to a pipe in the console's old code page (437, 850, ...),
+/// so one adapter called, say, "Conexión de área local" isn't valid UTF-8. The command
+/// asks for UTF-8 first, and anything that still isn't is replaced rather than losing
+/// the whole answer.
+#[cfg(windows)]
+fn powershell(command: &str) -> Option<String> {
     use std::io::Read as _;
     use std::os::windows::process::CommandExt as _;
     use std::process::{Command, Stdio};
@@ -150,13 +165,9 @@ fn windows_network_categories() -> Option<Vec<String>> {
     // By full path: a `powershell` earlier on PATH could be anything.
     let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
     let exe = std::path::Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let command = format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; {command}");
     let mut child = Command::new(exe)
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-NetConnectionProfile | ForEach-Object { '{0}: {1}' -f $_.InterfaceAlias, $_.NetworkCategory }",
-        ])
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -173,9 +184,9 @@ fn windows_network_categories() -> Option<Vec<String>> {
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let mut out = String::new();
-    child.stdout.take()?.read_to_string(&mut out).ok()?;
-    Some(parse_categories(&out))
+    let mut out = Vec::new();
+    child.stdout.take()?.read_to_end(&mut out).ok()?;
+    Some(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Keeps the `<adapter>: <category>` lines, in case anything else was printed.
@@ -277,6 +288,20 @@ mod tests {
                 "Corp: DomainAuthenticated"
             ]
         );
+        // A name in the console's old code page (here 437's "ó") costs only that letter.
+        let out = String::from_utf8_lossy(b"Conexi\xa2n: Public\r\nWi-Fi: Private\r\n");
+        assert_eq!(
+            parse_categories(&out),
+            ["Conexi\u{fffd}n: Public", "Wi-Fi: Private"]
+        );
+    }
+
+    /// Windows PowerShell's output arrives as UTF-8 whatever the console's code page.
+    #[cfg(windows)]
+    #[test]
+    fn powershell_output_keeps_accented_letters() {
+        let out = powershell("'Conexión de área local: Public'").unwrap();
+        assert_eq!(out.trim(), "Conexión de área local: Public");
     }
 
     /// Asks Windows for real (read-only): whatever it says is in the expected shape.
