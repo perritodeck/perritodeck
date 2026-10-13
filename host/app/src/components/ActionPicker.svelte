@@ -727,7 +727,8 @@
   {:else if choice === "text"}
     <div class="field">
       <label for="{uid}-f4">Text to type</label>
-      <textarea id="{uid}-f4" rows="3" bind:value={text} oninput={() => changed()}></textarea>
+      <!-- The host refuses longer texts (MAX_TEXT_CHARS); maxlength counts UTF-16 units, so it never lets more through. -->
+      <textarea id="{uid}-f4" rows="3" maxlength="2000" bind:value={text} oninput={() => changed()}></textarea>
     </div>
   {:else if choice === "media"}
     <div class="field">
