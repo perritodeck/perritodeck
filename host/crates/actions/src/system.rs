@@ -147,6 +147,71 @@ fn text_pieces(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
+/// The modifiers to hold and the key to press for a chord. On Windows a character can
+/// bring modifiers of its own (see `windows_char`).
+fn resolve(chord: &Chord) -> Result<(Vec<Modifier>, enigo::Key), ActionError> {
+    #[cfg(windows)]
+    if let Key::Char(c) = chord.key {
+        return windows_char(c, &chord.modifiers, win::vk_scan);
+    }
+    Ok((chord.modifiers.clone(), main_key(chord.key)?))
+}
+
+/// A hotkey character on Windows, where apps see virtual keys and the keyboard layout
+/// decides which key types which character. `vk_scan` is `VkKeyScanExW` for the layout of
+/// the window in front.
+#[cfg(any(windows, test))]
+fn windows_char(
+    c: char,
+    modifiers: &[Modifier],
+    vk_scan: impl FnOnce(char) -> i16,
+) -> Result<(Vec<Modifier>, enigo::Key), ActionError> {
+    // Letters and digits go by virtual key (VK_A to VK_Z and VK_0 to VK_9 are their ASCII
+    // codes), as Windows shortcuts do on every layout: Ctrl+C is VK_C on AZERTY, Dvorak and
+    // Russian alike, though a Russian layout has no 'c' to look up, and Ctrl+1 stays
+    // unshifted on AZERTY, where typing a 1 needs Shift.
+    if c.is_ascii_alphanumeric() {
+        let vk = u32::from(c.to_ascii_uppercase());
+        return Ok((modifiers.to_vec(), enigo::Key::Other(vk)));
+    }
+    // The virtual key is in the low byte, and the high byte holds the Shift (1), Ctrl (2)
+    // and Alt (4) that type the character on this layout; -1 means no key types it.
+    let found = vk_scan(c);
+    if found < 0 {
+        if modifiers.is_empty() {
+            // On its own it can still be typed: enigo sends it as a character.
+            return Ok((Vec::new(), enigo::Key::Unicode(c)));
+        }
+        // Sent as a character with the modifiers held, no app would see a shortcut.
+        return Err(ActionError::Input(format!(
+            "no key types {c:?} on the current keyboard layout, so it can't be part of a shortcut"
+        )));
+    }
+    let [vk, state] = found.to_le_bytes();
+    if state & !0b111 != 0 {
+        return Err(ActionError::Input(format!(
+            "{c:?} needs a keyboard mode a hotkey can't switch to; use the key it's on"
+        )));
+    }
+    // Add the Shift or AltGr (Ctrl+Alt) the layout needs, so "ctrl+!" is Ctrl+Shift+1 on a
+    // US layout and "@" is AltGr+Q on a German one. Except for '+': "Ctrl+Plus" names the
+    // =/+ key without Shift, the zoom-in shortcut of browsers, editors and terminals, while
+    // Ctrl+Shift+= is a different shortcut in some apps (superscript in Word).
+    let mut all = modifiers.to_vec();
+    if state & 1 != 0 && c != '+' {
+        all.push(Modifier::Shift);
+    }
+    if state & 2 != 0 {
+        all.push(Modifier::Ctrl);
+    }
+    if state & 4 != 0 {
+        all.push(Modifier::Alt);
+    }
+    all.sort();
+    all.dedup();
+    Ok((all, enigo::Key::Other(u32::from(vk))))
+}
+
 fn modifier_key(m: Modifier) -> enigo::Key {
     match m {
         Modifier::Ctrl => enigo::Key::Control,
@@ -220,10 +285,15 @@ fn function_key(n: u8) -> Result<enigo::Key, ActionError> {
 
 impl InputBackend for EnigoInput {
     fn chord(&self, chord: &Chord) -> Result<(), ActionError> {
-        let key = main_key(chord.key)?;
-        blocking(|| {
-            self.with(|e| press_chord(&chord.modifiers, key, Some(KEY_HOLD), |k, d| e.key(k, d)))
-        })
+        let (modifiers, key) = resolve(chord)?;
+        // On Windows a character no key on the layout types is sent as text, down and up
+        // in one go, so holding it would type it twice. Everything else is a real key.
+        let hold = if cfg!(windows) && matches!(key, enigo::Key::Unicode(_)) {
+            None
+        } else {
+            Some(KEY_HOLD)
+        };
+        blocking(|| self.with(|e| press_chord(&modifiers, key, hold, |k, d| e.key(k, d))))
     }
 
     fn text(&self, text: &str) -> Result<(), ActionError> {
@@ -251,6 +321,32 @@ impl InputBackend for EnigoInput {
             MediaKey::Mute => E::VolumeMute,
         };
         self.with(|e| e.key(k, Direction::Click).map_err(input_err))
+    }
+}
+
+/// The Windows calls hotkeys need: the keyboard layout of the window in front.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod win {
+    use windows::Win32::UI::{
+        Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW},
+        WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
+    };
+
+    /// `VkKeyScanExW` for `c` on the keyboard layout of the window in front, the one that
+    /// will read the keys. -1 when no key types it (always for characters beyond U+FFFF).
+    pub fn vk_scan(c: char) -> i16 {
+        let mut units = [0; 2];
+        let units = c.encode_utf16(&mut units);
+        if units.len() != 1 {
+            return -1;
+        }
+        // SAFETY: plain calls without pointers. With no window in front the thread id is 0,
+        // which gives this thread's layout.
+        unsafe {
+            let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
+            VkKeyScanExW(units[0], GetKeyboardLayout(thread))
+        }
     }
 }
 
@@ -399,6 +495,104 @@ mod input_tests {
         });
         assert!(result.is_err());
         assert_eq!(sent, 2);
+    }
+
+    /// `windows_char` with a fixed `VkKeyScanExW` answer.
+    fn on_layout(
+        c: char,
+        modifiers: &[Modifier],
+        scan: i16,
+    ) -> Result<(Vec<Modifier>, E), ActionError> {
+        windows_char(c, modifiers, |_| scan)
+    }
+
+    #[test]
+    fn windows_letters_and_digits_go_by_virtual_key() {
+        // The layout isn't asked: the answer here would be wrong on purpose.
+        for (c, vk) in [
+            ('c', 0x43),
+            ('C', 0x43),
+            ('z', 0x5A),
+            ('0', 0x30),
+            ('9', 0x39),
+        ] {
+            assert_eq!(
+                on_layout(c, &[Modifier::Ctrl], -1).unwrap(),
+                (vec![Modifier::Ctrl], E::Other(vk)),
+                "{c}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_symbols_bring_the_modifiers_the_layout_needs() {
+        use Modifier::{Alt, Ctrl, Shift};
+        // US: '/' is unshifted (0x00BF), '!' is Shift+1 (0x0131), '?' Shift+/ (0x01BF).
+        assert_eq!(
+            on_layout('/', &[Ctrl], 0x00BF).unwrap(),
+            (vec![Ctrl], E::Other(0xBF))
+        );
+        assert_eq!(
+            on_layout('!', &[Ctrl], 0x0131).unwrap(),
+            (vec![Ctrl, Shift], E::Other(0x31))
+        );
+        assert_eq!(
+            on_layout('?', &[Ctrl, Shift], 0x01BF).unwrap(),
+            (vec![Ctrl, Shift], E::Other(0xBF))
+        );
+        assert_eq!(
+            on_layout('!', &[], 0x0131).unwrap(),
+            (vec![Shift], E::Other(0x31))
+        );
+        // German: '@' is AltGr+Q (0x0651), so it gets Ctrl+Alt; Ctrl isn't doubled.
+        assert_eq!(
+            on_layout('@', &[Ctrl], 0x0651).unwrap(),
+            (vec![Ctrl, Alt], E::Other(0x51))
+        );
+        assert_eq!(
+            on_layout('@', &[], 0x0651).unwrap(),
+            (vec![Ctrl, Alt], E::Other(0x51))
+        );
+        // '+' stays the =/+ key without Shift (US 0x01BB), so Ctrl+Plus is zoom-in.
+        assert_eq!(
+            on_layout('+', &[Ctrl], 0x01BB).unwrap(),
+            (vec![Ctrl], E::Other(0xBB))
+        );
+        assert_eq!(
+            on_layout('+', &[Ctrl, Shift], 0x01BB).unwrap(),
+            (vec![Ctrl, Shift], E::Other(0xBB))
+        );
+    }
+
+    #[test]
+    fn windows_characters_off_the_layout() {
+        // Alone it is typed as text; in a shortcut it's an error, not a typed character.
+        assert_eq!(on_layout('€', &[], -1).unwrap(), (vec![], E::Unicode('€')));
+        let err = on_layout('€', &[Modifier::Ctrl], -1)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("current keyboard layout"), "{err}");
+        // A shift state other than Shift, Ctrl and Alt (here Hankaku) can't be pressed.
+        assert!(on_layout('ア', &[], 0x0841).is_err());
+    }
+
+    /// The real lookup, with what gives the same answer on every keyboard layout.
+    #[cfg(windows)]
+    #[test]
+    fn windows_chords_resolve() {
+        let chord = |s: &str| resolve(&s.parse().unwrap());
+        assert_eq!(
+            chord("Ctrl+Shift+M").unwrap(),
+            (vec![Modifier::Ctrl, Modifier::Shift], E::Other(0x4D))
+        );
+        assert_eq!(
+            chord("Ctrl+1").unwrap(),
+            (vec![Modifier::Ctrl], E::Other(0x31))
+        );
+        assert_eq!(chord("Alt+F4").unwrap(), (vec![Modifier::Alt], E::F4));
+        // No layout has a key for a character beyond U+FFFF.
+        assert!(chord("Ctrl+😀").is_err());
+        assert_eq!(chord("😀").unwrap(), (vec![], E::Unicode('😀')));
     }
 }
 
