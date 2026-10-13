@@ -844,10 +844,25 @@ struct Assistant {
 
 impl Assistant {
     fn connect(url: String, token: String) -> Self {
-        use tokio::io::AsyncBufReadExt;
         let (client, bridge_side) = tokio::io::duplex(1 << 16);
         let (bin, bout) = tokio::io::split(bridge_side);
         tokio::spawn(async move { perritodeck_mcp::bridge(&url, &token, bin, bout).await });
+        Self::over(client)
+    }
+
+    /// Through the bridge as `perritodeck-host mcp` runs it: it finds the endpoint from
+    /// the data folder.
+    fn for_data_dir(dir: PathBuf) -> Self {
+        let (client, bridge_side) = tokio::io::duplex(1 << 16);
+        let (bin, bout) = tokio::io::split(bridge_side);
+        tokio::spawn(async move {
+            perritodeck_mcp::bridge_with(|| mcp::bridge_endpoint(&dir), bin, bout).await
+        });
+        Self::over(client)
+    }
+
+    fn over(client: tokio::io::DuplexStream) -> Self {
+        use tokio::io::AsyncBufReadExt;
         let (read, write) = tokio::io::split(client);
         Self {
             write,
@@ -1031,6 +1046,44 @@ async fn the_mcp_endpoint_follows_the_settings_and_answers_from_the_host() {
     assert!(report.contains("AI assistants (MCP)"), "{report}");
     assert!(report.contains("9.9.9"));
     assert!(!report.contains(&new_token));
+}
+
+#[tokio::test]
+async fn the_bridge_keeps_working_after_a_new_token_or_port() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(quiet_host(dir.path()).await);
+    let mut m = host.mcp_view().settings;
+    m.enabled = true;
+    m.port = free_port();
+    host.set_mcp(m.clone()).await.unwrap();
+    assert_eq!(
+        mcp::bridge_endpoint(dir.path()).url,
+        format!("http://127.0.0.1:{}/mcp", m.port)
+    );
+
+    let mut a = Assistant::for_data_dir(dir.path().to_owned());
+    let init = a
+        .request(
+            "initialize",
+            serde_json::json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}),
+        )
+        .await;
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
+    a.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+        .await;
+    let (err, text) = a.tool("list_profiles", serde_json::json!({})).await;
+    assert!(!err, "{text}");
+
+    // "Make a new token" in Settings.
+    host.new_mcp_token().await.unwrap();
+    let (err, text) = a.tool("list_profiles", serde_json::json!({})).await;
+    assert!(!err, "after a new token: {text}");
+
+    // "Port for assistants" in Settings.
+    m.port = free_port();
+    host.set_mcp(m).await.unwrap();
+    let (err, text) = a.tool("list_profiles", serde_json::json!({})).await;
+    assert!(!err, "after a new port: {text}");
 }
 
 #[tokio::test]

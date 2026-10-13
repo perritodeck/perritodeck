@@ -20,7 +20,7 @@
 //!   host runs at a time), so `perritodeck-host mcp` runs this bridge: it forwards each
 //!   line to the running host's HTTP endpoint and prints the answers. The assistant's
 //!   config then only needs the command; the bridge reads the port and token from the
-//!   host's settings.
+//!   host's settings, and reads them again after they change.
 //!
 //! [`stdio_client_config`] and [`http_client_config`] make the JSON snippet an
 //! assistant's config file needs.
@@ -59,7 +59,7 @@ use std::{future::Future, pin::Pin};
 
 use serde::{Deserialize, Serialize};
 
-pub use bridge::{bridge, bridge_stdio_to_http};
+pub use bridge::{bridge, bridge_stdio_to_http, bridge_with, Endpoint};
 pub use config::{
     claude_code_http_command, claude_code_stdio_command, http_client_config, stdio_client_config,
     SERVER_KEY,

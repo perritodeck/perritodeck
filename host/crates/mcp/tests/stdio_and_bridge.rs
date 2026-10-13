@@ -2,13 +2,19 @@
 
 mod common;
 
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
 
 use common::*;
-use perritodeck_mcp::{bridge, serve_http, serve_stream, HttpOptions};
+use perritodeck_mcp::{bridge, bridge_with, serve_http, serve_stream, Endpoint, HttpOptions};
 use serde_json::{json, Value};
 use tokio::{
-    io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines},
+    io::{duplex, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines},
     time::timeout,
 };
 
@@ -102,6 +108,18 @@ impl Bridge {
         let (client, bridge_side) = duplex(1 << 16);
         let (bin, bout) = tokio::io::split(bridge_side);
         tokio::spawn(async move { bridge(&url, token, bin, bout).await });
+        Self::over(client)
+    }
+
+    /// A bridge that asks `find` where the endpoint is.
+    fn follow(find: impl FnMut() -> Endpoint + Send + 'static) -> Self {
+        let (client, bridge_side) = duplex(1 << 16);
+        let (bin, bout) = tokio::io::split(bridge_side);
+        tokio::spawn(async move { bridge_with(find, bin, bout).await });
+        Self::over(client)
+    }
+
+    fn over(client: DuplexStream) -> Self {
         let (read, write) = tokio::io::split(client);
         Self {
             write,
@@ -198,13 +216,124 @@ async fn bridge_with_a_wrong_token() {
     b.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}})).await;
     let r = b.recv().await;
     assert_eq!(r["id"], 1);
-    assert!(
-        r["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("access token"),
-        "{r}"
-    );
+    let message = r["error"]["message"].as_str().unwrap();
+    assert!(message.contains("access token"), "{r}");
+    // Not the host's advice about headers, which the person never sees.
+    assert!(!message.contains("Authorization"), "{r}");
+}
+
+#[tokio::test]
+async fn bridge_follows_a_new_token_and_port() {
+    const NEW_TOKEN: &str = "new-token-9876543210";
+    let fake = Fake::new();
+    fake.allow(true, false, false);
+    let server = serve_http(fake.clone(), HttpOptions::new(TOKEN).port(0))
+        .await
+        .unwrap();
+    let port = server.local_addr().port();
+    let endpoint = Arc::new(Mutex::new(Endpoint {
+        url: server.url(),
+        token: TOKEN.into(),
+    }));
+    let looked = Arc::new(AtomicUsize::new(0));
+    let mut b = Bridge::follow({
+        let (endpoint, looked) = (endpoint.clone(), looked.clone());
+        move || {
+            looked.fetch_add(1, Ordering::SeqCst);
+            endpoint.lock().unwrap().clone()
+        }
+    });
+    b.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}})).await;
+    assert_eq!(b.recv().await["result"]["protocolVersion"], "2025-06-18");
+    b.send(json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+        .await;
+    b.send(json!({"jsonrpc":"2.0","id":2,"method":"ping"}))
+        .await;
+    assert_eq!(b.recv().await["id"], 2);
+    assert_eq!(looked.load(Ordering::SeqCst), 1, "only at the start");
+
+    // A new token restarts the endpoint. The old token is refused, so the bridge looks
+    // again, then starts a new session on the restarted endpoint.
+    server.shutdown().await;
+    let server = serve_http(fake.clone(), HttpOptions::new(NEW_TOKEN).port(port))
+        .await
+        .unwrap();
+    endpoint.lock().unwrap().token = NEW_TOKEN.into();
+    b.send(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"press_key","arguments":{"row":1,"col":1}}})).await;
+    let r = b.recv().await;
+    assert_eq!(r["id"], 3);
+    assert_eq!(r["result"]["isError"], false, "{r}");
+
+    // A new port: nothing listens on the old one.
+    server.shutdown().await;
+    let server = serve_http(fake.clone(), HttpOptions::new(NEW_TOKEN).port(0))
+        .await
+        .unwrap();
+    endpoint.lock().unwrap().url = server.url();
+    b.send(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"press_key","arguments":{"row":1,"col":2}}})).await;
+    let r = b.recv().await;
+    assert_eq!(r["id"], 4);
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    // Stateless requests follow both too.
+    server.shutdown().await;
+    let server = serve_http(fake.clone(), HttpOptions::new(TOKEN).port(0))
+        .await
+        .unwrap();
+    *endpoint.lock().unwrap() = Endpoint {
+        url: server.url(),
+        token: TOKEN.into(),
+    };
+    b.send(json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"press_key","arguments":{"row":1,"col":3},"_meta":modern_meta()}})).await;
+    let r = b.recv().await;
+    assert_eq!(r["id"], 5);
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    assert_eq!(fake.pressed.lock().unwrap().len(), 3, "each press ran once");
+}
+
+#[tokio::test]
+async fn bridge_never_sends_a_message_twice_once_the_host_had_it() {
+    // A host that reads the message and hangs up without answering.
+    let rude = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let rude_url = format!("http://{}/mcp", rude.local_addr().unwrap());
+    let accepted = Arc::new(AtomicUsize::new(0));
+    tokio::spawn({
+        let accepted = accepted.clone();
+        async move {
+            while let Ok((mut s, _)) = rude.accept().await {
+                accepted.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf).await;
+            }
+        }
+    });
+    // Looking again would find a host that works, and press the key a second time.
+    let fake = Fake::new();
+    fake.allow(true, false, false);
+    let good = serve_http(fake.clone(), HttpOptions::new(TOKEN).port(0))
+        .await
+        .unwrap();
+    let looked = Arc::new(AtomicUsize::new(0));
+    let mut b = Bridge::follow({
+        let (looked, good_url) = (looked.clone(), good.url());
+        move || {
+            let first = looked.fetch_add(1, Ordering::SeqCst) == 0;
+            Endpoint {
+                url: if first {
+                    rude_url.clone()
+                } else {
+                    good_url.clone()
+                },
+                token: TOKEN.into(),
+            }
+        }
+    });
+    b.send(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"press_key","arguments":{"row":1,"col":1},"_meta":modern_meta()}})).await;
+    let r = b.recv().await;
+    assert_eq!(r["id"], 1);
+    assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    assert_eq!(looked.load(Ordering::SeqCst), 1, "didn't look again");
+    assert!(fake.pressed.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

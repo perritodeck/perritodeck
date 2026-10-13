@@ -129,13 +129,23 @@ pub fn bridge_args(data_dir: &Path) -> Vec<String> {
     args
 }
 
+/// Where the stdio bridge finds the host that uses `data_dir`: the port in its settings
+/// and its saved token, read afresh each time.
+pub fn bridge_endpoint(data_dir: &Path) -> perritodeck_mcp::Endpoint {
+    let settings = crate::AppSettings::load(&crate::settings_path(data_dir));
+    perritodeck_mcp::Endpoint {
+        url: url(settings.mcp.port),
+        token: read_token(data_dir).unwrap_or_default(),
+    }
+}
+
 /// `perritodeck-host mcp` (and the app's `mcp` argument): the stdio bridge to the
 /// running host's endpoint, or with `config` the snippets for an assistant's settings.
 /// Only the protocol (or the snippets) goes to stdout.
 pub async fn run_command(data_dir: &Path, config: bool) -> Result<(), String> {
-    let settings = crate::AppSettings::load(&crate::settings_path(data_dir));
-    let port = settings.mcp.port;
     if config {
+        let settings = crate::AppSettings::load(&crate::settings_path(data_dir));
+        let port = settings.mcp.port;
         let token = token_or_new(data_dir)?;
         let command = std::env::current_exe()
             .map(|p| p.display().to_string())
@@ -162,9 +172,10 @@ pub async fn run_command(data_dir: &Path, config: bool) -> Result<(), String> {
         return Ok(());
     }
     // Runs even when the endpoint is off or the host isn't running, so the assistant
-    // shows the bridge's explanation instead of a server that failed to start.
-    let token = read_token(data_dir).unwrap_or_default();
-    perritodeck_mcp::bridge_stdio_to_http(&url(port), &token)
+    // shows the bridge's explanation instead of a server that failed to start. The
+    // bridge looks the port and token up again if they stop working, so a new token or
+    // port doesn't leave the assistant stuck until it restarts the bridge.
+    perritodeck_mcp::bridge_stdio_to_http(|| bridge_endpoint(data_dir))
         .await
         .map_err(|e| format!("the MCP bridge stopped: {e}"))
 }
