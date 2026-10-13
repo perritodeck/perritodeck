@@ -280,7 +280,12 @@ class DeckConnection(
 
     private sealed interface WsEvent {
         data object Open : WsEvent
-        data class Text(val text: String) : WsEvent
+        /**
+         * [at] is when the frame arrived. Key round trips are timed to it: the loop runs on the
+         * main thread, behind drawing and the images ahead, which on a Fire 7 added 15–500 ms
+         * that had nothing to do with the network.
+         */
+        data class Text(val text: String, val at: Long) : WsEvent
         data class Closed(val reason: String) : WsEvent
         data class Failure(val reason: String, val blocked: Boolean = false) : WsEvent
     }
@@ -303,7 +308,7 @@ class DeckConnection(
                 events.trySend(WsEvent.Open)
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
-                events.trySend(WsEvent.Text(text))
+                events.trySend(WsEvent.Text(text, nanoTime()))
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
@@ -372,7 +377,7 @@ class DeckConnection(
                                 })
                             }
                             is Message.KeyAckMsg -> msg.id?.let { id ->
-                                pendingAcks.remove(id)?.let { sent -> _rttMs.value = (nanoTime() - sent) / 1e6 }
+                                pendingAcks.remove(id)?.let { sent -> _rttMs.value = (event.at - sent) / 1e6 }
                             }
                             is Message.Error -> when (m.payload.code) {
                                 ErrorCode.UNAUTHORIZED -> return SessionEnd.Fatal(m.payload.message)

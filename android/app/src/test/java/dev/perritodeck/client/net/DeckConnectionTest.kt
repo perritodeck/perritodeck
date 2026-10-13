@@ -12,6 +12,7 @@ import dev.perritodeck.client.protocol.Layout
 import dev.perritodeck.client.protocol.Message
 import dev.perritodeck.client.protocol.Platform
 import dev.perritodeck.client.protocol.Screen
+import dev.perritodeck.client.protocol.SetImage
 import dev.perritodeck.client.protocol.SetTitle
 import dev.perritodeck.client.protocol.SliderValue
 import dev.perritodeck.client.protocol.Welcome
@@ -127,6 +128,41 @@ class DeckConnectionTest {
 
         conn.disconnect()
         assertEquals(ConnState.Idle, conn.state.value)
+    }
+
+    @Test
+    fun theRoundTripLeavesOutFramesBeingHandledAheadOfTheAck() = runBlocking {
+        val layout = Layout(1, 1, listOf(KeySpec(0, "A", "#000000", "#FFFFFF")))
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val env = (Codec.decode(text) as Decoded.Known).envelope
+                when (env.msg) {
+                    is Message.HelloMsg -> {
+                        webSocket.send(Codec.encode(Envelope(Message.WelcomeMsg(Welcome("fake", "0", 1, 2000)))))
+                        webSocket.send(Codec.encode(Envelope(Message.LayoutMsg(layout))))
+                    }
+                    // A new page's image right before the ack, as a page key brings.
+                    is Message.KeyDown -> {
+                        webSocket.send(Codec.encode(Envelope(Message.SetImageMsg(SetImage(0, "data:image/png;base64,AA==")))))
+                        webSocket.send(Codec.encode(Envelope(Message.KeyAckMsg(KeyAck(0, 5)), env.id)))
+                    }
+                    else -> Unit
+                }
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null)
+            }
+        }))
+
+        val slowImage: (String) -> Any? = { Thread.sleep(600); it }
+        val conn = DeckConnection(http, scope, decodeImage = slowImage)
+        conn.connect(url(), hello)
+        withTimeout(5_000) { conn.layout.first { it != null } }
+
+        conn.keyDown(0)
+        val rtt = withTimeout(5_000) { conn.rttMs.first { it != null } }!!
+        assertTrue("the ack arrived while the image was decoding, not after: $rtt ms", rtt < 500)
+        conn.disconnect()
     }
 
     @Test
