@@ -24,12 +24,18 @@ pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Windows processes whose windows are the shell rather than an app. Their windows
 /// being in front shouldn't switch profiles.
-const SHELL_PROCESSES: [&str; 7] = [
-    "ShellExperienceHost",
+const SHELL_PROCESSES: [&str; 13] = [
+    "ShellExperienceHost", // notifications and calendar; Windows 10's Action Center too
+    "ShellHost",           // Windows 11 24H2+: Quick Settings, the volume mixer, Cast
     "StartMenuExperienceHost",
-    "SearchHost",
-    "SearchApp",
-    "SearchUI",
+    "SearchHost", // Windows 11 Search
+    "SearchApp",  // Windows 10 Search
+    "SearchUI",   // Windows 10 Search before 2004
+    "WidgetBoard",
+    "Widgets",            // the widget board in earlier Windows 11 releases
+    "ScreenClippingHost", // the Win+Shift+S overlay
+    "TextInputHost",      // emoji panel, clipboard history, touch keyboard
+    "ClickToDo",          // Copilot+ PCs' Click to Do overlay
     "LockApp",
     "consent", // UAC prompt
 ];
@@ -293,6 +299,12 @@ mod tests {
         assert!(is_windows_shell("SearchHost", "Windows.UI.Core.CoreWindow"));
         assert!(is_windows_shell("consent", "anything"));
         assert!(is_windows_shell("startmenuexperiencehost", ""));
+        // Windows 11 24H2+ Quick Settings and volume mixer, and the widget board.
+        assert!(is_windows_shell("ShellHost", "ControlCenterWindow"));
+        assert!(is_windows_shell("WidgetBoard", ""));
+        assert!(is_windows_shell("Widgets", ""));
+        assert!(is_windows_shell("ScreenClippingHost", ""));
+        assert!(is_windows_shell("TextInputHost", ""));
         // File Explorer is an app someone may have a profile for.
         assert!(!is_windows_shell("explorer", "CabinetWClass"));
         assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
