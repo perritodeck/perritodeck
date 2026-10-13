@@ -1258,6 +1258,39 @@ async fn the_bridge_keeps_working_after_a_new_token_or_port() {
 }
 
 #[test]
+fn real_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("app-settings.json");
+    std::fs::write(&file, "{}").unwrap();
+    // An ordinary file is where it says (no `\\?\` prefix), and isn't in a package.
+    let real = crate::real_path(&file);
+    assert!(
+        !real.to_string_lossy().starts_with(r"\\?\"),
+        "{}",
+        real.display()
+    );
+    assert_eq!(
+        std::fs::canonicalize(&real).unwrap(),
+        std::fs::canonicalize(&file).unwrap()
+    );
+    assert!(!crate::redirected_into_package(&file));
+    // Something that doesn't exist stays as given.
+    let missing = dir.path().join("nope");
+    assert_eq!(crate::real_path(&missing), missing);
+}
+
+#[tokio::test]
+async fn start_at_login_is_remembered() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    assert!(!host.start_at_login());
+    host.set_start_at_login(true).unwrap();
+    assert!(host.start_at_login());
+    let saved = crate::AppSettings::load(&crate::settings_path(dir.path()));
+    assert!(saved.start_at_login);
+}
+
+#[test]
 fn the_bridge_finds_the_same_data_folder_as_the_host() {
     assert_eq!(
         perritodeck_mcp::cli::default_data_dir(),

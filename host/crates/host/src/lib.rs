@@ -120,6 +120,58 @@ pub fn default_data_dir() -> Result<PathBuf> {
         .context("could not find a settings folder for this user")
 }
 
+/// Where a file or folder really is, or `path` itself if that can't be found out.
+///
+/// A program started from inside a packaged Windows app (MSIX, such as Claude's desktop
+/// app, or a terminal it opened) sees AppData through a redirection into that app's own
+/// folder (`…\Packages\<app>\LocalCache\…`); only the final path shows it. Windows
+/// Firewall and every program started normally see the real place.
+pub fn real_path(path: &Path) -> PathBuf {
+    let Ok(real) = std::fs::canonicalize(path) else {
+        return path.to_owned();
+    };
+    let text = real.to_string_lossy();
+    let plain = match (text.strip_prefix(r"\\?\UNC\"), text.strip_prefix(r"\\?\")) {
+        (Some(unc), _) => PathBuf::from(format!(r"\\{unc}")),
+        (None, Some(local)) => PathBuf::from(local),
+        _ => return real,
+    };
+    // The same place, written differently (case, short names): keep the original.
+    if plain
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&path.to_string_lossy())
+    {
+        path.to_owned()
+    } else {
+        plain
+    }
+}
+
+/// Where the data folder really is (see [`real_path`]). Asked of a file in it: once the
+/// folder exists in both places, the folder itself resolves to the real one while the
+/// files in it are still the redirected copies.
+pub fn real_data_dir(dir: &Path) -> PathBuf {
+    let (cert, _) = HostIdentity::paths(dir);
+    if cert.is_file() {
+        if let Some(parent) = real_path(&cert).parent() {
+            if parent != dir {
+                return parent.to_owned();
+            }
+        }
+    }
+    real_path(dir)
+}
+
+/// Whether Windows redirected `path` into a packaged app's own folder (see [`real_path`]).
+pub fn redirected_into_package(path: &Path) -> bool {
+    in_package_cache(&real_path(path))
+}
+
+fn in_package_cache(real: &Path) -> bool {
+    let real = real.to_string_lossy().to_ascii_lowercase();
+    cfg!(windows) && real.contains(r"\packages\") && real.contains(r"\localcache\")
+}
+
 pub fn devices_path(dir: &Path) -> PathBuf {
     dir.join("devices.json")
 }
@@ -469,6 +521,16 @@ impl Host {
             format!("could not listen on {addr} — is another PerritoDeck host already running?")
         })?;
         let addr = listener.local_addr().unwrap_or(addr);
+
+        let real_dir = real_data_dir(&dir);
+        if in_package_cache(&real_dir) {
+            warn!(
+                "started from inside a packaged app, so Windows keeps PerritoDeck's data in {} \
+                 instead of {}; a PerritoDeck started normally won't see it",
+                real_dir.display(),
+                dir.display()
+            );
+        }
 
         if let Some(shipped) = opts.mcp_bridge.clone() {
             let data = dir.clone();
@@ -922,9 +984,11 @@ impl Host {
                 return fw;
             }
         }
+        // The path Windows Firewall knows this program by: started from inside a packaged
+        // app, the one it sees for itself can be a redirection.
         let fw = std::env::current_exe()
             .ok()
-            .and_then(|exe| discovery::windows_firewall(&exe, self.addr.port()));
+            .and_then(|exe| discovery::windows_firewall(&real_path(&exe), self.addr.port()));
         *cached = Some((std::time::Instant::now(), fw));
         fw
     }
@@ -1045,6 +1109,31 @@ impl Host {
             .lock()
             .expect("settings poisoned")
             .check_updates
+    }
+
+    /// "Start at login" as last chosen in PerritoDeck (see [`AppSettings::start_at_login`]).
+    pub fn start_at_login(&self) -> bool {
+        self.shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .start_at_login
+    }
+
+    pub fn set_start_at_login(&self, on: bool) -> Result<(), String> {
+        let mut settings = self
+            .shared
+            .settings
+            .lock()
+            .expect("settings poisoned")
+            .clone();
+        if settings.start_at_login == on {
+            return Ok(());
+        }
+        settings.start_at_login = on;
+        self.shared.save_settings(&settings)?;
+        *self.shared.settings.lock().expect("settings poisoned") = settings;
+        Ok(())
     }
 
     pub fn set_check_updates(&self, on: bool) -> Result<(), String> {

@@ -124,6 +124,12 @@ pub fn versions(app_version: Option<&str>) -> Section {
 pub fn paths(data_dir: &Path, profile: &Path) -> Section {
     let mut s = Section::new("Paths");
     s.field("data folder", data_dir.display());
+    // Started from inside a packaged app (MSIX), Windows keeps AppData in that app's
+    // own folder, where a PerritoDeck started normally won't look.
+    let real = crate::real_data_dir(data_dir);
+    if real != data_dir {
+        s.field("really at", real.display());
+    }
     s.field("profile", profile.display());
     s.field("logs", logging::logs_dir(data_dir).display());
     s.field("plugins", data_dir.join("plugins").display());

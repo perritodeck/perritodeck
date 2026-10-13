@@ -180,14 +180,45 @@ fn get_autostart(handle: AppHandle) -> Res<bool> {
 }
 
 #[tauri::command]
-fn set_autostart(handle: AppHandle, enabled: bool) -> Res<()> {
+fn set_autostart(handle: AppHandle, app: State<'_, App>, enabled: bool) -> Res<()> {
     let launcher = handle.autolaunch();
     if enabled {
         launcher.enable()
     } else {
         launcher.disable()
     }
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    app.host()?.set_start_at_login(enabled)
+}
+
+/// Keep "Start at login" as the person chose it in PerritoDeck. On Windows an update runs
+/// the old version's uninstaller, which removes the login entry: put it back. If the
+/// entry is there but turned off in Task Manager's Startup tab, that's the person's
+/// choice too, so PerritoDeck follows it.
+fn keep_autostart(handle: &AppHandle, host: &Host) {
+    let launcher = handle.autolaunch();
+    let Ok(on) = launcher.is_enabled() else {
+        return;
+    };
+    let wanted = host.start_at_login();
+    if on && !wanted {
+        // Turned on before PerritoDeck remembered it.
+        let _ = host.set_start_at_login(true);
+    }
+    #[cfg(windows)]
+    if !on && wanted {
+        let name = &handle.package_info().name;
+        let entry = windows_registry::CURRENT_USER
+            .open(r"Software\Microsoft\Windows\CurrentVersion\Run")
+            .and_then(|key| key.get_string(name));
+        if entry.is_ok() {
+            let _ = host.set_start_at_login(false);
+        } else if let Err(e) = launcher.enable() {
+            tracing::warn!("couldn't put \"Start at login\" back: {e}");
+        } else {
+            info!("put \"Start at login\" back (an update or reinstall had removed it)");
+        }
+    }
 }
 
 #[tauri::command]
@@ -805,6 +836,7 @@ pub fn run() {
                 Ok(h) => {
                     info!("host running on {}", h.addr);
                     tauri::async_runtime::block_on(h.apply_mcp());
+                    keep_autostart(app.handle(), h);
                     forward_events(app.handle().clone(), h);
                 }
                 Err(e) => error!("host didn't start: {e}"),

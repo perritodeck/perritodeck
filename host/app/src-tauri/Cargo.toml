@@ -35,6 +35,10 @@ base64 = "0.22"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 tracing = "0.1"
 
+# "Start at login": whether Windows' login entry is still there (already used by sdcompat).
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
+
 # Same patched enigo as the host workspace (see host/vendor/enigo/PERRITODECK.md).
 [patch.crates-io]
 enigo = { path = "../../vendor/enigo" }

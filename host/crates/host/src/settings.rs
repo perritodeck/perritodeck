@@ -16,6 +16,10 @@ pub struct AppSettings {
     pub check_updates: bool,
     /// Write debug-level messages to the log, for bug reports.
     pub detailed_logs: bool,
+    /// "Start at login", as last chosen in PerritoDeck. The system's own entry is the
+    /// switch; this is kept so the app can put the entry back after an update removed
+    /// it (on Windows, an update runs the old version's uninstaller).
+    pub start_at_login: bool,
     /// The local MCP server for AI assistants.
     pub mcp: Mcp,
 }
