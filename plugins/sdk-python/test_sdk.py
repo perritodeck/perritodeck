@@ -351,6 +351,44 @@ class ProgramsForTheUserTest(unittest.TestCase):
         self.sdk.start_for_user('"%s" --profile work' % self.exe)
         self.assertEqual(popen.call_args.kwargs["cwd"], self.folder)
 
+    def test_a_batch_file_found_on_path_runs_hidden(self):
+        shim = self.sdk._path_shim
+        elsewhere = os.path.join(self.home, "perritodeck-not-on-path")
+        self.assertTrue(shim("code.cmd", ""))  # a bare name is looked up on PATH
+        self.assertTrue(shim("BUILD.BAT", ""))
+        on_path = os.pathsep.join([elsewhere, self.folder + os.sep])
+        self.assertTrue(shim(os.path.join(self.folder, "code.cmd"), on_path))
+        self.assertTrue(shim(os.path.join(self.folder, "npm.cmd"), '"%s"' % self.folder))
+        # The user's own script elsewhere, and anything that isn't a batch file.
+        self.assertFalse(shim(os.path.join(self.folder, "backup.bat"), elsewhere))
+        self.assertFalse(shim(os.path.join(self.folder, "backup.bat"), ""))
+        self.assertFalse(shim(self.exe, self.folder))
+        self.assertFalse(shim("notepad", ""))
+        self.assertFalse(shim("", ""))
+
+        popen = self.on("win32")
+        code = os.path.join(self.folder, "code.cmd")
+        open(code, "w").close()
+        with mock.patch.dict(os.environ, {"PATH": self.folder}):
+            self.sdk.start_for_user([code, "--new-window"])
+        kwargs = popen.call_args.kwargs
+        self.assertEqual(kwargs["creationflags"], 0x01000000 | 0x08000000)  # breakaway, no window
+        self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+        with mock.patch.dict(os.environ, {"PATH": ""}):
+            self.sdk.start_for_user([code])  # not on PATH: the user's own script
+        self.assertEqual(popen.call_args.kwargs["creationflags"], 0x01000000 | 0x10)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows only")
+    def test_a_batch_file_on_path_really_runs(self):
+        ran = os.path.join(self.folder, "ran.txt")
+        shim = os.path.join(self.folder, "shim.cmd")
+        with open(shim, "w") as f:
+            f.write('@echo ran> "%s"\r\n' % ran)
+        with mock.patch.dict(os.environ, {"PATH": self.folder + os.pathsep + os.environ.get("PATH", "")}):
+            proc = self.sdk.start_for_user([shim])
+        self.assertEqual(proc.wait(15), 0)
+        self.assertTrue(os.path.exists(ran))
+
     def test_start_inside_a_job_that_cant_be_left(self):
         popen = self.on("win32")
         popen.side_effect = [PermissionError(13, "Access is denied"), mock.DEFAULT]

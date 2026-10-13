@@ -181,16 +181,39 @@ def open_for_user(target, cwd=None):
 def start_for_user(args, cwd=None):
     """Start a program for the user: [program, argument, ...], or on Windows also a
     command line. It keeps running after the plugin stops, and on Windows a console
-    program gets a console window of its own. Returns the subprocess.Popen.
+    program gets a console window of its own, except a batch file found on PATH
+    (code.cmd, say, from shutil.which("code")), which runs hidden. Returns the
+    subprocess.Popen.
 
     It starts in cwd, or else the program's own folder when it's given as a path (as
     a shortcut's "Start in" does; OBS, for one, can't find its files otherwise), or
     else the user's home folder."""
-    folder = cwd or _start_folder(_program(args))
+    program = _program(args)
+    folder = cwd or _start_folder(program)
+    devnull = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if sys.platform == "win32":
+        if _path_shim(program):
+            return _start(args, folder, _CREATE_NO_WINDOW, close_fds=True, **devnull)
         # No pipes at all, so a console program gets its new console's.
         return _start(args, folder, _CREATE_NEW_CONSOLE, close_fds=True)
-    return _start(args, folder, 0, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return _start(args, folder, 0, **devnull)
+
+
+def _path_shim(program, path=None):
+    """Whether `program` is a batch file found on PATH (a bare name, or a file in one
+    of PATH's folders). Those are shims that start the real program (VS Code's
+    code.cmd, npm.cmd), so a console window of theirs would only flash up; Launch
+    keys run them hidden too. A batch file anywhere else is the user's own script and
+    gets a window like any console program."""
+    if not program.lower().endswith((".bat", ".cmd")):
+        return False
+    folder = os.path.dirname(program)
+    if not folder:
+        return True
+    here = os.path.normcase(os.path.abspath(folder))
+    path = os.environ.get("PATH", "") if path is None else path
+    folders = (d.strip().strip('"') for d in path.split(os.pathsep))
+    return any(os.path.normcase(os.path.abspath(d)) == here for d in folders if d)
 
 
 def _start(args, cwd, flags, **kwargs):
