@@ -95,9 +95,9 @@ Tauri UI and drag-and-drop editor (Phase 3), dials and touch strip (Phase 4), pl
 |---|---|
 | Pairing (6-digit code, QR link), TLS with pinned host cert, per-device secrets, revoke | Done — host, fakedeck and Android; 15 host end-to-end tests; emulator test pairs over TLS |
 | `Origin` rejection, cleartext disabled on Android | Done |
-| mDNS advertisement (host) and discovery (Android NsdManager) | Done; untested on a real network until the laptop/Kindle check |
+| mDNS advertisement (host) and discovery (Android NsdManager) | Done; discovery works on a real network with the Fire 7 (2026-10-12) |
 | Actions (hotkey, text, media, open, launch, command, multi) | Done and wired to keys, with ✓/⚠ feedback |
 | Host-rendered key images (Inter, auto-fit titles, PNG icons) | Done for the demo layout; Android draws them |
 | Profiles (TOML), pages/folders/Back, toggles, live titles, reload on save | Done; starter profile created on first run; emulator test drives it |
 | Wayland input | Done via the desktop portal (vendored enigo with a small patch, see `host/vendor/enigo/PERRITODECK.md`) |
-| In-app QR scanning | Replaced by the `perritodeck://pair` link any camera app can open |
+| In-app QR scanning | First replaced by the `perritodeck://pair` link any camera app can open; Perrito now also scans the code itself (CameraX + ZXing, no Play Services) |

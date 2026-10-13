@@ -33,5 +33,5 @@ Not done:
 - Live values through subscriptions (OBS events, Home Assistant WebSocket) instead of
   polling every 2 s.
 
-Needs checking on hardware: slider feel and haptics on the Fire 7, USB on the Fire 7
-(Fire OS needs Amazon's adb driver on Windows).
+Needs checking on hardware: slider feel and haptics on the Fire 7. USB on the Fire 7 works
+(2026-10-12; Fire OS needs Amazon's adb driver on Windows).

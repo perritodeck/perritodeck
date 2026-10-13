@@ -11,29 +11,32 @@ PerritoDeck has two parts:
 - **PerritoDeck** on your computer: a tray app where you lay out buttons by dragging, and the host that draws them and runs their actions.
 - **Perrito** on the tablet: a full-screen grid of live buttons and sliders. It runs on Android 5.1 and newer, including Amazon Fire tablets. An iPhone/iPad version is coming.
 
-**Status: pre-alpha.** It works end to end and is tested in CI on emulators, but there's no published release yet. Expect rough edges and breaking changes. The [roadmap](docs/plan/) shows what's done.
+**Status: pre-alpha.** It works end to end, tested on Windows 11 with an Amazon Fire 7 and in CI on Android emulators, but there's no published release yet. Expect rough edges and breaking changes. The [roadmap](docs/plan/) shows what's done.
 
 ## Screenshots
 
-<!-- TODO: screenshots are being finalised in docs/assets/ (light and *-dark variants).
-     Swap or reorder these once they're final. -->
+<p align="center">
+  <img src="docs/assets/site/devices-hero.png" alt="Perrito on a tablet showing a grid of streaming keys (scenes, mic level, a stream timer) and on a phone showing homelab keys (server status, CPU, uptime checks)" width="80%">
+</p>
+
+The desktop app, in light or dark to match your system:
 
 <p>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-buttons-dark.png">
-    <img src="docs/assets/screenshot-buttons.png" alt="The button editor: a tablet-shaped grid of keys with the key inspector on the right" width="49%">
+    <img src="docs/assets/screenshot-buttons.png" alt="The Buttons page: the profile menu and page tabs at the top, the tablet-shaped grid of keys, and the selected key's settings on the right" width="49%">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-pair-dark.png">
-    <img src="docs/assets/screenshot-pair.png" alt="Pairing a tablet with a QR code" width="49%">
+    <img src="docs/assets/screenshot-pair.png" alt="The Pair a tablet page: a QR code, a six-digit code and the computer's fingerprint" width="49%">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-live-values-dark.png">
-    <img src="docs/assets/screenshot-live-values.png" alt="Keys showing live values such as CPU load and OBS status" width="49%">
+    <img src="docs/assets/screenshot-live-values.png" alt="A key's settings with the live value list open under the title, ready to insert the live OBS scene" width="49%">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-plugins-dark.png">
-    <img src="docs/assets/screenshot-plugins.png" alt="The Plugins page" width="49%">
+    <img src="docs/assets/screenshot-plugins.png" alt="The Plugins page: installed plugins with their status, Restart and Remove buttons, and the plugins that come with PerritoDeck" width="49%">
   </picture>
 </p>
 
@@ -45,7 +48,8 @@ PerritoDeck has two parts:
 - **Sliders** for system volume, Home Assistant light brightness, OBS audio sources, or any program.
 - **Live keys:** CPU, memory, Home Assistant states, OBS scene and recording status, and values from plugins; toggles can follow them. Animated GIF icons.
 - **Profiles** per tablet, switched automatically by the app in front (Windows, macOS and Linux on X11). Export and import as `.perritoprofile` files.
-- **Plugins** in Python or Node.js, with 13 first-party ones (HTTP, MQTT, Now playing, OBS, timers, counters, Wake-on-LAN, weather, Ollama, Proxmox, TrueNAS, GitLab, uptime checks) and an online catalogue.
+- **Plugins** in Python or Node.js, with 24 first-party ones bundled with the app (Twitch, Spotify, OBS, Philips Hue, Elgato Key Light, audio devices, a soundboard, timers, a system monitor, Proxmox, TrueNAS, GitLab, Wake-on-LAN, weather and more; [the full list](plugins/README.md)) and an online catalogue.
+- **AI assistants (MCP):** assistants that speak the Model Context Protocol, such as Claude Desktop and Claude Code, can look at your profiles and live values and, with your permission, press keys and build pages. It's off until you turn it on, and works only on this computer.
 - **Experimental:** run many Stream Deck plugins (`.sdPlugin`, Node.js), and act as a Bitfocus Companion Satellite surface.
 - **Private by design:** pairing with a one-time code or QR, TLS with a pinned certificate, Wi-Fi or a USB cable. No telemetry. The app itself only goes online for the update check and the plugin catalogue, both opt-in.
 - **Command-line host** for headless machines, and `fakedeck`, a test client that needs no tablet.
@@ -58,7 +62,7 @@ The first release isn't out yet. When it is, everything will be on the
 [download page](https://perritodeck.dev/download.html) and on
 [GitHub Releases](https://github.com/perritodeck/perritodeck/releases):
 
-- **Windows** (installer or MSI), **macOS** (universal `.dmg`), **Linux** (AppImage, `.deb`, `.rpm`; Flatpak and AUR later)
+- **Windows** (installer or MSI), **macOS** (universal `.dmg`, once it has been tried on a Mac), **Linux** (AppImage, `.deb`, `.rpm`; Flatpak and AUR later)
 - **Perrito for Android** as an APK, then on F-Droid, IzzyOnDroid and Google Play
 
 Until then, build from source (below).
@@ -119,7 +123,8 @@ so your plugin can use any licence.
 ## Contributing
 
 Bug reports, plugin ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
-(we use DCO sign-off, and never take code from GPL projects) and the
+(sign off every commit with `git commit -s` for the DCO, and never take code from GPL
+projects) and the
 [Code of Conduct](CODE_OF_CONDUCT.md). Please report security problems privately as
 described in [SECURITY.md](SECURITY.md).
 

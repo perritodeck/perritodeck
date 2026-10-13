@@ -87,10 +87,12 @@ plugins, so their actions can go on a tablet key.
 
 Not done (Stream Deck plugins):
 - Dials, touch strips (`Encoder` actions are hidden), multi-actions, `switchToProfile`,
-  `sendToPropertyInspector`, `titleParametersDidChange`, application monitoring.
+  `titleParametersDidChange`, application monitoring. (`sendToPropertyInspector` works;
+  see "Settings pages" above.)
 - The old HTML/JavaScript plugins (they need a browser engine) and native plugins on
   Linux.
-- Not yet tried with real published plugins.
+- Not yet tried with real published plugins: only Elgato's open-source samples
+  (hello-world and counter) have run, on Windows, and no native `.exe` plugin.
 - Before shipping: review how the app may name Elgato's product (nominative "made for
   the Elgato Stream Deck" only; no logos) and each plugin's own license terms.
 
@@ -103,11 +105,15 @@ sliders, multi-touch, haptics and ✓/⚠ flashes, kept awake while shown. `Perr
 (a Swift package with everything but the UI) has XCTest tests against the protocol
 fixtures; the SwiftUI app is generated with XcodeGen (`ios/project.yml`).
 
-**It has never been compiled**: the cloud session has no Swift toolchain and the
-maintainer's laptop runs Windows. First build: a rented Mac (Scaleway Mac mini M2, about
-€4 for the 24-hour minimum) linked to a Claude session, or the `iOS` workflow (manual and
-weekly only, because macOS minutes cost ten times Linux). The protocol now has
+**It has never been compiled**: building it needs macOS and Xcode, and no Mac has been
+available to the project yet. First build: a Mac rented by the day (a Scaleway Mac mini
+M2 costs about €4 for its 24-hour minimum), or the `iOS` workflow (manual and weekly
+only, because macOS minutes cost ten times Linux). That workflow's one scheduled run
+(2026-10-12) never started, because Actions wasn't running for the repository then; once
+the repository is public it runs free on a standard macOS runner. The protocol now has
 `platform: "ios"`.
 
 Not done (iOS): USB connection (iOS has no `adb reverse`), App Store/TestFlight (needs the
-$99/yr Apple Developer Program), localization, a real app icon.
+$99/yr Apple Developer Program), localization, a real app icon, and a privacy manifest
+(`PrivacyInfo.xcprivacy`; `PerritoKit` uses `UserDefaults`, a required-reason API the App
+Store wants declared).

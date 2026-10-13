@@ -47,14 +47,14 @@ Pairing/QR, mDNS, actions, host-rendered images, Tauri UI, plugins, packaging.
 
 ## Definition of done
 - `cargo test` passes, including a fakedeck ↔ host integration test.
-- Android CI builds an APK; it connects to the host from the emulator (laptop) and from the Kindle (tomorrow), shows the demo grid, and presses appear in the host log.
+- Android CI builds an APK; it connects to the host from the emulator and from a Kindle, shows the demo grid, and presses appear in the host log.
 - Median press-to-log latency on LAN reported in the PR description.
 
-## Open questions for the maintainer
-1. **License.** GPL-3.0 lets us borrow from OpenDeck, StreamController and Stream-Pi but means plugin authors and companies must stay GPL-compatible. Apache-2.0 (or MIT) is friendlier for adoption and lets us share code with Companion (and likely TilePad), but we can't copy from the GPL projects. My lean: **Apache-2.0** for the host/client, **MIT** for the plugin SDKs.
-2. **TilePad.** Same Rust + Tauri 2 stack, WebSocket plugins with HTML inspectors, and it already targets Android touchscreens. I couldn't confirm its license or how finished its Android client is. Build PerritoDeck independently, or reach out about collaborating (e.g. PerritoDeck becomes the Android client and protocol, interoperating with TilePad)? My lean: build independently but keep the protocol open enough that a TilePad bridge is easy.
-3. **Which Kindle?** Fire OS 5 is Android 5.1 (API 22), Fire OS 7 is Android 9 (API 28), Fire OS 8 is Android 11 (API 30). The spec says minSdk 26, which would exclude Fire OS 5 tablets. Old Kindles are exactly the e-waste audience, so if yours is Fire OS 5 I'd drop minSdk to 22.
-4. **GitHub repo.** The GitHub CLI isn't logged in here. If you create an empty `perritodeck/perritodeck` repo, I can attach it to this session and push, which also gets CI building Android APKs.
+## Open questions for the maintainer (all answered)
+1. **License.** GPL-3.0 would allow borrowing from OpenDeck, StreamController and Stream-Pi, but plugin authors and companies would have to stay GPL-compatible. Apache-2.0 (or MIT) is friendlier for adoption and allows sharing code with Companion (and likely TilePad), but nothing can be copied from the GPL projects. **Answer:** Apache-2.0 for the host and client, MIT for the plugin SDKs ([DECISIONS](../DECISIONS.md)).
+2. **TilePad.** Same Rust + Tauri 2 stack, WebSocket plugins with HTML inspectors, and it already targets Android touchscreens; its license and how finished its Android client is couldn't be confirmed. Build PerritoDeck independently, or collaborate (e.g. PerritoDeck as the Android client and protocol, interoperating with TilePad)? **Answer:** build independently, and keep the protocol open enough that a TilePad bridge is easy.
+3. **Which Kindle?** Fire OS 5 is Android 5.1 (API 22), Fire OS 7 is Android 9 (API 28), Fire OS 8 is Android 11 (API 30). The spec says minSdk 26, which would exclude Fire OS 5 tablets, and old Kindles are exactly the e-waste audience. **Answer:** minSdk 22, provisional until real hardware has been tried. The test tablet turned out to be a Fire 7 on Fire OS 7 (API 28).
+4. **GitHub repo.** CI needs a repository to build Android APKs in. **Answer:** `perritodeck/perritodeck` was created, private for now.
 
 ## Status (2026-10-11)
 
@@ -66,4 +66,4 @@ Pairing/QR, mDNS, actions, host-rendered images, Tauri UI, plugins, packaging.
 | Android client: connect + deck screens, reconnect, multi-touch, haptics | Done — fixture + MockWebServer tests and lint pass in CI; debug APK published as a CI artifact |
 | Latency (fakedeck over loopback, 300 presses) | Median 0.17 ms, p95 0.30 ms round trip |
 | Emulator test | Done in CI on Android 5.1 (API 22) and 14 (API 34) tablet emulators |
-| Kindle test | Pending — tomorrow |
+| Kindle test | Done on 2026-10-12: an Amazon Fire 7 (2019, Fire OS 7 = Android 9) paired and worked over USB and Wi-Fi ([HANDOFF](../HANDOFF.md)). Fire OS 5 (API 22) has only been run in emulators |

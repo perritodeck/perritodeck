@@ -23,7 +23,7 @@ Done:
   up after repeated crashes, 10 s answer timeout, missing-runtime detection.
 - SDKs for Python and Node.js, with tests.
 - First-party plugins, bundled with the desktop app: **HTTP requests**, **MQTT**
-  (publish; MQTT 3.1.1 implemented directly), **Now playing** (Windows media session through PowerShell, Spotify or Music on macOS through osascript, playerctl on Linux; the Windows and macOS parts are untested on real machines).
+  (publish; MQTT 3.1.1 implemented directly), **Now playing** (Windows media session through PowerShell, Spotify or Music on macOS through osascript, playerctl on Linux; the Windows part was verified on a real PC on 2026-10-12, the macOS part is untested on a real Mac).
   OBS and Home Assistant stay built in.
 - Plugin settings and value arguments: a manifest can declare `settings` (server
   address, token; `password` fields are masked) that people fill in on the Plugins page,
@@ -31,10 +31,16 @@ Done:
   which arguments profiles use (`watch`). The key editor has an "Insert a live value"
   picker. Both SDKs gained `settings`, `on_settings`/`onSettings`, `watched()` and
   `every()`.
-- Thirteen first-party plugins, all bundled with the app and in the online catalogue:
-  HTTP, MQTT, Now playing, OBS Studio (full obs-websocket 5), Timers, Counters, Is it
-  up?, Wake-on-LAN, Weather, Ollama, Proxmox VE, TrueNAS, GitLab. The new ones are
-  tested against fake servers only; none has run against the real service yet.
+- First-party plugins, all bundled with the app and in the online catalogue: thirteen
+  at first (HTTP, MQTT, Now playing, OBS Studio with full obs-websocket 5, Timers,
+  Counters, Is it up?, Wake-on-LAN, Weather, Ollama, Proxmox VE, TrueNAS, GitLab), and
+  24 now, with Soundboard, Audio devices, Windows and apps, Screenshot, Clipboard
+  snippets, System monitor, Clocks, Philips Hue, Elgato Key Light, Spotify (Web API) and
+  Twitch ([`plugins/README.md`](../../plugins/README.md)). The ones that talk to a service
+  are tested against fake servers only; OBS and Twitch have real-world test plans, not
+  yet run ([OBS](../testing/obs.md), [Twitch](../testing/twitch.md)). Soundboard, Audio devices,
+  Windows and apps, Screenshot, Clipboard snippets, System monitor and Now playing ran
+  on a real Windows PC on 2026-10-12.
 - The website's plugin page (`website/plugins/index.html`) is generated with the
   catalogue.
 - Plugin sliders: an action marked `"slider": true` gets the slider's position as
@@ -51,6 +57,5 @@ Done:
 
 Not done:
 - Plugins drawing their own key images.
-- A Spotify plugin using its Web API.
 - Signing or sandboxing plugins. For now the app warns that plugins run with the
   user's permissions.
