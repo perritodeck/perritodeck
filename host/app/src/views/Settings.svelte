@@ -263,6 +263,7 @@
           <button class="btn small quiet" onclick={() => copy("claude", m.snippets.claudeCodeStdio)}>Copy</button>
           {#if copied === "claude"}<span role="status">Copied</span>{/if}
         </div>
+        <small>Run this in a terminal. It adds PerritoDeck to Claude Code in every folder, not just the one you’re in.</small>
         <pre aria-label="Claude Code command">{m.snippets.claudeCodeStdio}</pre>
       </div>
       <details>

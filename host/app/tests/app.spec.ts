@@ -548,7 +548,7 @@ test.describe("getting help and AI assistants", () => {
     expect(JSON.parse(await clipboard(page))).toEqual({
       mcpServers: { perritodeck: { command: "/usr/bin/perritodeck-app", args: ["mcp"] } },
     });
-    await expect(page.getByLabel("Claude Code command", { exact: true })).toHaveText("claude mcp add perritodeck -- /usr/bin/perritodeck-app mcp");
+    await expect(page.getByLabel("Claude Code command", { exact: true })).toHaveText('claude mcp add --scope user perritodeck "--" /usr/bin/perritodeck-app mcp');
 
     await page.getByText("Connect by address instead").click();
     const http = page.getByLabel("Settings for apps that connect to a URL");

@@ -686,8 +686,8 @@ function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: numb
         null,
         2,
       ),
-      claudeCodeStdio: `claude mcp add perritodeck -- ${command} mcp`,
-      claudeCodeHttp: `claude mcp add --transport http perritodeck ${url} --header "Authorization: Bearer ${m.mcpToken}"`,
+      claudeCodeStdio: `claude mcp add --scope user perritodeck "--" ${command} mcp`,
+      claudeCodeHttp: `claude mcp add --scope user --transport http perritodeck ${url} --header "Authorization: Bearer ${m.mcpToken}"`,
     },
   };
 }

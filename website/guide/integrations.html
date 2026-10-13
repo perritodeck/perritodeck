@@ -190,7 +190,7 @@ port = 16622</code></pre>
   <li>Copy the setup for your assistant from the same section:
     <ul>
       <li><strong>Claude Desktop</strong>, and other apps that start a program: copy the first snippet into the app's MCP settings file (for Claude Desktop, <code>claude_desktop_config.json</code>, which its developer settings open for you), then restart the app.</li>
-      <li><strong>Claude Code</strong>: copy the <code>claude mcp add perritodeck -- …</code> command and run it in a terminal.</li>
+      <li><strong>Claude Code</strong>: copy the <code>claude mcp add --scope user perritodeck "--" …</code> command and run it in a terminal (PowerShell, Command Prompt, Git Bash or any other). It adds PerritoDeck for every folder you use Claude Code in. The <code>"--"</code> is quoted on purpose: PowerShell drops a bare one.</li>
       <li>Apps that connect to a web address instead: open <span class="ui">Connect by address instead</span>. These snippets contain an access token, so keep them private. <span class="ui">Make a new token</span> replaces it if it leaks.</li>
     </ul></li>
   <li>Ask the assistant something like "What's on my PerritoDeck?" to check it works.</li>
