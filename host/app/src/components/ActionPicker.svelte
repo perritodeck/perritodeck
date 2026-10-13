@@ -127,7 +127,15 @@
     }
   }
   let sdSettings = $state(a?.type === "sdPlugin" && a.settings ? JSON.stringify(a.settings, null, 2) : "");
-  let sliderFollow = $state(sl?.type === "plugin" ? (sl.follow ?? "") : "");
+  // What a plugin slider follows: one of the plugin's values, and for a value that takes
+  // an argument (an audio source, an address), the argument. Saved as `<value>:<argument>`.
+  const initialFollow = sl?.type === "plugin" ? (sl.follow ?? "") : "";
+  const followColon = initialFollow.indexOf(":");
+  let sliderFollow = $state(followColon < 0 ? initialFollow : initialFollow.slice(0, followColon));
+  let sliderFollowArg = $state(followColon < 0 ? "" : initialFollow.slice(followColon + 1));
+  // Which plugin the follow belongs to: switching to another plugin's slider clears it.
+  let sliderFollowFor = sl?.type === "plugin" ? sl.plugin : null;
+  const sliderFollowValue = $derived(sliderPlugin?.manifest?.values.find((v) => v.id === sliderFollow) ?? null);
   const sliderPlugins = initial.plugins
     .map((p) => ({ ...p, actions: p.actions.filter((x) => x.slider) }))
     .filter((p) => p.actions.length);
@@ -317,12 +325,20 @@
           slider = { type: "obs", input: sliderTarget.trim() };
         } else if (sliderPlugin) {
           const settings = pluginSettingsFor(sliderPlugin.action?.fields ?? []);
+          const arg = sliderFollowArg.trim();
+          // An installed plugin follows only a value it lists. One that isn't installed
+          // keeps what it had, argument and all.
+          const followId = !sliderPlugin.manifest || sliderFollowValue ? sliderFollow : "";
+          const takesArg = sliderFollowValue ? !!sliderFollowValue.arg : arg !== "";
+          if (followId && takesArg && !arg)
+            return `Enter the ${(sliderFollowValue?.arg ?? "argument").toLowerCase()} the slider follows.`;
+          const follow = followId && takesArg ? `${followId}:${arg}` : followId;
           slider = {
             type: "plugin",
             plugin: sliderPlugin.pid,
             action: sliderPlugin.aid,
             ...(Object.keys(settings).length ? { settings } : {}),
-            ...(sliderFollow ? { follow: sliderFollow } : {}),
+            ...(follow ? { follow } : {}),
           };
         } else {
           if (!unquote(sliderProgram)) return "Enter the program to run.";
@@ -361,10 +377,15 @@
     return { action, nav: navOut, slider };
   }
 
+  /** What a field shows before anyone changes it: a list shows its first choice. */
+  function shownDefault(field: PluginField): unknown {
+    return field.default ?? (field.type === "select" ? field.options?.[0]?.value : undefined);
+  }
+
   function pluginSettingsFor(fields: PluginField[]): Record<string, unknown> {
     const settings: Record<string, unknown> = {};
     for (const field of fields) {
-      const v = pluginSettings[field.id] ?? field.default;
+      const v = pluginSettings[field.id] ?? shownDefault(field);
       if (v !== undefined && v !== "") settings[field.id] = v;
     }
     return settings;
@@ -441,7 +462,7 @@
           {#if field.type === "select"}
             <select
               id="{uid}-pf-{field.id}"
-              value={String(pluginSettings[field.id] ?? field.default ?? field.options?.[0]?.value ?? "")}
+              value={String(pluginSettings[field.id] ?? shownDefault(field) ?? "")}
               onchange={(e) => {
                 pluginSettings[field.id] = e.currentTarget.value;
                 changed(0);
@@ -579,7 +600,19 @@
   {:else if choice === "slider"}
     <div class="field">
       <label for="{uid}-slider-kind">Slider sets</label>
-      <select id="{uid}-slider-kind" bind:value={sliderKind} onchange={() => changed(0)}>
+      <select
+        id="{uid}-slider-kind"
+        bind:value={sliderKind}
+        onchange={() => {
+          const pid = sliderKind.startsWith("plugin:") ? findPlugin(sliderKind).pid : null;
+          if (pid && pid !== sliderFollowFor) {
+            sliderFollow = "";
+            sliderFollowArg = "";
+            sliderFollowFor = pid;
+          }
+          changed(0);
+        }}
+      >
         <option value="volume">The computer's volume</option>
         <option value="homeAssistant">A Home Assistant light's brightness</option>
         <option value="obs">An OBS audio source's volume</option>
@@ -624,6 +657,18 @@
             {#each sliderPlugin.manifest.values as v (v.id)}<option value={v.id}>{v.name}</option>{/each}
           </select>
         </div>
+        {#if sliderFollowValue?.arg}
+          <div class="field">
+            <label for="{uid}-slider-follow-arg">{sliderFollowValue.arg} to follow</label>
+            <input
+              id="{uid}-slider-follow-arg"
+              bind:value={sliderFollowArg}
+              oninput={() => changed()}
+              spellcheck="false"
+              placeholder={sliderFollowValue.arg}
+            />
+          </div>
+        {/if}
       {/if}
     {:else if sliderKind === "command"}
       <div class="field">

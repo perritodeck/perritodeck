@@ -58,7 +58,8 @@
   async function saveSettings(id: string, fields: PluginField[]) {
     const out: Record<string, unknown> = {};
     for (const f of fields) {
-      const v = draft[f.id];
+      // A list nobody changed saves what it shows: its default, or else its first choice.
+      const v = draft[f.id] ?? (f.type === "select" ? (f.default ?? f.options?.[0]?.value) : undefined);
       if (v === undefined || v === "") continue;
       out[f.id] = f.type === "number" && typeof v === "string" && !isNaN(Number(v)) ? Number(v) : v;
     }

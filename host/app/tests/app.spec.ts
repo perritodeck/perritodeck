@@ -121,6 +121,23 @@ test("explains when the host can't start", async ({ page }) => {
   await expect(page.getByText(/another PerritoDeck host already running/)).toBeVisible();
 });
 
+test("settings say when integrations.toml has a mistake", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByText("OBS", { exact: true })).toBeVisible();
+  await page.evaluate(() =>
+    Object.assign((window as any).__perritoMock.hostStatus, {
+      integrations: [],
+      integrationsError: "line 2: unknown field `pasword`, expected `url` or `password`",
+    }),
+  );
+  await expect(
+    page.getByText("integrations.toml has a mistake: line 2: unknown field `pasword`, expected `url` or `password`"),
+  ).toBeVisible({ timeout: 6000 });
+  await expect(page.getByText("OBS, Home Assistant and Companion stay off until it’s fixed")).toBeVisible();
+  await expect(page.getByText("None set up")).toHaveCount(0);
+});
+
 test("settings show where things live", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -341,6 +358,15 @@ test.describe("editing", () => {
     await expect(page.getByText("A toggle that follows a value needs exactly two states.")).toBeVisible();
   });
 
+  test("a value to follow can be typed with braces, as in a title", async ({ page }) => {
+    await key(page, /^Paste:/).click();
+    await page.getByRole("radio", { name: /Toggle/ }).check();
+    await page.getByLabel("Follow a live value (optional)").fill(" {plugin:dev.perritodeck.obs:recording} ");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key?.follow).toBe("plugin:dev.perritodeck.obs:recording");
+    await page.getByLabel("State 1 title").click();
+    await expect(page.getByLabel("Follow a live value (optional)")).toHaveValue("plugin:dev.perritodeck.obs:recording");
+  });
+
   test("several steps as JSON", async ({ page }) => {
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("When pressed").selectOption("multi");
@@ -507,6 +533,22 @@ test.describe("profiles, tablets and switching", () => {
     await expect(page.getByText("[companion]")).toBeVisible();
     await page.evaluate(() => ((window as any).__perritoMock.hostStatus.companion = "Connected to Companion 4.1.0"));
     await expect(page.getByText("Connected to Companion 4.1.0")).toBeVisible({ timeout: 6000 });
+  });
+
+  test("a Companion profile names the mistake in integrations.toml instead of asking for it", async ({ page }) => {
+    // The [companion] lines may be there already; a typo elsewhere keeps the whole file off.
+    const mistake = "line 5: wrong kind of value, expected a whole number from 0 to 65535";
+    await page.evaluate(
+      (e) => Object.assign((window as any).__perritoMock.hostStatus, { integrations: [], integrationsError: e }),
+      mistake,
+    );
+    await page.getByRole("button", { name: "+ Profile" }).click();
+    await page.getByLabel("New profile name").fill("Show");
+    await page.getByLabel("Show Bitfocus Companion’s buttons").check();
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByText(`integrations.toml has a mistake: ${mistake}`)).toBeVisible({ timeout: 6000 });
+    await expect(page.getByText("so Companion stays off")).toBeVisible();
+    await expect(page.getByText("[companion]")).toHaveCount(0);
   });
 
   test("export and import profiles", async ({ page }) => {
@@ -745,11 +787,13 @@ test.describe("plugins", () => {
     await page.getByLabel("Token").fill("s3cret");
     await page.getByLabel("Skip certificate check").check();
     await expect(page.getByLabel("Token")).toHaveAttribute("type", "password");
+    await expect(page.getByLabel("Region")).toHaveValue("eu");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByText("Saved. The plugin uses the new settings now.")).toBeVisible();
+    // The list has no default and wasn't touched: it saves the choice it shows.
     await expect
       .poll(() => page.evaluate(() => (window as any).__perritoMock.pluginSettings["dev.perritodeck.http"]))
-      .toEqual({ base: "https://pve.local:8006", token: "s3cret", insecure: true });
+      .toEqual({ base: "https://pve.local:8006", token: "s3cret", insecure: true, region: "eu" });
 
     await page.getByRole("button", { name: "Buttons" }).click();
     await key(page, "Empty, row 3 column 2").click();
@@ -842,6 +886,124 @@ test.describe("plugins", () => {
       });
   });
 
+  test("a list with no default saves the choice it shows", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("plugin:dev.perritodeck.http/request");
+    await expect(page.getByLabel("Body")).toHaveValue("none");
+    await page.getByLabel("Web address").fill("https://example.com/hook");
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action?.settings)
+      .toEqual({ url: "https://example.com/hook", method: "POST", body: "none" });
+    await page.getByLabel("Body").selectOption("json");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.action?.settings?.body).toBe("json");
+  });
+
+  test("a slider follows a plugin value that takes an argument", async ({ page }) => {
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("Title").fill("NAS");
+    await page.getByLabel("When pressed").selectOption("slider");
+    await page.getByLabel("Slider sets").selectOption("plugin:dev.perritodeck.http/send-value");
+    await page.getByLabel("Web address", { exact: true }).fill("https://nas.local/fan?to={value}");
+    await page.getByLabel("The slider follows").selectOption("up");
+    await expect(page.getByText("Enter the web address the slider follows.")).toBeVisible();
+    await page.getByLabel("Web address to follow").fill("https://nas.local:8443");
+    // The host reads it as plugin:dev.perritodeck.http:up:https://nas.local:8443.
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.slider)
+      .toEqual({
+        type: "plugin",
+        plugin: "dev.perritodeck.http",
+        action: "send-value",
+        settings: { url: "https://nas.local/fan?to={value}" },
+        follow: "up:https://nas.local:8443",
+      });
+
+    // Opened again, it shows the value and its argument (which has a colon of its own).
+    await key(page, /^Paste:/).click();
+    await key(page, /^NAS: slider/).click();
+    await expect(page.getByLabel("The slider follows")).toHaveValue("up");
+    await expect(page.getByLabel("Web address to follow")).toHaveValue("https://nas.local:8443");
+
+    // A value without an argument drops it.
+    await page.getByLabel("The slider follows").selectOption("last-status");
+    await expect(page.getByLabel("Web address to follow")).toHaveCount(0);
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.slider?.follow).toBe("last-status");
+  });
+
+  test("a slider switched to another plugin stops following the first one's value", async ({ page }) => {
+    // MQTT has a slider too, and no values to follow.
+    await page.evaluate(() => (window as any).__perritoMock.invoke("install_catalog_plugin", { id: "dev.perritodeck.mqtt" }));
+    await page.getByRole("button", { name: "Plugins" }).click();
+    await page.getByRole("button", { name: "Buttons" }).click();
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("Title").fill("Fan");
+    await page.getByLabel("When pressed").selectOption("slider");
+    await page.getByLabel("Slider sets").selectOption("plugin:dev.perritodeck.http/send-value");
+    await page.getByLabel("Web address", { exact: true }).fill("https://nas.local/fan?to={value}");
+    await page.getByLabel("The slider follows").selectOption("up");
+    await page.getByLabel("Web address to follow").fill("https://nas.local:8443");
+    await expect.poll(async () => (await lastEdits(page))?.[0]?.key.slider?.follow).toBe("up:https://nas.local:8443");
+
+    await page.getByLabel("Slider sets").selectOption("plugin:dev.perritodeck.mqtt/publish-value");
+    await expect(page.getByLabel("The slider follows")).toHaveCount(0);
+    await page.getByLabel("Topic").fill("fan/level");
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.slider)
+      .toEqual({ type: "plugin", plugin: "dev.perritodeck.mqtt", action: "publish-value", settings: { topic: "fan/level" } });
+
+    // Back on the first plugin, it starts from nothing.
+    await page.getByLabel("Slider sets").selectOption("plugin:dev.perritodeck.http/send-value");
+    await expect(page.getByLabel("The slider follows")).toHaveValue("");
+    await expect(page.getByLabel("Web address to follow")).toHaveCount(0);
+  });
+
+  test("a slider doesn't keep following a value its plugin no longer lists", async ({ page }) => {
+    // Saved before the plugin dropped the value (the HTTP plugin has no "volume").
+    await page.evaluate(() =>
+      (window as any).__perritoMock.invoke("edit_profile", {
+        id: "default",
+        edits: [
+          {
+            op: "setKey",
+            page: "Main",
+            at: [2, 1],
+            key: {
+              title: "Old",
+              bg: null,
+              fg: null,
+              action: null,
+              nav: null,
+              icon: null,
+              states: [],
+              follow: null,
+              slider: {
+                type: "plugin",
+                plugin: "dev.perritodeck.http",
+                action: "send-value",
+                settings: { url: "https://nas.local/fan?to={value}" },
+                follow: "volume:Desktop Audio",
+              },
+            },
+          },
+        ],
+      }),
+    );
+    await page.getByRole("button", { name: "Plugins" }).click();
+    await page.getByRole("button", { name: "Buttons" }).click();
+    await key(page, /^Old: slider/).click();
+    await expect(page.getByLabel("The slider follows")).toHaveValue("");
+    // Changing the slider saves it without the follow, which would never move it.
+    await page.getByLabel("Web address", { exact: true }).fill("https://nas.local/fan?level={value}");
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.slider)
+      .toEqual({
+        type: "plugin",
+        plugin: "dev.perritodeck.http",
+        action: "send-value",
+        settings: { url: "https://nas.local/fan?level={value}" },
+      });
+  });
+
   test("a key runs a plugin action with its settings", async ({ page }) => {
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("Title").fill("Hook");
@@ -855,7 +1017,7 @@ test.describe("plugins", () => {
         type: "plugin",
         plugin: "dev.perritodeck.http",
         action: "request",
-        settings: { url: "https://example.com/hook", method: "PUT", insecure: true },
+        settings: { url: "https://example.com/hook", method: "PUT", insecure: true, body: "none" },
       });
     await expect(key(page, /^Hook: dev.perritodeck.http: request/)).toBeVisible();
     await page.getByRole("button", { name: "Try it" }).click();

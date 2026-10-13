@@ -381,7 +381,12 @@
 
   <dt>Integrations</dt>
   <dd>
-    {status.integrations.length ? status.integrations.join(", ") : "None set up"}
+    {#if status.integrationsError}
+      <span class="bad">integrations.toml has a mistake: {status.integrationsError}</span>
+      <small>OBS, Home Assistant and Companion stay off until it’s fixed and PerritoDeck restarts.</small>
+    {:else}
+      {status.integrations.length ? status.integrations.join(", ") : "None set up"}
+    {/if}
   </dd>
 
   <dt>Version</dt>

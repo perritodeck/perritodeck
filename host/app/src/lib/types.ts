@@ -12,6 +12,8 @@ export interface HostStatus {
   profilePath: string;
   profilesDir: string;
   integrations: string[];
+  /** The mistake in integrations.toml, which is then ignored; null if there's none. */
+  integrationsError: string | null;
   paused: boolean;
   autoSwitchSupported: boolean;
   /** Serial numbers of tablets on a USB cable that can reach this computer. */

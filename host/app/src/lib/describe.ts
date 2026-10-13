@@ -17,6 +17,13 @@ export function describeSlider(s: SliderSpec): string {
   }
 }
 
+/** A value to follow, as typed: without the braces a title puts around it, so
+ * `{obs:recording}` follows `obs:recording` (the host reads it the same way). */
+export function followName(typed: string): string {
+  const t = typed.trim();
+  return /^\{[\s\S]*\}$/.test(t) ? t.slice(1, -1).trim() : t;
+}
+
 export const DEFAULT_BG = "#1E1E2E";
 export const DEFAULT_FG = "#CDD6F4";
 

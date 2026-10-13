@@ -14,14 +14,19 @@
   let profileMenu = $state(false);
   // A new profile can show Bitfocus Companion's buttons instead of its own.
   let newCompanion = $state(false);
-  // Companion's connection state, kept fresh while a Companion profile is open.
+  // Companion's connection state, kept fresh while a Companion profile is open, and the
+  // mistake in integrations.toml that keeps it off, if there is one.
   let companionState = $state<string | null>(null);
+  let integrationsError = $state<string | null>(null);
   $effect(() => {
     if (!profile?.companion) return;
     companionState = hostStatus.companion;
+    integrationsError = hostStatus.integrationsError ?? null;
     const t = setInterval(async () => {
       try {
-        companionState = (await api.status()).companion;
+        const s = await api.status();
+        companionState = s.companion;
+        integrationsError = s.integrationsError ?? null;
       } catch {
         // keep the last state
       }
@@ -547,6 +552,13 @@
     </p>
     {#if companionState !== null}
       <p class="state" role="status">{companionState}</p>
+    {:else if integrationsError}
+      <!-- The [companion] lines may well be there already; the mistake is what's in the way. -->
+      <p class="state mistake" role="alert">integrations.toml has a mistake: {integrationsError}</p>
+      <p>
+        PerritoDeck ignores the whole file until it’s fixed, so Companion stays off. Fix it in the settings folder,
+        then restart PerritoDeck.
+      </p>
     {:else}
       <p>
         First tell PerritoDeck where Companion runs. Add this to <code>integrations.toml</code> in the settings folder,
@@ -780,6 +792,7 @@ port = 16622         # Companion's Satellite port</pre>
   .naming .check { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--ink-soft); }
   .companion { max-width: 64ch; display: grid; gap: 12px; margin-top: 8px; }
   .companion .state { font-weight: 700; }
+  .companion .mistake { color: var(--danger); }
   .companion pre {
     margin: 0;
     padding: 12px 14px;

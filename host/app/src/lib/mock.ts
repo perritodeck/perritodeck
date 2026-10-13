@@ -17,6 +17,7 @@ const status: HostStatus = {
   profilePath: "/home/me/.config/PerritoDeck/profiles/default.toml",
   profilesDir: "/home/me/.config/PerritoDeck/profiles",
   integrations: ["OBS"],
+  integrationsError: null,
   paused: false,
   autoSwitchSupported: true,
   usbDevices: [],
@@ -196,6 +197,16 @@ const httpPlugin: PluginManifest = {
           options: ["GET", "POST", "PUT"].map((m) => ({ value: m, label: m })),
         },
         { id: "insecure", label: "Skip the check", type: "checkbox" },
+        // No default: the first choice is what it shows, and what it saves.
+        {
+          id: "body",
+          label: "Body",
+          type: "select",
+          options: [
+            { value: "none", label: "None" },
+            { value: "json", label: "JSON" },
+          ],
+        },
       ],
     },
     {
@@ -214,6 +225,15 @@ const httpPlugin: PluginManifest = {
     { id: "base", label: "Base address", type: "text", placeholder: "https://example.com" },
     { id: "token", label: "Token", type: "password" },
     { id: "insecure", label: "Skip certificate check", type: "checkbox" },
+    {
+      id: "region",
+      label: "Region",
+      type: "select",
+      options: [
+        { value: "eu", label: "Europe" },
+        { value: "us", label: "United States" },
+      ],
+    },
   ],
 };
 const mqttPlugin: PluginManifest = {
@@ -221,7 +241,11 @@ const mqttPlugin: PluginManifest = {
   id: "dev.perritodeck.mqtt",
   name: "MQTT",
   description: "Publish an MQTT message.",
-  actions: [{ id: "publish", name: "Publish a message", description: "", fields: [{ id: "topic", label: "Topic", type: "text" }] }],
+  actions: [
+    { id: "publish", name: "Publish a message", description: "", fields: [{ id: "topic", label: "Topic", type: "text" }] },
+    // A second plugin with a slider, which follows nothing (no values).
+    { id: "publish-value", name: "Publish the slider's value", description: "", slider: true, fields: [{ id: "topic", label: "Topic", type: "text" }] },
+  ],
   values: [],
 };
 const sdCounter: SdPlugin = {

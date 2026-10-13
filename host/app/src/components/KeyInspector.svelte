@@ -1,7 +1,7 @@
 <script lang="ts">
   import LiveValuePicker from "./LiveValuePicker.svelte";
   import { untrack } from "svelte";
-  import { DEFAULT_BG, DEFAULT_FG } from "../lib/describe";
+  import { DEFAULT_BG, DEFAULT_FG, followName } from "../lib/describe";
   import { api } from "../lib/api";
   import { iconPngBase64, iconSvg } from "../lib/icons";
   import ActionPicker, { type Picked } from "./ActionPicker.svelte";
@@ -98,8 +98,9 @@
         ...(s.picked.action ? { action: s.picked.action } : {}),
       });
     }
-    if (follow.trim() && out.length !== 2) return "A toggle that follows a value needs exactly two states.";
-    return { ...common, action: null, nav: null, slider: null, states: out, follow: follow.trim() || null };
+    const following = followName(follow);
+    if (following && out.length !== 2) return "A toggle that follows a value needs exactly two states.";
+    return { ...common, action: null, nav: null, slider: null, states: out, follow: following || null };
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -338,7 +339,14 @@
       {/key}
       <div class="field">
         <label for="follow">Follow a live value (optional)</label>
-        <input id="follow" bind:value={follow} oninput={() => changed()} placeholder="obs:recording" spellcheck="false" />
+        <input
+          id="follow"
+          bind:value={follow}
+          oninput={() => changed()}
+          onblur={() => (follow = followName(follow))}
+          placeholder="obs:recording"
+          spellcheck="false"
+        />
         <LiveValuePicker
           plugins={initial.plugins}
           label="Choose a value to follow"
