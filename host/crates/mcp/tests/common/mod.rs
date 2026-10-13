@@ -23,6 +23,8 @@ pub struct Fake {
     pub pressed: Mutex<Vec<Press>>,
     pub ran: Mutex<Vec<ActionSpec>>,
     pub shown: Mutex<Vec<(String, String)>>,
+    /// `User-Agent` and version of each request that came through a stdio bridge.
+    pub bridges: Mutex<Vec<(String, u32)>>,
 }
 
 impl Fake {
@@ -205,6 +207,13 @@ impl Backend for Fake {
                 _ => Ok(None),
             }
         })
+    }
+
+    fn bridge_seen(&self, agent: &str, version: u32) {
+        self.bridges
+            .lock()
+            .unwrap()
+            .push((agent.to_owned(), version));
     }
 }
 

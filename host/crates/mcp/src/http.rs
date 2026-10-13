@@ -103,6 +103,7 @@ impl Drop for HttpServer {
 
 struct Shared {
     server: Server,
+    backend: Arc<dyn Backend>,
     token: String,
     port: u16,
     max_body: usize,
@@ -127,7 +128,8 @@ pub async fn serve_http(backend: Arc<dyn Backend>, opts: HttpOptions) -> io::Res
     let listener = TcpListener::bind(opts.addr).await?;
     let addr = listener.local_addr()?;
     let shared = Arc::new(Shared {
-        server: Server::new(backend),
+        server: Server::new(backend.clone()),
+        backend,
         token: opts.token,
         port: addr.port(),
         max_body: opts.max_body,
@@ -445,6 +447,13 @@ async fn handle(shared: &Shared, head: &Head, stream: &mut TcpStream, buf: &mut 
         return Resp::rpc_error(401, INVALID_REQUEST, "Unauthorized: send the access token PerritoDeck shows in its settings as \"Authorization: Bearer <token>\"")
             .header("WWW-Authenticate", "Bearer realm=\"PerritoDeck\"")
             .closing();
+    }
+    if let Some(version) = head
+        .header("PerritoDeck-Bridge")
+        .and_then(|v| v.trim().parse::<u32>().ok())
+    {
+        let agent = head.header("User-Agent").unwrap_or_default();
+        shared.backend.bridge_seen(agent, version);
     }
     match method {
         "POST" => {}

@@ -151,7 +151,12 @@ pub fn network(settings: &AppSettings, listening: Option<&str>, usb: &str) -> Se
 }
 
 /// The "AI assistants (MCP)" section. Never includes the token.
-pub fn mcp_section(settings: &AppSettings, state: &str, has_token: bool) -> Section {
+pub fn mcp_section(
+    settings: &AppSettings,
+    state: &str,
+    has_token: bool,
+    data_dir: &Path,
+) -> Section {
     let m = &settings.mcp;
     let on = |b: bool| if b { "on" } else { "off" };
     let mut s = Section::new("AI assistants (MCP)");
@@ -170,6 +175,14 @@ pub fn mcp_section(settings: &AppSettings, state: &str, has_token: bool) -> Sect
     s.field(
         "token file",
         if has_token { "exists" } else { "not made yet" },
+    );
+    s.field(
+        "bridge",
+        if mcp::bridge_path(data_dir).is_file() {
+            "copied to the data folder"
+        } else {
+            "not in the data folder (assistants start the app or host itself)"
+        },
     );
     s
 }
@@ -251,6 +264,7 @@ pub fn offline(data_dir: &Path, profile: &Path) -> Report {
         &settings,
         state,
         mcp::read_token(data_dir).is_some(),
+        data_dir,
     ));
     Report {
         app_version: None,

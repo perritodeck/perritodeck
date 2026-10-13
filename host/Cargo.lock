@@ -1874,14 +1874,17 @@ name = "perritodeck-mcp"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "directories",
  "perritodeck-actions",
  "perritodeck-profile",
  "rand",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

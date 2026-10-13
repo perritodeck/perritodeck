@@ -11,7 +11,9 @@ use std::{
 };
 
 use common::*;
-use perritodeck_mcp::{bridge, bridge_with, serve_http, serve_stream, Endpoint, HttpOptions};
+use perritodeck_mcp::{
+    bridge, bridge_with, serve_http, serve_stream, Endpoint, HttpOptions, AGENT,
+};
 use serde_json::{json, Value};
 use tokio::{
     io::{duplex, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines},
@@ -115,7 +117,7 @@ impl Bridge {
     fn follow(find: impl FnMut() -> Endpoint + Send + 'static) -> Self {
         let (client, bridge_side) = duplex(1 << 16);
         let (bin, bout) = tokio::io::split(bridge_side);
-        tokio::spawn(async move { bridge_with(find, bin, bout).await });
+        tokio::spawn(async move { bridge_with(AGENT, find, bin, bout).await });
         Self::over(client)
     }
 

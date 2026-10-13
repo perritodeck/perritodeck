@@ -74,6 +74,9 @@ pub struct HostOptions {
     pub plugin_index: String,
     /// Fixed pairing codes (tests only).
     pub pair_codes: Vec<String>,
+    /// The stdio bridge for AI assistants that ships with this program
+    /// ([`mcp::shipped_bridge`]), copied into the data folder at start.
+    pub mcp_bridge: Option<PathBuf>,
 }
 
 impl HostOptions {
@@ -103,6 +106,7 @@ impl HostOptions {
             plugin_catalog: None,
             plugin_index: online::DEFAULT_INDEX.to_owned(),
             pair_codes: Vec::new(),
+            mcp_bridge: None,
         }
     }
 }
@@ -401,6 +405,7 @@ pub struct Host {
     executor: Executor,
     mcp: tokio::sync::Mutex<McpRuntime>,
     mcp_state: Mutex<McpState>,
+    mcp_bridges: mcp::BridgesSeen,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -440,6 +445,28 @@ impl Host {
             format!("could not listen on {addr} — is another PerritoDeck host already running?")
         })?;
         let addr = listener.local_addr().unwrap_or(addr);
+
+        if let Some(shipped) = opts.mcp_bridge.clone() {
+            let data = dir.clone();
+            let installed =
+                tokio::task::spawn_blocking(move || mcp::install_bridge(&shipped, &data)).await;
+            let at = mcp::bridge_path(&dir);
+            match installed {
+                Ok(Ok(mcp::BridgeInstall::Copied)) => {
+                    info!("copied the bridge for AI assistants to {}", at.display())
+                }
+                Ok(Ok(mcp::BridgeInstall::Unchanged)) => {}
+                Ok(Ok(mcp::BridgeInstall::InUse)) => info!(
+                    "an AI assistant is using {}, so it stays as it is for now",
+                    at.display()
+                ),
+                Ok(Err(e)) => warn!(
+                    "couldn't copy the bridge for AI assistants to {}: {e}",
+                    at.display()
+                ),
+                Err(e) => warn!("couldn't copy the bridge for AI assistants: {e}"),
+            }
+        }
 
         let profile_path = opts
             .profile
@@ -647,6 +674,7 @@ impl Host {
             executor: test_executor,
             mcp: Default::default(),
             mcp_state: Mutex::new(McpState::Off),
+            mcp_bridges: Default::default(),
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -1114,6 +1142,7 @@ impl Host {
             &settings,
             &state,
             mcp::read_token(&self.data_dir).is_some(),
+            &self.data_dir,
         ));
         let mut detail = Section::new("Logging");
         detail.field(
@@ -1174,6 +1203,7 @@ impl Host {
         if let Some(server) = rt.server.take() {
             server.shutdown().await;
         }
+        self.mcp_bridges.clear();
         let backend = Arc::new(mcp::HostBackend(Arc::downgrade(self)));
         let opts = perritodeck_mcp::HttpOptions::new(token.clone()).port(wanted.port);
         match perritodeck_mcp::serve_http(backend, opts).await {
@@ -1234,19 +1264,13 @@ impl Host {
             .mcp
             .clone();
         let token = mcp::token_or_new(&self.data_dir).unwrap_or_default();
-        let command = std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "perritodeck-host".into());
+        let (command, args) = mcp::bridge_command(&self.data_dir);
         McpView {
             url: mcp::url(settings.port),
-            snippets: mcp::snippets(
-                &command,
-                &mcp::bridge_args(&self.data_dir),
-                settings.port,
-                &token,
-            ),
+            snippets: mcp::snippets(&command, &args, settings.port, &token),
             state: self.mcp_state(),
             settings,
+            app_bridge_used: self.mcp_bridges.contains("perritodeck-app"),
         }
     }
 

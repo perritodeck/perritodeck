@@ -73,6 +73,8 @@ enum Command {
     Diagnostics,
     /// Connect an AI assistant: speaks MCP on stdin/stdout and passes it to the
     /// running host (Settings → AI assistants in the app, or `mcp` in app-settings.json).
+    /// `perritodeck-mcp`, which ships alongside, does the same without keeping this
+    /// program in use.
     Mcp {
         /// Print what to put in an assistant's settings instead.
         #[arg(long)]
@@ -174,9 +176,10 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Some(Command::Mcp { config }) => {
-            return mcp::run_command(&dir, *config)
+            let agent = concat!("perritodeck-host/", env!("CARGO_PKG_VERSION"));
+            return mcp::run_command(&dir, *config, agent)
                 .await
-                .map_err(anyhow::Error::msg)
+                .map_err(anyhow::Error::msg);
         }
         Some(Command::Action { json, delay_secs }) => return run_action(json, *delay_secs).await,
         Some(Command::Devices) => {
@@ -201,6 +204,7 @@ async fn main() -> Result<()> {
             println!("integrations: {}", integrations_path(&dir).display());
             println!("logs:         {}", logging::logs_dir(&dir).display());
             println!("mcp token:    {}", mcp::token_path(&dir).display());
+            println!("mcp bridge:   {}", mcp::bridge_path(&dir).display());
             return Ok(());
         }
         Some(Command::Serve) | None => {}
@@ -215,6 +219,7 @@ async fn main() -> Result<()> {
     opts.mdns = !cli.no_mdns;
     opts.usb = !cli.no_usb;
     opts.pair_codes = cli.pair_code.clone();
+    opts.mcp_bridge = mcp::shipped_bridge();
     let host = Arc::new(Host::start(opts).await?);
     host.apply_mcp().await;
 

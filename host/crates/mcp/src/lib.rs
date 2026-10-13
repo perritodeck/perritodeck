@@ -17,10 +17,13 @@
 //! * **stdio** ([`serve_stdio`] / [`serve_stream`]): newline-delimited JSON-RPC.
 //! * **stdio → HTTP bridge** ([`bridge_stdio_to_http`]): many assistants only launch a
 //!   command and talk to it over stdin/stdout. That command can't own the host (only one
-//!   host runs at a time), so `perritodeck-host mcp` runs this bridge: it forwards each
-//!   line to the running host's HTTP endpoint and prints the answers. The assistant's
-//!   config then only needs the command; the bridge reads the port and token from the
-//!   host's settings, and reads them again after they change.
+//!   host runs at a time), so it runs this bridge: it forwards each line to the running
+//!   host's HTTP endpoint and prints the answers. The assistant's config then only needs
+//!   the command; the bridge reads the port and token from the host's settings, and
+//!   reads them again after they change. The command is this crate's own small program,
+//!   `perritodeck-mcp` ([`cli`]), which the app copies into its data folder so that a
+//!   connected assistant doesn't keep the app's program in use. `perritodeck-host mcp`
+//!   and `perritodeck-app mcp` still work.
 //!
 //! [`stdio_client_config`] and [`http_client_config`] make the JSON snippet an
 //! assistant's config file needs.
@@ -48,6 +51,7 @@
 //! file, plugin actions) also needs `run`.
 
 mod bridge;
+pub mod cli;
 pub mod config;
 mod engine;
 mod http;
@@ -59,7 +63,7 @@ use std::{future::Future, pin::Pin};
 
 use serde::{Deserialize, Serialize};
 
-pub use bridge::{bridge, bridge_stdio_to_http, bridge_with, Endpoint};
+pub use bridge::{bridge, bridge_stdio_to_http, bridge_with, Endpoint, AGENT, BRIDGE_VERSION};
 pub use config::{
     claude_code_http_command, claude_code_stdio_command, http_client_config, stdio_client_config,
     SERVER_KEY,
@@ -231,6 +235,12 @@ pub trait Backend: Send + Sync {
         &'a self,
         action: &'a ActionSpec,
     ) -> BoxFuture<'a, Result<Option<String>, String>>;
+
+    /// An authorized HTTP request came through one of PerritoDeck's stdio bridges:
+    /// `agent` is its `User-Agent` (`perritodeck-mcp/0.2.0`, `perritodeck-app/0.2.0`, …)
+    /// and `version` the requests it sends ([`BRIDGE_VERSION`] for this build's). Called
+    /// for every such request. Default: nothing.
+    fn bridge_seen(&self, _agent: &str, _version: u32) {}
 }
 
 /// A new random access token for the HTTP endpoint: 256 bits, hex.

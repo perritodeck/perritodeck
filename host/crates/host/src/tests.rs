@@ -937,13 +937,13 @@ impl Assistant {
         Self::over(client)
     }
 
-    /// Through the bridge as `perritodeck-host mcp` runs it: it finds the endpoint from
-    /// the data folder.
-    fn for_data_dir(dir: PathBuf) -> Self {
+    /// Through the bridge as `perritodeck-mcp` runs it (`agent` says which bridge): it
+    /// finds the endpoint from the data folder.
+    fn for_data_dir(dir: PathBuf, agent: &'static str) -> Self {
         let (client, bridge_side) = tokio::io::duplex(1 << 16);
         let (bin, bout) = tokio::io::split(bridge_side);
         tokio::spawn(async move {
-            perritodeck_mcp::bridge_with(|| mcp::bridge_endpoint(&dir), bin, bout).await
+            perritodeck_mcp::bridge_with(agent, || mcp::bridge_endpoint(&dir), bin, bout).await
         });
         Self::over(client)
     }
@@ -1148,7 +1148,7 @@ async fn the_bridge_keeps_working_after_a_new_token_or_port() {
         format!("http://127.0.0.1:{}/mcp", m.port)
     );
 
-    let mut a = Assistant::for_data_dir(dir.path().to_owned());
+    let mut a = Assistant::for_data_dir(dir.path().to_owned(), perritodeck_mcp::AGENT);
     let init = a
         .request(
             "initialize",
@@ -1171,6 +1171,142 @@ async fn the_bridge_keeps_working_after_a_new_token_or_port() {
     host.set_mcp(m).await.unwrap();
     let (err, text) = a.tool("list_profiles", serde_json::json!({})).await;
     assert!(!err, "after a new port: {text}");
+    assert!(!host.mcp_view().app_bridge_used);
+
+    // An assistant still set up with the app's own program: Settings says so.
+    let mut old = Assistant::for_data_dir(dir.path().to_owned(), "perritodeck-app/0.1.0");
+    let init = old
+        .request(
+            "initialize",
+            serde_json::json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}),
+        )
+        .await;
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
+    assert!(host.mcp_view().app_bridge_used);
+}
+
+#[test]
+fn the_bridge_finds_the_same_data_folder_as_the_host() {
+    assert_eq!(
+        perritodeck_mcp::cli::default_data_dir(),
+        crate::default_data_dir().ok()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        dir.path().join(perritodeck_mcp::cli::SETTINGS_FILE),
+        crate::settings_path(dir.path())
+    );
+    assert_eq!(
+        dir.path().join(perritodeck_mcp::cli::TOKEN_FILE),
+        mcp::token_path(dir.path())
+    );
+}
+
+#[tokio::test]
+async fn the_bridge_is_copied_to_the_data_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let shipped_dir = tempfile::tempdir().unwrap();
+    let shipped = shipped_dir.path().join(mcp::BRIDGE_FILE);
+    std::fs::write(&shipped, b"bridge 1").unwrap();
+    let copy = mcp::bridge_path(dir.path());
+
+    // Without a copy, assistants start this program's own bridge.
+    let (command, args) = mcp::bridge_command(dir.path());
+    assert_ne!(command, copy.display().to_string());
+    assert_eq!(args[0], "mcp");
+
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.mcp_bridge = Some(shipped.clone());
+    let host = Host::start(opts).await.unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), b"bridge 1");
+    let view = host.mcp_view();
+    assert_eq!(view.snippets.command, copy.display().to_string());
+    // Not `mcp`: that's the app's own bridge. The data folder isn't the usual one here.
+    assert_eq!(
+        view.snippets.args,
+        vec!["--data-dir".to_owned(), dir.path().display().to_string()]
+    );
+    assert!(view.snippets.claude_code_stdio.contains(mcp::BRIDGE_FILE));
+    drop(host);
+
+    assert_eq!(
+        mcp::install_bridge(&shipped, dir.path()).unwrap(),
+        mcp::BridgeInstall::Unchanged
+    );
+    std::fs::write(&shipped, b"bridge 2").unwrap();
+    assert_eq!(
+        mcp::install_bridge(&shipped, dir.path()).unwrap(),
+        mcp::BridgeInstall::Copied
+    );
+    assert_eq!(std::fs::read(&copy).unwrap(), b"bridge 2");
+    let left: Vec<_> = std::fs::read_dir(copy.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(left, vec![std::ffi::OsString::from(mcp::BRIDGE_FILE)]);
+}
+
+/// Windows won't overwrite a program that's running, which is the whole point of the
+/// copy: the one an assistant runs is moved aside instead.
+#[cfg(windows)]
+#[test]
+fn a_bridge_an_assistant_is_running_is_moved_aside() {
+    let dir = tempfile::tempdir().unwrap();
+    let shipped_dir = tempfile::tempdir().unwrap();
+    let shipped = shipped_dir.path().join(mcp::BRIDGE_FILE);
+    // Any program will do as the "bridge"; ping waits as long as it's told to.
+    let ping = std::fs::read(r"C:\Windows\System32\PING.EXE").unwrap();
+    std::fs::write(&shipped, &ping).unwrap();
+    assert_eq!(
+        mcp::install_bridge(&shipped, dir.path()).unwrap(),
+        mcp::BridgeInstall::Copied
+    );
+    let copy = mcp::bridge_path(dir.path());
+    let mut running = std::process::Command::new(&copy)
+        .args(["-n", "60", "127.0.0.1"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        std::fs::write(&copy, b"x").is_err(),
+        "a running program can't be overwritten"
+    );
+
+    let mut newer = ping.clone();
+    newer.extend_from_slice(b"newer");
+    std::fs::write(&shipped, &newer).unwrap();
+    let outcome = mcp::install_bridge(&shipped, dir.path());
+    let bin = copy.parent().unwrap().to_owned();
+    let names = || -> Vec<String> {
+        let mut n: Vec<String> = std::fs::read_dir(&bin)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let after = names();
+    running.kill().unwrap();
+    running.wait().unwrap();
+    assert_eq!(outcome.unwrap(), mcp::BridgeInstall::Copied);
+    assert_eq!(std::fs::read(&copy).unwrap(), newer);
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert!(after[1].ends_with(".old"), "{after:?}");
+
+    // Once nothing runs the old one, the next start removes it.
+    assert_eq!(
+        mcp::install_bridge(&shipped, dir.path()).unwrap(),
+        mcp::BridgeInstall::Unchanged
+    );
+    assert_eq!(names(), vec![mcp::BRIDGE_FILE.to_owned()]);
 }
 
 #[tokio::test]

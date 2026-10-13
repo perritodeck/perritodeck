@@ -9,11 +9,11 @@ use serde_json::{json, Value};
 /// The name assistants list PerritoDeck under.
 pub const SERVER_KEY: &str = "perritodeck";
 
-/// For assistants that launch a command, e.g. the host binary with `["mcp"]` (the
-/// stdio bridge, which finds the running host by itself):
+/// For assistants that launch a command, e.g. the stdio bridge `perritodeck-mcp`, which
+/// finds the running host by itself:
 ///
 /// ```json
-/// { "mcpServers": { "perritodeck": { "command": "/path/to/perritodeck-host", "args": ["mcp"] } } }
+/// { "mcpServers": { "perritodeck": { "command": "/path/to/perritodeck-mcp", "args": [] } } }
 /// ```
 pub fn stdio_client_config(command: &str, args: &[&str]) -> Value {
     json!({ "mcpServers": { SERVER_KEY: { "command": command, "args": args } } })
@@ -38,7 +38,7 @@ pub fn http_client_config(url: &str, token: &str) -> Value {
 }
 
 /// A Claude Code command line that adds the stdio bridge:
-/// `claude mcp add --scope user perritodeck "--" /path/to/perritodeck-host mcp`.
+/// `claude mcp add --scope user perritodeck "--" /path/to/perritodeck-mcp`.
 ///
 /// The commands are meant to work pasted into bash (Git Bash is what Claude Code uses
 /// on Windows), PowerShell and cmd alike:

@@ -154,7 +154,7 @@ jobs:
         run: |
           out="../dist/perritodeck-host-$VERSION-$NAME"
           mkdir -p "$out"
-          bins="perritodeck-host perritodeck-fakedeck"
+          bins="perritodeck-host perritodeck-mcp perritodeck-fakedeck"
           if [ "$NAME" = macos-universal ]; then
             cargo build --release --locked --target x86_64-apple-darwin --target aarch64-apple-darwin
             for b in $bins; do lipo -create -output "$out/$b" "target/x86_64-apple-darwin/release/$b" "target/aarch64-apple-darwin/release/$b"; done

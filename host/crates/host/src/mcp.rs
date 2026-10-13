@@ -101,6 +101,35 @@ pub struct McpView {
     pub state: McpState,
     pub url: String,
     pub snippets: McpSnippets,
+    /// Since the endpoint started, an assistant has connected through the app's own
+    /// program (`perritodeck-app mcp`, the setup from before the standalone bridge). It
+    /// works, but keeps the app's program in use, so the app can't be updated meanwhile.
+    pub app_bridge_used: bool,
+}
+
+/// The program names of the stdio bridges requests came through (`perritodeck-mcp`,
+/// `perritodeck-app`, …).
+#[derive(Debug, Default)]
+pub(crate) struct BridgesSeen(std::sync::Mutex<std::collections::BTreeSet<String>>);
+
+impl BridgesSeen {
+    pub(crate) fn note(&self, agent: &str) {
+        let name = agent.split('/').next().unwrap_or_default().trim();
+        if !name.is_empty() {
+            self.0
+                .lock()
+                .expect("bridges poisoned")
+                .insert(name.to_owned());
+        }
+    }
+
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.0.lock().expect("bridges poisoned").contains(name)
+    }
+
+    pub(crate) fn clear(&self) {
+        self.0.lock().expect("bridges poisoned").clear();
+    }
 }
 
 /// The snippets for a command (this program plus `args`), port and token.
@@ -117,40 +146,123 @@ pub fn snippets(command: &str, args: &[String], port: u16, token: &str) -> McpSn
     }
 }
 
-/// Arguments that start the stdio bridge: `mcp`, plus the data folder when it isn't
-/// the usual one (so the bridge finds this host's settings).
-pub fn bridge_args(data_dir: &Path) -> Vec<String> {
-    let mut args = vec!["mcp".to_owned()];
+/// The standalone bridge's file name.
+#[cfg(windows)]
+pub const BRIDGE_FILE: &str = "perritodeck-mcp.exe";
+#[cfg(not(windows))]
+pub const BRIDGE_FILE: &str = "perritodeck-mcp";
+
+/// Where assistants start the bridge from: `<data dir>/bin/perritodeck-mcp`. It's a copy
+/// of the one that ships with the app, so a running assistant never keeps the app's own
+/// program in use (on Windows that would stop the app from being updated).
+pub fn bridge_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("bin").join(BRIDGE_FILE)
+}
+
+/// The bridge that ships next to this program (the app or the host), if there is one.
+pub fn shipped_bridge() -> Option<PathBuf> {
+    let path = std::env::current_exe().ok()?.parent()?.join(BRIDGE_FILE);
+    path.is_file().then_some(path)
+}
+
+/// What [`install_bridge`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeInstall {
+    /// The copy in the data folder was already this one.
+    Unchanged,
+    /// Copied there, new or in place of another version.
+    Copied,
+    /// The copy there is in use and couldn't be replaced, so it stays as it is. It still
+    /// works: the endpoint answers every bridge version.
+    InUse,
+}
+
+/// Copy `shipped` to [`bridge_path`], unless the copy there is already the same.
+///
+/// On Windows a bridge an assistant is running can't be overwritten, but it can be
+/// renamed: it's moved aside (`*.old`, deleted on a later start once nothing runs it) and
+/// the new one takes its place, so the assistant's next session starts the new one.
+pub fn install_bridge(shipped: &Path, data_dir: &Path) -> std::io::Result<BridgeInstall> {
+    let dest = bridge_path(data_dir);
+    let dir = data_dir.join("bin");
+    std::fs::create_dir_all(&dir)?;
+    // Copies moved aside earlier, once nothing runs them, and a copy left half done.
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(BRIDGE_FILE) && (name.ends_with(".old") || name.ends_with(".new")) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    let new = std::fs::read(shipped)?;
+    if std::fs::read(&dest).is_ok_and(|old| old == new) {
+        return Ok(BridgeInstall::Unchanged);
+    }
+    let part = dir.join(format!("{BRIDGE_FILE}.new"));
+    std::fs::write(&part, &new)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if std::fs::rename(&part, &dest).is_ok() {
+        return Ok(BridgeInstall::Copied);
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let aside = dir.join(format!("{BRIDGE_FILE}.{stamp}.old"));
+    if std::fs::rename(&dest, &aside).is_ok() {
+        if std::fs::rename(&part, &dest).is_ok() {
+            return Ok(BridgeInstall::Copied);
+        }
+        let _ = std::fs::rename(&aside, &dest);
+    }
+    let _ = std::fs::remove_file(&part);
+    Ok(BridgeInstall::InUse)
+}
+
+/// The command that starts the stdio bridge, and its arguments: the copy in the data
+/// folder, or this program's own bridge (`mcp`) when there's no copy (the command-line
+/// host on its own, or a development build). Plus the data folder when it isn't the
+/// usual one, so the bridge finds this host's settings.
+pub fn bridge_command(data_dir: &Path) -> (String, Vec<String>) {
+    let copy = bridge_path(data_dir);
+    let mut args = Vec::new();
+    let command = if copy.is_file() {
+        copy.display().to_string()
+    } else {
+        args.push("mcp".to_owned());
+        std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "perritodeck-host".into())
+    };
     let usual = crate::default_data_dir().ok();
     if usual.as_deref() != Some(data_dir) {
         args.push("--data-dir".into());
         args.push(data_dir.display().to_string());
     }
-    args
+    (command, args)
 }
 
 /// Where the stdio bridge finds the host that uses `data_dir`: the port in its settings
-/// and its saved token, read afresh each time.
+/// and its saved token, read afresh each time (the same as `perritodeck-mcp` does).
 pub fn bridge_endpoint(data_dir: &Path) -> perritodeck_mcp::Endpoint {
-    let settings = crate::AppSettings::load(&crate::settings_path(data_dir));
-    perritodeck_mcp::Endpoint {
-        url: url(settings.mcp.port),
-        token: read_token(data_dir).unwrap_or_default(),
-    }
+    perritodeck_mcp::cli::endpoint(data_dir)
 }
 
 /// `perritodeck-host mcp` (and the app's `mcp` argument): the stdio bridge to the
 /// running host's endpoint, or with `config` the snippets for an assistant's settings.
-/// Only the protocol (or the snippets) goes to stdout.
-pub async fn run_command(data_dir: &Path, config: bool) -> Result<(), String> {
+/// Only the protocol (or the snippets) goes to stdout. `agent` names the program for the
+/// host, e.g. `perritodeck-host/0.2.0`.
+pub async fn run_command(data_dir: &Path, config: bool, agent: &str) -> Result<(), String> {
     if config {
         let settings = crate::AppSettings::load(&crate::settings_path(data_dir));
         let port = settings.mcp.port;
         let token = token_or_new(data_dir)?;
-        let command = std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "perritodeck-host".into());
-        let s = snippets(&command, &bridge_args(data_dir), port, &token);
+        let (command, args) = bridge_command(data_dir);
+        let s = snippets(&command, &args, port, &token);
         if !settings.mcp.enabled {
             println!("Note: the connection for AI assistants is off. Turn it on in the app (Settings → AI assistants),");
             println!(
@@ -175,7 +287,7 @@ pub async fn run_command(data_dir: &Path, config: bool) -> Result<(), String> {
     // shows the bridge's explanation instead of a server that failed to start. The
     // bridge looks the port and token up again if they stop working, so a new token or
     // port doesn't leave the assistant stuck until it restarts the bridge.
-    perritodeck_mcp::bridge_stdio_to_http(|| bridge_endpoint(data_dir))
+    perritodeck_mcp::bridge_stdio_to_http(agent, || bridge_endpoint(data_dir))
         .await
         .map_err(|e| format!("the MCP bridge stopped: {e}"))
 }
@@ -364,5 +476,11 @@ impl Backend for HostBackend {
             info!("AI assistant ran a {kind} action");
             host.test_action(action).await
         })
+    }
+
+    fn bridge_seen(&self, agent: &str, _version: u32) {
+        if let Ok(host) = self.host() {
+            host.mcp_bridges.note(agent);
+        }
     }
 }

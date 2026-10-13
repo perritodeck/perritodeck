@@ -1,0 +1,73 @@
+# What bridge version 1 (perritodeck-mcp 0.1) sends for tests/old_bridges.rs's assistant
+# session. Bridges already out there send exactly this, so never edit it: when the bridge
+# changes, raise BRIDGE_VERSION and add a new file. {port}, {token}, {session} and {version}
+# are filled in when the test replays it.
+
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:{port}
+Authorization: Bearer {token}
+User-Agent: perritodeck-mcp/{version}
+PerritoDeck-Bridge: 1
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Content-Length: 154
+Connection: close
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"assistant","version":"1"}}}
+---
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:{port}
+Authorization: Bearer {token}
+User-Agent: perritodeck-mcp/{version}
+PerritoDeck-Bridge: 1
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Content-Length: 54
+Connection: close
+Mcp-Session-Id: {session}
+MCP-Protocol-Version: 2025-06-18
+
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+---
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:{port}
+Authorization: Bearer {token}
+User-Agent: perritodeck-mcp/{version}
+PerritoDeck-Bridge: 1
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Content-Length: 46
+Connection: close
+Mcp-Session-Id: {session}
+MCP-Protocol-Version: 2025-06-18
+
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+---
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:{port}
+Authorization: Bearer {token}
+User-Agent: perritodeck-mcp/{version}
+PerritoDeck-Bridge: 1
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Content-Length: 95
+Connection: close
+Mcp-Session-Id: {session}
+MCP-Protocol-Version: 2025-06-18
+
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_profiles","arguments":{}}}
+---
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:{port}
+Authorization: Bearer {token}
+User-Agent: perritodeck-mcp/{version}
+PerritoDeck-Bridge: 1
+Content-Type: application/json
+Accept: application/json, text/event-stream
+Content-Length: 279
+Connection: close
+MCP-Protocol-Version: 2026-07-28
+Mcp-Method: tools/call
+Mcp-Name: list_tablets
+
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_tablets","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"assistant","version":"1"}}}}

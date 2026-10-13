@@ -1,5 +1,6 @@
-//! stdio → HTTP bridge: an assistant launches `perritodeck-host mcp`, which passes each
-//! line from stdin to the running host's HTTP endpoint and prints the answers.
+//! stdio → HTTP bridge: an assistant launches `perritodeck-mcp` (or `perritodeck-host
+//! mcp`), which passes each line from stdin to the running host's HTTP endpoint and
+//! prints the answers.
 //!
 //! It handles the HTTP side of the protocol for the assistant: the access token, the
 //! `Mcp-Session-Id` of handshake-based versions (and starting a new session if the host
@@ -10,6 +11,15 @@
 //! to the port and token it started with: when the host can't be reached or refuses the
 //! token, it looks them up again (the person may have changed the port or made a new
 //! token) and sends the message again if they changed.
+//!
+//! # Old bridges, newer hosts
+//!
+//! The standalone bridge (`perritodeck-mcp`) is copied into the data folder, and a copy an
+//! assistant is running can't always be replaced when the app is updated. So every
+//! request says which bridge sent it (`User-Agent`) and which requests that bridge sends
+//! ([`BRIDGE_VERSION`], in a `PerritoDeck-Bridge` header), and the endpoint keeps
+//! answering the requests of every bridge version there has been. The tests replay each
+//! version's requests (`tests/fixtures/bridge-v*.txt`) against the endpoint.
 
 use std::{fmt, io, time::Duration};
 
@@ -34,6 +44,14 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 const MAX_RESPONSE: usize = 16 * 1024 * 1024;
 
+/// Which requests the bridge sends: its HTTP headers and how it uses sessions. Raise it
+/// when that changes, and add the new version's requests to the tests' fixtures; the
+/// endpoint must go on answering the old ones.
+pub const BRIDGE_VERSION: u32 = 1;
+
+/// The standalone bridge's `User-Agent`.
+pub const AGENT: &str = concat!("perritodeck-mcp/", env!("CARGO_PKG_VERSION"));
+
 /// Where the host's endpoint is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -44,13 +62,14 @@ pub struct Endpoint {
 
 /// Bridge this process's stdin/stdout to the host's endpoint. Returns when stdin closes.
 ///
-/// `find` says where the endpoint is. It's asked when the bridge starts, and again
-/// whenever the host can't be reached or refuses the token.
-pub async fn bridge_stdio_to_http<F>(find: F) -> io::Result<()>
+/// `agent` names the program for the host (its `User-Agent`, e.g. [`AGENT`]). `find`
+/// says where the endpoint is. It's asked when the bridge starts, and again whenever
+/// the host can't be reached or refuses the token.
+pub async fn bridge_stdio_to_http<F>(agent: &str, find: F) -> io::Result<()>
 where
     F: FnMut() -> Endpoint,
 {
-    bridge_with(find, tokio::io::stdin(), tokio::io::stdout()).await
+    bridge_with(agent, find, tokio::io::stdin(), tokio::io::stdout()).await
 }
 
 /// [`bridge_with`] to an endpoint that stays put.
@@ -63,17 +82,17 @@ where
         url: url.to_owned(),
         token: token.to_owned(),
     };
-    bridge_with(move || endpoint.clone(), input, output).await
+    bridge_with(AGENT, move || endpoint.clone(), input, output).await
 }
 
 /// [`bridge_stdio_to_http`] over any streams.
-pub async fn bridge_with<F, R, W>(find: F, input: R, mut output: W) -> io::Result<()>
+pub async fn bridge_with<F, R, W>(agent: &str, find: F, input: R, mut output: W) -> io::Result<()>
 where
     F: FnMut() -> Endpoint,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut link = Link::new(find)?;
+    let mut link = Link::new(agent, find)?;
     let mut state = State::default();
     let mut input = BufReader::new(input);
     while let Some(line) = read_line(&mut input, DEFAULT_MAX_BODY).await? {
@@ -107,16 +126,31 @@ struct State {
 /// The endpoint the bridge sends to, and how to look it up again.
 struct Link<F> {
     find: F,
+    to: To,
+}
+
+/// Where requests go, and who sends them.
+struct To {
     target: Target,
     token: String,
+    agent: String,
+}
+
+impl To {
+    async fn send(&self, extra: &[(String, String)], body: &str) -> Result<Response, SendError> {
+        send(&self.target, &self.token, &self.agent, extra, body).await
+    }
 }
 
 impl<F: FnMut() -> Endpoint> Link<F> {
-    fn new(mut find: F) -> io::Result<Self> {
+    fn new(agent: &str, mut find: F) -> io::Result<Self> {
         let e = find();
         Ok(Self {
-            target: Target::parse(&e.url)?,
-            token: e.token,
+            to: To {
+                target: Target::parse(&e.url)?,
+                token: e.token,
+                agent: agent.to_owned(),
+            },
             find,
         })
     }
@@ -131,11 +165,11 @@ impl<F: FnMut() -> Endpoint> Link<F> {
                 return false;
             }
         };
-        if target == self.target && e.token == self.token {
+        if target == self.to.target && e.token == self.to.token {
             return false;
         }
-        self.target = target;
-        self.token = e.token;
+        self.to.target = target;
+        self.to.token = e.token;
         true
     }
 }
@@ -208,13 +242,10 @@ where
         .map(str::to_owned);
     let is_init = method.as_deref() == Some("initialize") && request_id.is_some();
 
-    let mut resp = send(
-        &link.target,
-        &link.token,
-        &headers(msg.as_ref(), modern.as_deref(), is_init, st),
-        text,
-    )
-    .await;
+    let mut resp = link
+        .to
+        .send(&headers(msg.as_ref(), modern.as_deref(), is_init, st), text)
+        .await;
     // Nothing listens where the host was, or it refused the token: the person may have
     // changed the port or made a new token. Look again, and if either changed, send it
     // again (the host did nothing with it, so that's safe).
@@ -223,26 +254,26 @@ where
         Err(SendError::Connect(_)) | Ok(Response { status: 401, .. })
     );
     if undelivered && link.refresh() {
-        resp = send(
-            &link.target,
-            &link.token,
-            &headers(msg.as_ref(), modern.as_deref(), is_init, st),
-            text,
-        )
-        .await;
+        resp = link
+            .to
+            .send(&headers(msg.as_ref(), modern.as_deref(), is_init, st), text)
+            .await;
     }
-    let (t, token) = (&link.target, link.token.as_str());
     // The host restarted and forgot the session: start a new one and try again.
     let lost = matches!(&resp, Ok(r) if r.status == 404)
         && st.session.is_some()
         && modern.is_none()
         && !is_init;
-    if lost && reinitialize(t, token, st).await {
-        resp = send(t, token, &headers(msg.as_ref(), None, false, st), text).await;
+    if lost && reinitialize(&link.to, st).await {
+        resp = link
+            .to
+            .send(&headers(msg.as_ref(), None, false, st), text)
+            .await;
     }
     let resp = match resp {
         Ok(r) => r,
         Err(e) => {
+            let t = &link.to.target;
             warn!("can't reach PerritoDeck at {}:{}: {e}", t.host, t.port);
             return request_id
                 .map(|id| {
@@ -354,11 +385,11 @@ fn headers(
     h
 }
 
-async fn reinitialize(t: &Target, token: &str, st: &mut State) -> bool {
+async fn reinitialize(to: &To, st: &mut State) -> bool {
     let Some(init) = st.init.clone() else {
         return false;
     };
-    let Ok(r) = send(t, token, &[], &init).await else {
+    let Ok(r) = to.send(&[], &init).await else {
         return false;
     };
     if r.status != 200 || r.session.is_none() {
@@ -367,7 +398,7 @@ async fn reinitialize(t: &Target, token: &str, st: &mut State) -> bool {
     st.session = r.session;
     if st.initialized {
         let note = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string();
-        let _ = send(t, token, &headers(None, None, false, st), &note).await;
+        let _ = to.send(&headers(None, None, false, st), &note).await;
     }
     true
 }
@@ -391,6 +422,7 @@ impl fmt::Display for SendError {
 async fn send(
     t: &Target,
     token: &str,
+    agent: &str,
     extra: &[(String, String)],
     body: &str,
 ) -> Result<Response, SendError> {
@@ -401,7 +433,7 @@ async fn send(
     .await
     .unwrap_or_else(|_| Err(io::ErrorKind::TimedOut.into()))
     .map_err(SendError::Connect)?;
-    exchange(stream, t, token, extra, body)
+    exchange(stream, t, token, agent, extra, body)
         .await
         .map_err(SendError::Answer)
 }
@@ -410,11 +442,13 @@ async fn exchange(
     mut stream: TcpStream,
     t: &Target,
     token: &str,
+    agent: &str,
     extra: &[(String, String)],
     body: &str,
 ) -> io::Result<Response> {
     let mut req = format!(
         "POST {} HTTP/1.1\r\nHost: {}:{}\r\nAuthorization: Bearer {token}\r\n\
+         User-Agent: {agent}\r\nPerritoDeck-Bridge: {BRIDGE_VERSION}\r\n\
          Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n\
          Content-Length: {}\r\nConnection: close\r\n",
         t.path,
