@@ -45,6 +45,13 @@
     }
   });
 
+  // Tablets come and go on the cable, so keep the USB line current while this is open.
+  onMount(() => {
+    if (!status.usbAvailable) return;
+    const every = setInterval(onchange, 4000);
+    return () => clearInterval(every);
+  });
+
   async function copy(what: string, text: string | (() => Promise<string>)) {
     await run(async () => {
       await copyText(typeof text === "string" ? text : await text());
@@ -326,11 +333,15 @@
       <span>
         {status.usbDevices.length
           ? `${status.usbDevices.length} tablet${status.usbDevices.length === 1 ? "" : "s"} on a cable`
-          : "No tablet on a cable right now"}
+          : status.usbProblems.length
+            ? "No tablet connected over the cable yet"
+            : "No tablet on a cable right now"}
       </span>
+      {#each status.usbProblems as problem (problem)}<span class="bad">{problem}</span>{/each}
       <small>
         Tablets plugged in with USB debugging on connect over the cable, which is steadier than Wi-Fi. Pair them as
-        usual; they switch to the cable by themselves.
+        usual; they switch to the cable by themselves. If a plugged-in tablet doesn’t show up here, check that USB
+        debugging is on; on Windows, some tablets also need their maker’s USB driver.
       </small>
     {:else}
       <span>Not set up</span>
