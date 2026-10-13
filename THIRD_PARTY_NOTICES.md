@@ -29,7 +29,7 @@ unmodified unless noted:
 
 ## Rust crates: Command-line host and shared crates
 
-382 crates (all target platforms; build-time crates included, test-only crates left out).
+383 crates (all target platforms; build-time crates included, test-only crates left out).
 
 <details><summary>Show the list</summary>
 
@@ -358,6 +358,7 @@ unmodified unless noted:
 | windows-link | 0.1.3 | MIT OR Apache-2.0 |
 | windows-link | 0.2.1 | MIT OR Apache-2.0 |
 | windows-numerics | 0.2.0 | MIT OR Apache-2.0 |
+| windows-registry | 0.6.1 | MIT OR Apache-2.0 |
 | windows-result | 0.3.4 | MIT OR Apache-2.0 |
 | windows-result | 0.4.1 | MIT OR Apache-2.0 |
 | windows-strings | 0.4.2 | MIT OR Apache-2.0 |
