@@ -15,6 +15,17 @@ def done(stdout="", returncode=0, stderr=""):
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
 
 
+# What Windows PowerShell 5.1 wrote on stderr for an uncaught error under
+# -EncodedCommand; shortened.
+CLIXML_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<S S="Error">Unable to find type [Windows.Media.Control.X &amp; Y]._x000D__x000A_</S>'
+    '<S S="Error">At line:30 char:5_x000D__x000A_</S>'
+    '<S S="Error"> _x000D__x000A_</S></Objs>'
+)
+
+
 class MediaTest(unittest.TestCase):
     def setUp(self):
         media.forget_state()
@@ -116,6 +127,13 @@ class WindowsTest(unittest.TestCase):
             self.run_windows('{"ok":false}', media.windows_control, "next")
         with self.assertRaisesRegex(RuntimeError, "not recognized"):
             self.run_windows("", media.windows_state, stderr="powershell.exe is not recognized")
+
+    def test_clixml_errors_become_their_message(self):
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_windows("", media.windows_state, stderr=CLIXML_ERROR)
+        self.assertEqual(str(caught.exception), "Unable to find type [Windows.Media.Control.X & Y].")
+        self.assertEqual(media.error_text(CLIXML_ERROR.split("<S S=")[0] + "</Objs>"), "")
+        self.assertEqual(media.error_text("one\ntwo\n"), "two")
 
     def test_controls(self):
         for command in media.COMMANDS:

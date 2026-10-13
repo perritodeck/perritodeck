@@ -16,6 +16,31 @@ def done(stdout="", returncode=0, stderr=""):
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
 
 
+# What Windows PowerShell 5.1 wrote on stderr for a parse error under -EncodedCommand
+# (here from a path quoted with an unescaped ’), shortened.
+CLIXML_PARSE_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    "<S S=\"Error\">The string is missing the terminator: '._x000D__x000A_</S>"
+    '<S S="Error">    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException_x000D__x000A_</S>'
+    '<S S="Error">    + FullyQualifiedErrorId : TerminatorExpectedAtEndOfString_x000D__x000A_</S>'
+    '<S S="Error"> _x000D__x000A_</S></Objs>'
+)
+
+# An uncaught cmdlet error, after the progress record a module load writes.
+CLIXML_CMDLET_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T>'
+    '<T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV>'
+    "<AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj>"
+    "<S S=\"Error\">Get-Item : Cannot find path 'Z:\\a_x005F_x0041_ &amp; &lt;b&gt;' because it does not exist._x000D__x000A_</S>"
+    '<S S="Error">At line:2 char:1_x000D__x000A_</S>'
+    "<S S=\"Error\">+ Get-Item 'Z:\\a_x005F_x0041_ &amp; &lt;b&gt;'_x000D__x000A_</S>"
+    '<S S="Error"> _x000D__x000A_</S></Objs>'
+)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -101,6 +126,30 @@ class WindowsTest(Base):
         self.assertEqual(shot.parse_ps('noise\n{"ok":true,"width":10}\r\n'), {"ok": True, "width": 10})
         with self.assertRaisesRegex(RuntimeError, "Access denied"):
             shot.parse_ps("", "Line 1\nAccess denied")
+
+    def test_clixml_errors_become_their_message(self):
+        self.assertEqual(shot.error_text(CLIXML_PARSE_ERROR), "The string is missing the terminator: '.")
+        self.assertEqual(
+            shot.error_text(CLIXML_CMDLET_ERROR), "Get-Item : Cannot find path 'Z:\\a_x0041_ & <b>' because it does not exist."
+        )
+        progress_only = CLIXML_CMDLET_ERROR.split("<S S=")[0] + "</Objs>"
+        self.assertEqual(shot.error_text(progress_only), "")
+        self.assertEqual(shot.error_text("plain\nlast line\n"), "last line")
+        self.assertEqual(shot.error_text(None), "")
+        with self.assertRaises(RuntimeError) as caught:
+            shot.parse_ps("", CLIXML_PARSE_ERROR)
+        self.assertEqual(str(caught.exception), "The string is missing the terminator: '.")
+        with self.assertRaisesRegex(RuntimeError, "PowerShell gave no answer"):
+            shot.parse_ps("", progress_only)
+
+    def test_capture_shows_the_powershell_error_not_xml(self):
+        with mock.patch.object(shot.sys, "platform", "win32"), mock.patch.object(
+            shot.subprocess, "run", return_value=done("", 1, CLIXML_CMDLET_ERROR)
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                shot.capture({"what": "screen"})
+        self.assertTrue(str(caught.exception).startswith("Get-Item : Cannot find path"))
+        self.assertNotIn("Objs", str(caught.exception))
 
     def test_capture_runs_powershell(self):
         with mock.patch.object(shot.sys, "platform", "win32"), mock.patch.object(

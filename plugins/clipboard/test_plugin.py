@@ -17,6 +17,21 @@ def done(stdout=b"", returncode=0, stderr=b""):
     return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
 
 
+# What Windows PowerShell 5.1 wrote on stderr for an uncaught error under
+# -EncodedCommand, after the progress record a module load writes; shortened.
+CLIXML_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T>'
+    '<T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV>'
+    "<AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj>"
+    '<S S="Error">Requested Clipboard operation did not succeed. &lt;Für_x005F_x0041_&gt;_x000D__x000A_</S>'
+    '<S S="Error">At line:3 char:1_x000D__x000A_</S>'
+    '<S S="Error">+ Get-Clipboard -Raw_x000D__x000A_</S>'
+    '<S S="Error"> _x000D__x000A_</S></Objs>'
+).encode("utf-8")
+
+
 class FakeClipboard:
     def __init__(self, text=None):
         self.text = text
@@ -180,6 +195,28 @@ class WindowsTest(Base):
         self.assertIn("Get-Clipboard", base64.b64decode(args[-1]).decode("utf-16-le"))
         with mock.patch.object(clip.subprocess, "run", return_value=done(b"")):
             self.assertIsNone(clip.WindowsClipboard().get())
+
+    def test_errors_are_one_short_line(self):
+        # The scripts catch their own errors and print just the message, in UTF-8...
+        for script in (clip.WINDOWS_GET, clip.WINDOWS_SET):
+            self.assertIn("$ProgressPreference = 'SilentlyContinue'", script)
+            self.assertIn("[Console]::OutputEncoding = [Text.Encoding]::UTF8", script)
+            self.assertIn("[Console]::Error.WriteLine(", script)
+        failed = done(b"", 1, "Der angeforderte Zwischenablagevorgang ist fehlgeschlagen.\r\n".encode("utf-8"))
+        with mock.patch.object(clip.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "^Der angeforderte Zwischenablagevorgang ist fehlgeschlagen.$"):
+                clip.WindowsClipboard().get()
+        # ...and anything that still escapes as CLIXML is read for its message.
+        with mock.patch.object(clip.subprocess, "run", return_value=done(b"", 1, CLIXML_ERROR)):
+            with self.assertRaises(RuntimeError) as caught:
+                clip.WindowsClipboard().get()
+        self.assertEqual(str(caught.exception), "Requested Clipboard operation did not succeed. <Für_x0041_>")
+        self.assertEqual(clip.error_text(CLIXML_ERROR.decode("utf-8").split("<S S=")[0] + "</Objs>"), "")
+        long = done(b"", 1, ("x" * 300).encode())
+        with mock.patch.object(clip.subprocess, "run", return_value=long):
+            with self.assertRaises(RuntimeError) as caught:
+                clip.WindowsClipboard().get()
+        self.assertLessEqual(len(str(caught.exception)), clip.MAX_ERROR)
 
     def test_set_goes_through_a_utf8_file(self):
         # A profile folder can contain ’, which ends a '…' string in PowerShell just

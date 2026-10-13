@@ -17,8 +17,10 @@ Only text is handled: if the clipboard held a picture or files, it can't be put 
 """
 
 import base64
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +35,7 @@ plugin = Plugin()
 NOTHING = "–"
 TIMEOUT = 5  # seconds for any one helper program
 PREVIEW = 20  # characters a slot shows
+MAX_ERROR = 80  # characters of an error message shown on a key
 COMBOS = ("ctrl+v", "ctrl+shift+v", "shift+insert")
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 UTF8_ENV = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
@@ -55,9 +58,32 @@ def run(args, data=None, env=None, check=True):
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{os.path.basename(args[0])} didn't answer in {TIMEOUT} s")
     if check and out.returncode != 0:
-        detail = out.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise RuntimeError(detail[-1] if detail else f"{os.path.basename(args[0])} failed")
+        detail = error_text(out.stderr.decode("utf-8", "replace"))
+        raise RuntimeError(short(detail) if detail else f"{os.path.basename(args[0])} failed")
     return out
+
+
+def short(message, limit=MAX_ERROR):
+    """One line of at most `limit` characters, for a key's alert."""
+    line = " ".join(str(message).split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def error_text(stderr):
+    """The message in what a helper wrote on stderr, or "": its last line, except
+    for Windows PowerShell's CLIXML. With -EncodedCommand and stderr redirected,
+    PowerShell writes an uncaught error as a "#< CLIXML" line, then XML with each
+    line of the error in an <S S="Error"> element and line breaks written as
+    _x000D__x000A_. The first of those lines is the message; the rest say where in
+    the script it happened."""
+    text = (stderr or "").strip()
+    if not text.startswith("#< CLIXML"):
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines[-1] if lines else ""
+    text = html.unescape("".join(re.findall(r'<S S="Error">(.*?)</S>', text, re.S)))
+    text = re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else ""
 
 
 def feed(args, text):
@@ -81,20 +107,37 @@ def feed(args, text):
 # so no console code page can garble it and no command line gets too long. The
 # file's path comes in an environment variable, so it never has to be quoted into
 # the script: PowerShell ends a '…' string at ‘ ’ ‚ ‛ as well as at '.
+# A failure is one line of UTF-8 on stderr; uncaught, PowerShell would write it as
+# CLIXML in the console's code page. Without $ProgressPreference, the first
+# Get-Clipboard also writes a "Preparing modules" progress record there.
 WINDOWS_GET = r"""
 $ErrorActionPreference = 'Stop'
-$t = Get-Clipboard -Raw
-if ($null -ne $t) { [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$t))) }
+$ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+try {
+    $t = Get-Clipboard -Raw
+    if ($null -ne $t) { [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$t))) }
+} catch {
+    [Console]::Error.WriteLine([string]$_.Exception.GetBaseException().Message)
+    exit 1
+}
 """
 
 WINDOWS_SET = r"""
 $ErrorActionPreference = 'Stop'
-$t = [IO.File]::ReadAllText($env:PERRITODECK_CLIP_FILE, [Text.Encoding]::UTF8)
-if ($t.Length -eq 0) {
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.Clipboard]::Clear()
-} else {
-    Set-Clipboard -Value $t
+$ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+try {
+    $t = [IO.File]::ReadAllText($env:PERRITODECK_CLIP_FILE, [Text.Encoding]::UTF8)
+    if ($t.Length -eq 0) {
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.Clipboard]::Clear()
+    } else {
+        Set-Clipboard -Value $t
+    }
+} catch {
+    [Console]::Error.WriteLine([string]$_.Exception.GetBaseException().Message)
+    exit 1
 }
 """
 

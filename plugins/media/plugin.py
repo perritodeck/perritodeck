@@ -12,8 +12,10 @@ covered by unit tests that mock subprocess only.
 """
 
 import base64
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -188,8 +190,24 @@ def parse_windows(stdout, stderr=""):
                 continue
             if isinstance(data, dict):
                 return data
-    detail = (stderr or "").strip().splitlines()
-    raise RuntimeError(detail[-1] if detail else "PowerShell gave no answer")
+    raise RuntimeError(error_text(stderr) or "PowerShell gave no answer")
+
+
+def error_text(stderr):
+    """The message in what a helper wrote on stderr, or "": its last line, except
+    for Windows PowerShell's CLIXML. With -EncodedCommand and stderr redirected,
+    PowerShell writes an uncaught error as a "#< CLIXML" line, then XML with each
+    line of the error in an <S S="Error"> element and line breaks written as
+    _x000D__x000A_. The first of those lines is the message; the rest say where in
+    the script it happened."""
+    text = (stderr or "").strip()
+    if not text.startswith("#< CLIXML"):
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines[-1] if lines else ""
+    text = html.unescape("".join(re.findall(r'<S S="Error">(.*?)</S>', text, re.S)))
+    text = re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else ""
 
 
 def windows_status(playback_status):
