@@ -368,13 +368,15 @@ class ProgramsForTheUserTest(unittest.TestCase):
         self.assertNotIn("creationflags", kwargs)
 
     def test_open_hands_over_to_the_desktop(self):
-        for platform, opener in (("darwin", "open"), ("linux", "xdg-open")):
+        # xdg-open's error output isn't a pipe: the browser it starts would hold it.
+        for platform, opener, errors in (("darwin", "open", subprocess.PIPE), ("linux", "xdg-open", subprocess.DEVNULL)):
             with mock.patch.object(self.sdk.sys, "platform", platform), mock.patch.object(self.sdk.subprocess, "Popen") as popen:
-                popen.return_value.communicate.return_value = (None, b"")
+                popen.return_value.communicate.return_value = (None, b"" if errors == subprocess.PIPE else None)
                 popen.return_value.returncode = 0
                 self.sdk.open_for_user(self.exe)
             self.assertEqual(popen.call_args.args[0], [opener, self.exe])
             self.assertEqual(popen.call_args.kwargs["cwd"], self.folder)
+            self.assertEqual(popen.call_args.kwargs["stderr"], errors)
         popen = self.on("win32")
         popen.return_value.communicate.return_value = (None, b"")
         popen.return_value.returncode = 0
@@ -396,6 +398,14 @@ class ProgramsForTheUserTest(unittest.TestCase):
         popen.return_value.communicate.side_effect = subprocess.TimeoutExpired("python", 5)
         self.sdk.open_for_user("x")  # still opening: not an error
         popen.return_value.kill.assert_not_called()
+
+    def test_xdg_open_failures_are_told_by_exit_code(self):
+        popen = self.on("linux")
+        popen.return_value.communicate.return_value = (None, None)
+        for code, message in ((2, "missing.txt doesn't exist"), (3, "found no program to open missing.txt"), (4, "couldn't open missing.txt")):
+            popen.return_value.returncode = code
+            with self.assertRaisesRegex(OSError, message):
+                self.sdk.open_for_user("missing.txt")
 
     def test_open_without_xdg_open_asks_the_standard_library(self):
         import webbrowser

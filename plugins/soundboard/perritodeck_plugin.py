@@ -81,6 +81,8 @@ _CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 _CREATE_NO_WINDOW = 0x08000000
 # Seconds open_for_user waits to hear whether the desktop could open something.
 _OPEN_TIMEOUT = 5
+# What xdg-open's exit codes mean (open_for_user doesn't read its error output there).
+_XDG_OPEN_ERRORS = {2: "{} doesn't exist", 3: "found no program to open {}"}
 # Run by open_for_user on Windows, outside the plugin's job object: opens argv[1] the
 # way double-clicking would (ShellExecute), so what it starts is outside the job too.
 _OPEN_HELPER = (
@@ -143,6 +145,7 @@ def open_for_user(target, cwd=None):
     anything that isn't a file). Raises OSError when it couldn't be opened."""
     target = str(target)
     folder = cwd or _start_folder(target)
+    errors, codes = subprocess.PIPE, {}
     if sys.platform == "win32":
         if not sys.executable:  # an embedded Python: nothing to run the helper with
             os.startfile(target)
@@ -154,8 +157,12 @@ def open_for_user(target, cwd=None):
         opener, flags = ["open", target], 0
     else:
         opener, flags = ["xdg-open", target], 0
+        # No pipe for its errors: the browser it starts (through gio, say) would get
+        # the pipe too, and waiting for the pipe to close would wait for the browser,
+        # so a sign-in would stall for _OPEN_TIMEOUT. Its exit code says what failed.
+        errors, codes = subprocess.DEVNULL, _XDG_OPEN_ERRORS
     try:
-        helper = _start(opener, folder, flags, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        helper = _start(opener, folder, flags, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errors)
     except FileNotFoundError:  # no xdg-open: let the standard library guess
         import webbrowser
 
@@ -167,8 +174,8 @@ def open_for_user(target, cwd=None):
     except subprocess.TimeoutExpired:
         return  # the desktop is still busy opening it; let it carry on
     if helper.returncode:
-        detail = err.decode("utf-8", "replace").strip().splitlines()
-        raise OSError(detail[-1] if detail else f"couldn't open {target}")
+        detail = (err or b"").decode("utf-8", "replace").strip().splitlines()
+        raise OSError(detail[-1] if detail else codes.get(helper.returncode, "couldn't open {}").format(target))
 
 
 def start_for_user(args, cwd=None):
