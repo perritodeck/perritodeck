@@ -199,6 +199,36 @@ async fn restarts_from_a_thread_outside_the_runtime() {
     assert!(host.list().is_empty());
 }
 
+/// Removing a running plugin takes a moment, as its process has to end first. A scan
+/// meanwhile (from installing or restarting another plugin) mustn't start it again from
+/// the folder that's about to be deleted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scan_while_removing_doesnt_start_the_plugin_again() {
+    if !node_available() {
+        eprintln!("skipped: needs Node.js 22 or newer");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let host = SdHost::start(dir.path().join("sdplugins")).await.unwrap();
+    let uuid = host.install(&fixture()).unwrap();
+    until_status(&host, Status::Running).await;
+
+    let (sd, id) = (host.clone(), uuid.clone());
+    let removing = std::thread::spawn(move || sd.remove(&id));
+    while !removing.is_finished() {
+        host.scan();
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let removed = removing.join();
+    assert!(matches!(removed, Ok(Ok(()))), "remove: {removed:?}");
+    assert!(
+        host.list().is_empty(),
+        "it wasn't started again: {:?}",
+        host.list()
+    );
+    assert!(!host.folder().join(format!("{uuid}.sdPlugin")).exists());
+}
+
 /// Starts a program of its own as soon as it runs, as a plugin's helper would, notes
 /// both process ids in its folder, then stays running.
 #[cfg(windows)]

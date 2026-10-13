@@ -19,7 +19,7 @@ mod inspector;
 pub mod manifest;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -135,6 +135,9 @@ struct Instance {
 #[derive(Default)]
 struct State {
     plugins: BTreeMap<String, Plugin>,
+    /// Plugins being removed or replaced: their folders are still there while they
+    /// stop, and `scan` mustn't start them again meanwhile.
+    removing: HashSet<String>,
     broken: Vec<BrokenPlugin>,
     devices: BTreeMap<String, Grid>,
     instances: HashMap<String, Instance>,
@@ -285,6 +288,7 @@ impl SdHost {
         {
             let mut st = self.0.state.lock().expect("state poisoned");
             st.broken = broken;
+            found.retain(|uuid, _| !st.removing.contains(uuid));
             let gone: Vec<String> = st
                 .plugins
                 .keys()
@@ -389,38 +393,24 @@ impl SdHost {
             Manifest::read(&folder).map_err(|p| format!("That plugin can't be used: {p}."))?;
         let dest = self.0.dir.join(format!("{}.sdPlugin", manifest.uuid));
         // Stop the old version first: Windows can't delete a running program.
-        let old = self
-            .0
-            .state
-            .lock()
-            .expect("state poisoned")
-            .plugins
-            .remove(&manifest.uuid);
+        let (old, replacing) = self.0.take_out(&manifest.uuid);
         if let Some(old) = old {
-            stop(&old);
             wait_exited(&old);
         }
         if dest.exists() {
             remove_folder(&dest).map_err(|e| format!("Couldn't replace the old version: {e}"))?;
         }
         copy_dir(&folder, &dest).map_err(|e| format!("Couldn't copy the plugin: {e}"))?;
+        drop(replacing);
         self.scan();
         Ok(manifest.uuid)
     }
 
     pub fn remove(&self, uuid: &str) -> Result<(), String> {
-        let folder = {
-            let mut st = self.0.state.lock().expect("state poisoned");
-            let p = st
-                .plugins
-                .remove(uuid)
-                .ok_or_else(|| format!("There's no Stream Deck plugin {uuid}."))?;
-            stop(&p);
-            p
-        };
-        wait_exited(&folder);
-        let folder = folder.folder;
-        remove_folder(&folder).map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))
+        let (p, _removing) = self.0.take_out(uuid);
+        let p = p.ok_or_else(|| format!("There's no Stream Deck plugin {uuid}."))?;
+        wait_exited(&p);
+        remove_folder(&p.folder).map_err(|e| format!("Couldn't remove {}: {e}", p.folder.display()))
     }
 
     pub fn restart(&self, uuid: &str) -> Result<(), String> {
@@ -468,6 +458,20 @@ fn wait_exited(p: &Plugin) {
     }
 }
 
+/// Keeps a plugin that's being removed or replaced out of `scan` until it's dropped.
+struct Removing<'a> {
+    inner: &'a Inner,
+    uuid: String,
+}
+
+impl Drop for Removing<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut st) = self.inner.state.lock() {
+            st.removing.remove(&self.uuid);
+        }
+    }
+}
+
 /// Delete a plugin's folder. On Windows a process that was just ended can keep a file
 /// in it busy for a moment longer (its program, or its working folder), so retry for
 /// up to a second before giving up.
@@ -512,6 +516,22 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl Inner {
+    /// Take a plugin out of the list to remove or replace it, and stop it. Until the
+    /// guard is dropped, `scan` leaves its folder alone rather than start it again.
+    fn take_out(&self, uuid: &str) -> (Option<Plugin>, Removing<'_>) {
+        let mut st = self.state.lock().expect("state poisoned");
+        st.removing.insert(uuid.to_owned());
+        let p = st.plugins.remove(uuid);
+        if let Some(p) = &p {
+            stop(p);
+        }
+        let guard = Removing {
+            inner: self,
+            uuid: uuid.to_owned(),
+        };
+        (p, guard)
+    }
+
     fn send(&self, uuid: &str, msg: Value) {
         let st = self.state.lock().expect("state poisoned");
         if let Some((_, tx)) = st.plugins.get(uuid).and_then(|p| p.out.as_ref()) {
