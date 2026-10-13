@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use perritodeck_actions::{ActionError, BoxFuture, Outcome, PluginRunner};
+use perritodeck_actions::{job::ProcessTree, ActionError, BoxFuture, Outcome, PluginRunner};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::{
@@ -99,12 +99,11 @@ struct Running {
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
 impl Running {
-    /// Ask the plugin to stop; the supervisor kills it if it doesn't exit in time.
+    /// Ask the plugin to stop: no more actions go to it, and the supervisor sends it
+    /// `shutdown` (ready or not), then kills it if it doesn't exit in time.
     fn request_stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(tx) = self.to_plugin.lock().expect("stdin poisoned").take() {
-            let _ = tx.send(json!({ "event": "shutdown" }).to_string());
-        }
+        self.to_plugin.lock().expect("stdin poisoned").take();
         self.stop_signal.notify_one();
     }
 
@@ -309,8 +308,7 @@ impl PluginHost {
             old.wait_exited(STOP_GRACE * 2);
         }
         if dest.exists() {
-            std::fs::remove_dir_all(&dest)
-                .map_err(|e| format!("Couldn't replace the old version: {e}"))?;
+            remove_folder(&dest).map_err(|e| format!("Couldn't replace the old version: {e}"))?;
         }
         copy_dir(src, &dest).map_err(|e| format!("Couldn't copy the plugin: {e}"))?;
         // An updated plugin is a new manifest, so scan restarts it.
@@ -329,8 +327,7 @@ impl PluginHost {
         p.request_stop();
         p.wait_exited(STOP_GRACE * 2);
         let folder = p.dir.clone();
-        std::fs::remove_dir_all(&folder)
-            .map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
+        remove_folder(&folder).map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
         self.scan();
         Ok(())
     }
@@ -527,6 +524,28 @@ fn copy_dir(src: &Path, dest: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Delete a plugin's folder. On Windows a process that was just ended can keep a file
+/// in it busy for a moment longer (its program, or its working folder), so retry for
+/// up to a second before giving up.
+fn remove_folder(dir: &Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::remove_dir_all(dir) {
+            Err(e) if tries < 20 && still_in_use(&e) => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            done => return done,
+        }
+    }
+}
+
+/// Whether deleting failed because a file is still in use (Windows: access denied,
+/// sharing violation, or a folder whose files are still being deleted).
+fn still_in_use(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 145))
+}
+
 /// The program and arguments that run a plugin.
 fn command_for(m: &Manifest, dir: &Path) -> Vec<(String, Vec<String>)> {
     let main = dir.join(&m.main).display().to_string();
@@ -554,6 +573,9 @@ const STORE_STUB_EXIT: i32 = 9009;
 fn is_store_python_stub(runtime: Runtime, code: Option<i32>, ran_for: Duration) -> bool {
     runtime == Runtime::Python && code == Some(STORE_STUB_EXIT) && ran_for < Duration::from_secs(5)
 }
+
+/// Windows process creation flag: no console window for the process.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Write a file only its owner can read (0600 on Unix, set when it's created).
 pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -589,7 +611,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
             return;
         }
         let started = Instant::now();
-        let mut child = None;
+        let mut spawned = None;
         for (program, args) in command_for(&p.manifest, &p.dir) {
             let mut cmd = Command::new(&program);
             cmd.args(&args)
@@ -602,12 +624,11 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .kill_on_drop(true);
-            // No console window popping up for each plugin.
-            #[cfg(windows)]
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            match cmd.spawn() {
-                Ok(c) => {
-                    child = Some(c);
+            // On Windows the plugin and everything it starts end together (a job
+            // object), and no console window pops up for each plugin.
+            match ProcessTree::spawn(&mut cmd, CREATE_NO_WINDOW) {
+                Ok(child_and_tree) => {
+                    spawned = Some(child_and_tree);
                     break;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -617,7 +638,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                 }
             }
         }
-        let Some(mut child) = child else {
+        let Some((mut child, tree)) = spawned else {
             let runtime = match p.manifest.runtime {
                 Runtime::Node => "Node.js",
                 Runtime::Python => "Python 3",
@@ -632,9 +653,6 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
             });
             return;
         };
-
-        // On Windows the plugin and everything it starts end together (job object).
-        let tree = perritodeck_actions::job::ProcessTree::adopt(&child);
 
         let mut stdin = child.stdin.take().expect("piped");
         let stdout = child.stdout.take().expect("piped");
@@ -685,7 +703,9 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         let status = tokio::select! {
             s = child.wait() => s,
             _ = p.stop_signal.notified() => {
-                // Asked to stop: give it a moment after `shutdown`, then kill it.
+                // Asked to stop: say so (even if it isn't ready yet, so it needn't sit
+                // out the grace period), give it a moment, then kill it.
+                let _ = tx.send(json!({ "event": "shutdown" }).to_string());
                 match tokio::time::timeout(STOP_GRACE, child.wait()).await {
                     Ok(s) => s,
                     Err(_) => {
@@ -696,8 +716,11 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                 }
             }
         };
-        // Ends whatever the plugin left running.
-        drop(tree);
+        // End whatever the plugin left running, and wait until it's gone, so that
+        // `exited` means its folder can be deleted.
+        if let Some(tree) = tree {
+            tree.end().await;
+        }
         reader.abort();
         writer.abort();
         *p.to_plugin.lock().expect("stdin poisoned") = None;
@@ -732,7 +755,11 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         }
         warn!("plugin {id} stopped ({reason}); restarting");
         p.set_status(Status::Starting);
-        tokio::time::sleep(Duration::from_millis(BACKOFF_MS * 2u64.pow(quick_restarts))).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(BACKOFF_MS * 2u64.pow(quick_restarts))) => {}
+            // Stopped while waiting (Quit, Remove, Update): no need to sit out the delay.
+            _ = p.stop_signal.notified() => {}
+        }
     }
 }
 
@@ -740,6 +767,9 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
     let name = &p.manifest.name;
     match msg["event"].as_str() {
         Some("ready") => {
+            if p.stop.load(Ordering::Relaxed) {
+                return; // being stopped: no more actions for it
+            }
             *p.to_plugin.lock().expect("stdin poisoned") = Some(tx.clone());
             p.set_status(Status::Running);
             // Catch it up on what profiles show (it may have restarted).

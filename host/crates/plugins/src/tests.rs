@@ -384,6 +384,45 @@ async fn plugins_that_ignore_shutdown_are_ended_before_removal() {
     assert!(!process_alive(pid), "the old process was ended");
 }
 
+/// Answers nothing, not even `ready`, but exits on `shutdown`.
+const NEVER_READY_PLUGIN: &str = r#"
+import json, os, sys
+open(os.path.join(os.environ["PERRITODECK_PLUGIN_DATA"], "pid"), "w").write(str(os.getpid()))
+for line in sys.stdin:
+    if json.loads(line)["event"] == "shutdown":
+        break
+"#;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plugin_that_isnt_ready_yet_is_asked_to_stop_too() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    write_plugin(
+        &plugins,
+        "test.slowstart",
+        "python",
+        "plugin.py",
+        Some(NEVER_READY_PLUGIN),
+    );
+    let host = PluginHost::start(plugins.clone(), "1", Arc::new(|_, _| {}));
+    let pid_file = root.path().join("plugin-data/test.slowstart/pid");
+    wait_for("pid", || pid_file.is_file()).await;
+    assert_eq!(host.list()[0].status, Status::Starting);
+    let began = Instant::now();
+    let h = host.clone();
+    tokio::task::spawn_blocking(move || h.remove("test.slowstart"))
+        .await
+        .unwrap()
+        .unwrap();
+    // It got `shutdown` and left at once, instead of being killed after the grace.
+    assert!(began.elapsed() < STOP_GRACE, "{:?}", began.elapsed());
+    assert!(!plugins.join("test.slowstart").exists());
+}
+
 /// Starts a program of its own as soon as it runs, like the soundboard's players.
 /// `py.exe`'s job lets Python's children break away from it, so only the host's job
 /// object ends this one.
@@ -430,6 +469,6 @@ async fn programs_a_plugin_started_end_with_it() {
         .unwrap()
         .unwrap();
     assert!(!process_alive(&pid), "the plugin was ended");
-    // Ending a job is asynchronous; give Windows a moment.
-    wait_for("child ended", || !process_alive(&child)).await;
+    // Removing waits until the job's processes are gone, not only the plugin.
+    assert!(!process_alive(&child), "the plugin's own program was ended");
 }
