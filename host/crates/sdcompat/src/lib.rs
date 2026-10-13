@@ -17,9 +17,11 @@
 pub mod images;
 mod inspector;
 pub mod manifest;
+mod node;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ffi::OsStr,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -171,7 +173,9 @@ struct Inner {
     state: Mutex<State>,
     deck: OnceLock<Weak<Deck>>,
     draws: mpsc::UnboundedSender<Draw>,
-    node: String,
+    /// The Node.js program, used as given. `None`: `node` from PATH, else wherever
+    /// [`node::find`] finds it.
+    node: Option<String>,
     connections: AtomicU64,
     /// Where settings pages are served, and the secret in their URLs.
     http_port: u16,
@@ -185,11 +189,16 @@ pub struct SdHost(Arc<Inner>);
 impl SdHost {
     /// Start the WebSocket server on 127.0.0.1 and every plugin in `dir`.
     pub async fn start(dir: PathBuf) -> std::io::Result<Self> {
-        Self::start_with_node(dir, "node".into()).await
+        Self::start_inner(dir, None).await
     }
 
-    /// Like [`SdHost::start`], with a different Node.js program (tests).
+    /// Like [`SdHost::start`], with a different Node.js program (tests), used exactly
+    /// as given.
     pub async fn start_with_node(dir: PathBuf, node: String) -> std::io::Result<Self> {
+        Self::start_inner(dir, Some(node)).await
+    }
+
+    async fn start_inner(dir: PathBuf, node: Option<String>) -> std::io::Result<Self> {
         std::fs::create_dir_all(&dir)?;
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
@@ -782,13 +791,9 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 p.status = s;
             }
         };
-        let mut cmd = match &code {
-            Code::Node(script) => {
-                let mut c = tokio::process::Command::new(&inner.node);
-                c.arg(script);
-                c
-            }
-            Code::Native(program) => tokio::process::Command::new(program),
+        let program: &OsStr = match &code {
+            Code::Node(_) => OsStr::new(inner.node.as_deref().unwrap_or("node")),
+            Code::Native(program) => program.as_os_str(),
             Code::Unsupported(reason) => {
                 set_status(Status::Unsupported {
                     reason: reason.clone(),
@@ -796,18 +801,39 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 return;
             }
         };
-        cmd.args(&args)
-            .current_dir(&folder)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
+        let is_node = matches!(code, Code::Node(_));
         // On Windows the plugin and everything it starts end together (a job object it
         // is in before it runs), and no console window pops up for it.
-        let spawned = perritodeck_actions::job::ProcessTree::spawn(&mut cmd, CREATE_NO_WINDOW);
+        let spawn = |program: &OsStr| {
+            let mut cmd = tokio::process::Command::new(program);
+            if let Code::Node(script) = &code {
+                cmd.arg(script);
+            }
+            cmd.args(&args)
+                .current_dir(&folder)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true);
+            perritodeck_actions::job::ProcessTree::spawn(&mut cmd, CREATE_NO_WINDOW)
+        };
+        let not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+        let mut spawned = spawn(program);
+        if is_node && inner.node.is_none() && spawned.as_ref().is_err_and(not_found) {
+            // Node.js installed since PerritoDeck started isn't on the PATH it started
+            // with: look where a program started now would find it.
+            if let Some(found) = node::find() {
+                info!(
+                    plugin = %uuid,
+                    "Node.js isn't on PerritoDeck's PATH yet; using {}",
+                    found.display()
+                );
+                spawned = spawn(found.as_os_str());
+            }
+        }
         let (mut child, tree) = match spawned {
             Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound && matches!(code, Code::Node(_)) => {
+            Err(e) if is_node && not_found(&e) => {
                 set_status(Status::NeedsNode);
                 return;
             }
