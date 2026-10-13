@@ -512,26 +512,32 @@ fn open_logs_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
         .map_err(|e| format!("Couldn't open {}: {e}", dir.display()))
 }
 
-/// The report for "Copy diagnostics" (the window copies it to the clipboard).
+/// The report for "Copy diagnostics" (the window copies it to the clipboard). It reads
+/// the log files and, on Windows, asks PowerShell about the network, which can take a
+/// few seconds, so it runs off the UI thread.
 #[tauri::command]
-fn get_diagnostics(app: State<'_, App>) -> Res<String> {
+async fn get_diagnostics(app: State<'_, App>) -> Res<String> {
     let version = env!("CARGO_PKG_VERSION");
-    Ok(match app.host() {
-        Ok(h) => h.diagnostics(Some(version)),
-        // Even when the host didn't start, the files and log can say why.
-        Err(e) => {
-            let dir = data_dir()?;
-            let mut report = perritodeck_host::diagnostics::offline(
-                &dir,
-                &perritodeck_host::default_profile_path(&dir),
-            );
-            report.app_version = Some(version.to_owned());
-            let mut why = perritodeck_host::diagnostics::Section::new("The host didn't start");
-            why.line(e);
-            report.sections.insert(0, why);
-            report.render()
-        }
+    let host = app.host().cloned();
+    blocking(move || {
+        Ok(match host {
+            Ok(h) => h.diagnostics(Some(version)),
+            // Even when the host didn't start, the files and log can say why.
+            Err(e) => {
+                let dir = data_dir()?;
+                let mut report = perritodeck_host::diagnostics::offline(
+                    &dir,
+                    &perritodeck_host::default_profile_path(&dir),
+                );
+                report.app_version = Some(version.to_owned());
+                let mut why = perritodeck_host::diagnostics::Section::new("The host didn't start");
+                why.line(e);
+                report.sections.insert(0, why);
+                report.render()
+            }
+        })
     })
+    .await
 }
 
 #[tauri::command]
