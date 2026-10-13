@@ -131,9 +131,6 @@ def page(entries):
   <title>Plugins — PerritoDeck</title>
   <meta name="description" content="Plugins that add actions and live values to PerritoDeck: OBS Studio, Home Assistant helpers, Proxmox, timers and more.">
   <link rel="icon" href="../paw.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../style.css">
   <style>
     .plugins {{ display: grid; gap: 0; max-width: 900px; }}
@@ -163,9 +160,12 @@ def page(entries):
         PerritoDeck
       </a>
       <nav class="nav" aria-label="Main">
-        <a href="../#how">How it works</a>
-        <a href="../#download">Download</a>
-        <a href="https://github.com/perritodeck/perritodeck">Source code</a>
+        <a href="../features.html">Features</a>
+        <a href="../plugins/" aria-current="page">Plugins</a>
+        <a href="../guide/">Guide</a>
+        <a href="../faq.html">FAQ</a>
+        <a href="../download.html">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
       </nav>
     </div>
   </header>
@@ -181,8 +181,12 @@ def page(entries):
 
   <footer class="site-footer">
     <div class="wrap">
-      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
-      <span><a href="../">Home</a></span>
+      <span>PerritoDeck is free and open-source software. Not affiliated with Elgato, Corsair or Bitfocus.</span>
+      <nav class="footer-nav" aria-label="More">
+        <a href="../compatibility.html">Stream Deck and Companion</a>
+        <a href="../privacy.html">Privacy</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
     </div>
   </footer>
 </body>

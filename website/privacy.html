@@ -6,41 +6,50 @@
   <title>Privacy policy — PerritoDeck</title>
   <meta name="description" content="PerritoDeck collects no personal data. The app talks only to the computer you pair it with.">
   <link rel="icon" href="paw.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="site-header">
     <div class="wrap">
-      <a class="brand" href="/">
+      <a class="brand" href="./">
         <img src="paw.svg" alt="" width="34" height="34">
         PerritoDeck
       </a>
+      <nav class="nav" aria-label="Main">
+        <a href="features.html">Features</a>
+        <a href="plugins/">Plugins</a>
+        <a href="guide/">Guide</a>
+        <a href="faq.html">FAQ</a>
+        <a href="download.html">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
     </div>
   </header>
 
   <main class="prose">
     <div class="wrap">
       <h1>Privacy policy</h1>
-      <p class="updated">Last updated October 11, 2026</p>
+      <p class="updated">Last updated October 13, 2026</p>
 
-      <p>This policy covers the Perrito apps for Android, iPhone and iPad and the PerritoDeck desktop app. The short version: we don't collect anything.</p>
+      <p>This policy covers the Perrito apps for Android, iPhone and iPad, the PerritoDeck desktop app, and this website. The short version: we don't collect anything.</p>
 
       <h2>What we collect</h2>
       <p>Nothing. Neither app has analytics, advertising, crash reporting, or user accounts, and neither sends data to us or to any third party.</p>
 
       <h2>What the apps store on your devices</h2>
       <ul>
-        <li><strong>Perrito (Android)</strong> stores the address of the computer you connect to, a random device ID it creates on first launch, and the pairing secret for that computer. These stay in the app's private storage and are deleted when you uninstall it.</li>
+        <li><strong>Perrito (Android)</strong> stores the addresses of the computers you pair it with, a random device ID it creates on first launch, the pairing secret for each computer, and whether each computer's network address answered last time (so it can tell the computer a firewall may be in the way). These stay in the app's private storage and are deleted when you uninstall it.</li>
+        <li><strong>Perrito (iPhone and iPad)</strong> stores the addresses of the computers you pair it with, its device ID, and the pairing secrets, which go in the device's Keychain.</li>
         <li><strong>PerritoDeck Host</strong> stores your button layouts, the list of paired tablets and its own security certificate in your computer's settings folder.</li>
       </ul>
 
       <h2>Network connections</h2>
-      <p>The Android app connects only to the computer you choose, over your local network or a USB cable. It sends that computer your device's name, model, Android version and screen size so the host can size the buttons, plus which buttons you press. The host does not forward any of this anywhere.</p>
+      <p>The tablet app connects only to the computer you choose, over your local network or a USB cable. It sends that computer your device's name and model, its system version, the app's version and the screen size so the host can size the buttons, plus which buttons you press. The host does not forward any of this anywhere.</p>
       <p>The host contacts the internet only when you ask it to: "Look online" on the Plugins page downloads the plugin list from perritodeck.dev, and the optional update check (off unless you turn it on) asks GitHub for the latest version number. Neither sends anything about you or your setup.</p>
       <p>Actions you set up yourself may contact other services — for example, a button that opens a website or controls your smart-home hub. Those connections are made by your computer to services you chose, under their own privacy policies.</p>
+
+      <h2>This website</h2>
+      <p>perritodeck.dev has no analytics, no cookies, no ads and no third-party requests: its fonts, images and scripts are all served from the site itself. The hosting provider sees the usual details any web server gets, such as your IP address, in order to deliver the pages.</p>
 
       <h2>Permissions</h2>
       <p>The Android and iOS apps request network access to reach your computer, and camera access to scan pairing QR codes. The camera is only used while the scanner is open, and nothing it sees is stored or sent anywhere.</p>
@@ -58,8 +67,12 @@
 
   <footer class="site-footer">
     <div class="wrap">
-      <span>PerritoDeck is free software. Not affiliated with Elgato or Corsair.</span>
-      <span><a href="/">Home</a></span>
+      <span>PerritoDeck is free and open-source software. Not affiliated with Elgato, Corsair or Bitfocus.</span>
+      <nav class="footer-nav" aria-label="More">
+        <a href="compatibility.html">Stream Deck and Companion</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
     </div>
   </footer>
 </body>
