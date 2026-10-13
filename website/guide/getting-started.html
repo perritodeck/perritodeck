@@ -63,7 +63,7 @@
 </ul>
 
 <h2 id="install-desktop">Install PerritoDeck on your computer</h2>
-<p>Download PerritoDeck for your system and install it like any other app. <span class="soon">Coming</span> Downloads aren't available yet; they'll be listed on the <a href="../#download">download section</a> of the home page.</p>
+<p>Download PerritoDeck for your system and install it like any other app. <span class="soon">Coming</span> Downloads aren't available yet; they'll be listed on the <a href="../download.html">download page</a>, which also explains how to build PerritoDeck yourself meanwhile.</p>
 <p>When you open PerritoDeck, a window appears and an icon (a paw) is added to the tray: the system tray on Windows, the menu bar on a Mac, or the panel on Linux. The first time, the window opens on <span class="ui">Pair a tablet</span>.</p>
 <p>Closing the window doesn't stop PerritoDeck. It keeps running in the tray so your buttons keep working. To open the window again, use <span class="ui">Open PerritoDeck</span> in the tray menu. To stop it completely, choose <span class="ui">Quit PerritoDeck</span>.</p>
 <ul>
@@ -81,6 +81,13 @@
 <h2 id="pair">Pair the tablet with your computer</h2>
 <p>Pairing introduces the tablet to your computer once. After that, it connects by itself whenever both are on the same network.</p>
 <p>On the computer, open PerritoDeck and click <span class="ui">Pair a tablet</span> (it's also in the tray menu). You'll see a QR code, a 6-digit code and a short fingerprint. The codes work for 5 minutes; click <span class="ui">New code</span> for a fresh one.</p>
+<figure class="shot">
+  <picture>
+    <source srcset="../img/app/pair-dark.webp" media="(prefers-color-scheme: dark)">
+    <img src="../img/app/pair.webp" width="1600" height="750" loading="lazy" alt="The Pair a tablet page: a QR code, a six-digit code and the computer's fingerprint">
+  </picture>
+  <figcaption>Pair a tablet, on the computer.</figcaption>
+</figure>
 
 <h3 id="pair-qr">If the tablet has a camera: scan the QR code</h3>
 <ol>
@@ -104,7 +111,8 @@
 
 <h3 id="paired">When it's paired</h3>
 <p>The computer says <strong>Paired with</strong> and the tablet's name, and the tablet switches to showing your buttons. From now on, open Perrito and it connects by itself; your computer is listed under <strong>Your computers</strong> with a <span class="ui">Connect</span> button.</p>
-<p>Perrito keeps the tablet's screen on while it shows your buttons. To leave the buttons and go back to Perrito's start screen, use the tablet's Back button.</p>
+<p>Perrito keeps the tablet's screen on while it shows your buttons, and turns the screen to match the grid's shape: landscape for a grid wider than it is tall, like the starter one. To leave the buttons and go back to Perrito's start screen, use the tablet's Back button.</p>
+<p>The small text in the top corner names the computer and shows how long the last press took to reach it and come back, in milliseconds: the network plus the computer's own work.</p>
 <p>You can pair several tablets with one computer. They're all listed on the <span class="ui">Tablets</span> page, where you can rename them (click the name), choose what each one shows, or <span class="ui">Unpair…</span> one.</p>
 
 <h2 id="first-buttons">Your first buttons</h2>
@@ -125,7 +133,7 @@
 <div class="tech">
   <p class="box-label">Technical details</p>
   <p>When PerritoDeck finds <code>adb</code> (on your <code>PATH</code>, under <code>ANDROID_HOME</code> or <code>ANDROID_SDK_ROOT</code>, or in Android Studio's usual SDK folder), it runs <code>adb reverse</code> for every tablet on a cable, so the tablet reaches the computer at <code>127.0.0.1:46710</code>. Perrito tries that address alongside the saved Wi-Fi one and prefers whichever worked last. Settings shows <strong>Not set up</strong> on the USB line when <code>adb</code> wasn't found.</p>
-  <p>If you only want cable connections, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span> and restart PerritoDeck.</p>
+  <p>If you only want cable connections, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span>, click <span class="ui">Save network settings</span>, then <span class="ui">Restart now</span>.</p>
 </div>
 
 <h2 id="fire">Fire tablets</h2>

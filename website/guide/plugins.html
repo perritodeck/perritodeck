@@ -52,7 +52,7 @@
 
       <article class="guide-body">
 <h1>Plugins</h1>
-<p class="lede">Plugins add new things your buttons can do and new live values your titles can show. PerritoDeck comes with thirteen of them, and it can also run many plugins made for the Elgato Stream Deck.</p>
+<p class="lede">Plugins add new things your buttons can do and new live values your titles can show. PerritoDeck comes with 24 of them, and it can also run many plugins made for the Elgato Stream Deck.</p>
 
 <h2 id="what">What plugins are</h2>
 <p>A plugin is a small program that runs alongside PerritoDeck on your computer. Once you add one, its actions appear in the <strong>When pressed</strong> list of the button editor, in a group with the plugin's name, and its values appear in <span class="ui">Insert a live value…</span>.</p>
@@ -60,6 +60,13 @@
 
 <h2 id="add">Add a plugin</h2>
 <p>Open the <span class="ui">Plugins</span> page. It has a few sections:</p>
+<figure class="shot">
+  <picture>
+    <source srcset="../img/app/plugins-dark.webp" media="(prefers-color-scheme: dark)">
+    <img src="../img/app/plugins.webp" width="1600" height="1000" loading="lazy" alt="The Plugins page: installed plugins with their status, Restart and Remove buttons, and the plugins that come with PerritoDeck">
+  </picture>
+  <figcaption>The Plugins page.</figcaption>
+</figure>
 <ul>
   <li><strong>Installed</strong>: the plugins you've added, each with its status (for example <strong>Running</strong>) and buttons to <span class="ui">Restart</span> or <span class="ui">Remove…</span> it.</li>
   <li><strong>Comes with PerritoDeck</strong>: the first-party plugins. Click <span class="ui">Add</span> next to the ones you want. Nothing is downloaded; they're already on your computer.</li>
@@ -130,6 +137,50 @@
 <p>Runs, retries and cancels CI/CD pipelines, and shows pipeline status and open merge request and issue counts. Works with gitlab.com and your own GitLab. Needs an access token.</p>
 <p>Example title: <code>{plugin:dev.perritodeck.gitlab:pipeline:my-group/my-project@main}</code></p>
 
+<h3 id="p-audio">Audio devices</h3>
+<p>Mutes the microphone or the sound, changes the volume, switches between speakers and headsets, and sets one app's volume. Works on Windows, macOS and Linux. A mic toggle can follow whether the mic is really muted.</p>
+<p>Example title: <code>Vol\n{plugin:dev.perritodeck.audio:volume}</code> shows the volume from 0 to 100.</p>
+
+<h3 id="p-sysmon">System monitor</h3>
+<p>Shows CPU, memory, disk, network, graphics card, temperatures, uptime and battery, updated every 2 seconds, on keys and sliders.</p>
+<p>Example title: <code>CPU\n{plugin:dev.perritodeck.sysmon:cpu}</code> shows how busy the processor is.</p>
+
+<h3 id="p-clock">Clocks</h3>
+<p>The time and date here or anywhere in the world, countdowns to a date, days until one, and the week number. Choose the time and date formats under <span class="ui">Settings</span>.</p>
+<p>Example title: <code>Tokyo\n{plugin:dev.perritodeck.clock:time:Asia/Tokyo}</code> shows the time in Tokyo.</p>
+
+<h3 id="p-windows">Windows and apps</h3>
+<p>Switches to an app (or opens it), minimizes, maximizes, closes or quits it, and shows the desktop. Works on Windows, macOS and Linux (X11, Sway and Hyprland).</p>
+<p>Example title: <code>{plugin:dev.perritodeck.windows:focused_app}</code> shows the app in front.</p>
+
+<h3 id="p-clipboard">Clipboard snippets</h3>
+<p>Pastes a saved piece of text with one press, and keeps numbered slots you can save the clipboard into and paste back later.</p>
+<p>Example title: <code>1: {plugin:dev.perritodeck.clipboard:slot:1}</code> shows the start of what's in slot 1.</p>
+
+<h3 id="p-screenshot">Screenshot</h3>
+<p>Takes a screenshot of the whole screen, an area you pick or the window in front, saves it with the date and time in its name, and can copy it to the clipboard. Choose the folder under <span class="ui">Settings</span>.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.screenshot:last}</code> shows the last screenshot's file name.</p>
+
+<h3 id="p-soundboard">Soundboard</h3>
+<p>Plays sound files (WAV, MP3 and more) from a button, and stops them again, using the players your computer already has.</p>
+<p>A toggle can follow <code>{plugin:dev.perritodeck.soundboard:playing:airhorn.mp3}</code> to light up while that sound plays.</p>
+
+<h3 id="p-spotify">Spotify</h3>
+<p>Plays, pauses, skips, likes and changes the volume in Spotify on any of your devices, and shows what's playing. It uses your Spotify account, and controlling playback needs Spotify Premium. Setting it up takes a free Spotify developer app; the plugin's README walks through it.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.spotify:track}</code> shows the track playing.</p>
+
+<h3 id="p-twitch">Twitch</h3>
+<p>Runs your Twitch stream from the deck: markers, ads, clips, chat, title and category, moderation, raids, channel points, polls and predictions, with live status, viewers, followers and the latest events. Setting it up takes a free Twitch developer app and a sign-in from a key; the plugin's README walks through it.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.twitch:viewers:me}</code> shows how many people are watching your stream.</p>
+
+<h3 id="p-hue">Philips Hue</h3>
+<p>Turns Hue lights and rooms on and off, dims them, changes their colour and starts scenes, through the Hue Bridge on your network. Fill in the bridge's address under <span class="ui">Settings</span>, or leave it empty to have the bridge found for you.</p>
+<p>Example title: <code>Office\n{plugin:dev.perritodeck.hue:brightness:Office}</code> shows the Office room's brightness.</p>
+
+<h3 id="p-keylight">Elgato Key Light</h3>
+<p>Turns Elgato Key Light, Key Light Air and Ring Light lights on and off, and sets their brightness and shade of white, over your network. Enter the lights' addresses under <span class="ui">Settings</span>.</p>
+<p>Example title: <code>{plugin:dev.perritodeck.keylight:temperature:all}</code> shows the shade of white, like 4700 K.</p>
+
 <div class="tech">
   <p class="box-label">For each plugin's full details</p>
   <p>Every plugin has a README in the source code under <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins"><code>plugins/</code></a> listing all its actions, values and settings, and how to create the tokens it needs. Most plugins have been tested against stand-ins for the real services so far; each README says what hasn't been tried for real yet.</p>
@@ -137,6 +188,13 @@
 
 <h2 id="stream-deck">Plugins made for the Elgato Stream Deck</h2>
 <p>If you've used an Elgato Stream Deck, you may already own plugins for it. Many of them also work in PerritoDeck.</p>
+<figure class="shot">
+  <picture>
+    <source srcset="../img/app/stream-deck-plugins-dark.webp" media="(prefers-color-scheme: dark)">
+    <img src="../img/app/stream-deck-plugins.webp" width="1600" height="1000" loading="lazy" alt="The Stream Deck plugins section of the Plugins page: two plugins running, with Add a plugin file and From a folder buttons">
+  </picture>
+  <figcaption>Stream Deck plugins on the Plugins page.</figcaption>
+</figure>
 <div class="soon-box">
   <p class="box-label">Preview</p>
   <p>Support for these plugins is new and hasn't been tried with many published plugins yet. Some will work perfectly and some won't; we'd like to know which.</p>
@@ -195,7 +253,7 @@ plugin.run()</code></pre>
       "fields": [{ "id": "name", "label": "Name", "type": "text" }] }
   ]
 }</code></pre>
-<p>Use <span class="ui">Install from folder…</span> on the Plugins page to try it. The <code>fields</code> become a form in the button editor. Plugins can also publish live values, have settings on the Plugins page, and drive sliders.</p>
+<p>Use <span class="ui">Install from folder…</span> on the Plugins page to try it. The <code>fields</code> become a form in the button editor. Plugins can also publish live values, have settings on the Plugins page, and drive sliders. Keys show <strong>–</strong> for a value listed under <code>values</code> until your plugin first reports it. Give the plugin a square <code>icon</code> in its description file and the online catalogue shows it.</p>
 <p>Read the full <a href="https://github.com/perritodeck/perritodeck/blob/main/plugins/PROTOCOL.md">plugin protocol</a> and the SDKs for <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins/sdk-python">Python</a> and <a href="https://github.com/perritodeck/perritodeck/tree/main/plugins/sdk-node">Node.js</a>. The SDKs and first-party plugins are MIT-licensed, so you can use them in a plugin under any license.</p>
         <nav class="next-page" aria-label="Previous and next"><a href="integrations.html">← Integrations</a><a href="troubleshooting.html">Troubleshooting and FAQ →</a></nav>
       </article>

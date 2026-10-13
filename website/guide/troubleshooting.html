@@ -58,6 +58,13 @@
 
 <h2 id="cant-find">The tablet can't find the computer</h2>
 <p>If your computer doesn't appear under <strong>Found on this network</strong> in Perrito, or the tablet keeps saying <strong>Reconnecting…</strong>, go through these in order.</p>
+<figure class="shot">
+  <picture>
+    <source srcset="../img/app/settings-dark.webp" media="(prefers-color-scheme: dark)">
+    <img src="../img/app/settings.webp" width="1600" height="1000" loading="lazy" alt="Settings: the port, Let tablets connect over Wi-Fi, this computer's fingerprint, the address tablets connect to, and whether a tablet is on the USB cable">
+  </picture>
+  <figcaption>Settings shows the address tablets connect to, and the USB connection.</figcaption>
+</figure>
 <ol>
   <li><strong>Is PerritoDeck running?</strong> Look for the paw icon in the tray or menu bar. Closing the window is fine, but <span class="ui">Quit PerritoDeck</span> stops it.</li>
   <li><strong>Are both on the same network?</strong> The tablet and the computer must be on the same Wi-Fi (a computer plugged into the same router by cable is fine). Guest networks, and some mesh and office networks, keep devices apart on purpose; that stops PerritoDeck too.</li>
@@ -85,7 +92,7 @@
   <li>a tablet tried Wi-Fi, got no answer at all and came over the cable instead, or</li>
   <li>on Windows, the firewall has no rule letting PerritoDeck take connections on the network you're on. This is common on a network Windows calls <em>public</em>: there, the first-run question's default answer lets nothing in.</li>
 </ul>
-<p>The note says what to change; the steps are the same as under <a href="#firewall">Firewall</a>. On Windows you can either tick PerritoDeck for the kind of network you're on (<em>Public</em> or <em>Private</em>), or, at home, make the network private: Settings → Network &amp; internet → Wi-Fi or Ethernet → your network → <em>Network profile type</em> → Private. The note goes away by itself once Wi-Fi works: while it's on the cable, Perrito tries the computer's Wi-Fi address again every 30 seconds. If you only ever use the cable, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span> instead.</p>
+<p>The note says what to change; the steps are the same as under <a href="#firewall">Firewall</a>. On Windows you can either tick PerritoDeck for the kind of network you're on (<em>Public</em> or <em>Private</em>), or, at home, make the network private: Settings → Network &amp; internet → Wi-Fi or Ethernet → your network → <em>Network profile type</em> → Private. The note goes away by itself once Wi-Fi works: while it's on the cable, Perrito tries the computer's Wi-Fi address again every 30 seconds. If you only ever use the cable, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span> instead, click <span class="ui">Save network settings</span>, then <span class="ui">Restart now</span>.</p>
 <div class="tech">
   <p class="box-label">Technical details</p>
   <p>A firewall usually drops a blocked connection without answering, so the tablet's connection times out. A refusal means the address has no PerritoDeck listening, so that doesn't count. Windows Firewall also drops connections while PerritoDeck isn't running, so once the tablet gets in over the cable it tries the Wi-Fi address once more before saying anything. If that still times out, it tells the computer in its <code>hello</code> (<code>networkFailed</code>). On Windows, PerritoDeck reads the firewall's rules (it never changes them): an enabled inbound rule for its program, or for TCP port 46710, on the network types in use.</p>
@@ -96,7 +103,7 @@
 
 <h2 id="pairing">Pairing problems</h2>
 <dl>
-  <dt><strong>"This code has expired."</strong></dt>
+  <dt><strong>"This code has expired."</strong> on the computer, or <strong>"That code is wrong or has expired"</strong> on the tablet</dt>
   <dd><p>Pairing codes work for 5 minutes and only once. Click <span class="ui">New code</span>. A code also stops working after 5 wrong tries, to stop anyone guessing it.</p></dd>
   <dt><strong>The fingerprints don't match.</strong></dt>
   <dd><p>Tap <span class="ui">It doesn't match</span>. Make sure you're pairing with the right computer (check its name). If you typed an address, check it's the one shown in PerritoDeck's <span class="ui">Settings</span>. If they still don't match, something on your network may be pretending to be your computer, so don't pair on that network.</p></dd>
@@ -112,6 +119,7 @@
 <p>Look at the <strong>USB</strong> line in PerritoDeck's <span class="ui">Settings</span>:</p>
 <ul>
   <li><strong>Not set up</strong>: PerritoDeck can't find Android's <code>adb</code> program. Install Android's platform-tools, then quit and reopen PerritoDeck. If you put platform-tools somewhere unusual, add that folder to your <code>PATH</code>.</li>
+  <li><strong>No tablet connected yet</strong>, with a reason underneath: adb sees a tablet but can't use it yet. Do what the reason says, most often tapping <em>Allow</em> on the tablet's "Allow USB debugging?" prompt, or unplugging the cable and plugging it back in.</li>
   <li><strong>No tablet on a cable right now</strong>: PerritoDeck has <code>adb</code> but sees no tablet. Check that USB debugging is on, that you tapped <em>Allow</em> on the tablet's "Allow USB debugging?" prompt, and that the cable carries data (some cables only charge). On Windows, Fire tablets may need Amazon's USB driver.</li>
 </ul>
 <div class="tech">
@@ -133,7 +141,7 @@
 <p>Windows doesn't let a normal program press keys in an app that runs as administrator: Task Manager, an admin terminal, or OBS started with <span class="ui">Run as administrator</span> (which some people do for game capture). The keys are dropped without any error, so the button seems to do nothing. Start that app normally if you can. Otherwise, OBS buttons that use the <a href="integrations.html#obs">OBS connection</a> instead of hotkeys still work, because they don't press keys. Running PerritoDeck itself as administrator also works, but isn't recommended.</p>
 
 <h3 id="warning-flash">The button flashes ⚠</h3>
-<p>The action ran into a problem. Common causes: OBS or Home Assistant isn't set up or isn't running, a plugin isn't running, or a program can't be found. Click the button on the <span class="ui">Buttons</span> page and use <span class="ui">Try it</span>: PerritoDeck shows the full message. For plugins, check their status on the <span class="ui">Plugins</span> page.</p>
+<p>The action ran into a problem. Common causes: OBS or Home Assistant isn't set up or isn't running, a plugin isn't running, or a program can't be found. Click the button on the <span class="ui">Buttons</span> page and use <span class="ui">Try it</span>: PerritoDeck shows the full message. For plugins, check their status on the <span class="ui">Plugins</span> page. <span class="ui">Try it</span> isn't there for page, Switch profile, slider and Stream Deck plugin keys; for a Switch profile key, check that its profile and page still exist (the editor marks missing ones <strong>(not there)</strong>).</p>
 
 <h2 id="linux">Linux notes</h2>
 <h3 id="wayland">Wayland desktops</h3>
@@ -166,6 +174,8 @@
     <tr><td><code>host-cert.der</code>, <code>host-key.der</code></td><td>This computer's identity (its fingerprint comes from these)</td></tr>
     <tr><td><code>app-settings.json</code></td><td>The app's own settings, such as the port and switching rules</td></tr>
     <tr><td><code>plugins/</code>, <code>plugin-settings/</code></td><td>Installed plugins and their settings</td></tr>
+    <tr><td><code>plugin-data/</code></td><td>What plugins keep between runs, such as timers and counts</td></tr>
+    <tr><td><code>bin/</code></td><td>The copy of <code>perritodeck-mcp</code> that AI assistants start</td></tr>
     <tr><td><code>sdplugins/</code></td><td>Plugins made for the Elgato Stream Deck</td></tr>
     <tr><td><code>logs/</code></td><td>Log files (see <a href="#logs">Getting help and logs</a>)</td></tr>
     <tr><td><code>mcp-token</code></td><td>The access token for AI assistants, readable only by you</td></tr>
