@@ -76,6 +76,20 @@ class Settings(context: Context) {
     fun forget(hostId: String) {
         pairedHosts = pairedHosts.filterNot { it.hostId == hostId }
         if (lastHostId == hostId) lastHostId = null
+        setNetworkFailed(hostId, false)
+    }
+
+    /**
+     * The computer's network addresses didn't answer since this tablet last got through
+     * over the network; told to the computer when it connects over the cable.
+     */
+    fun networkFailed(hostId: String): Boolean =
+        prefs.getStringSet(KEY_NETWORK_FAILED, null)?.contains(hostId) == true
+
+    fun setNetworkFailed(hostId: String, failed: Boolean) {
+        val hosts = prefs.getStringSet(KEY_NETWORK_FAILED, null).orEmpty().toMutableSet()
+        val changed = if (failed) hosts.add(hostId) else hosts.remove(hostId)
+        if (changed) prefs.edit().putStringSet(KEY_NETWORK_FAILED, hosts).apply()
     }
 
     private companion object {
@@ -83,5 +97,6 @@ class Settings(context: Context) {
         const val KEY_HOSTS = "pairedHosts"
         const val KEY_LAST_HOST = "lastHostId"
         const val KEY_MANUAL = "lastManualAddress"
+        const val KEY_NETWORK_FAILED = "networkFailedHosts"
     }
 }

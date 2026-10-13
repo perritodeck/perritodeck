@@ -112,6 +112,9 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
             hello(host.deviceSecret),
             Tls.pinnedClient(Tls.defaultClient, host.hostId),
             fallbacks = urls.drop(1),
+            // Remembered across restarts, so the computer hears about it over the cable.
+            networkFailed = settings.networkFailed(host.hostId),
+            onNetworkFailed = { settings.setNetworkFailed(host.hostId, it) },
         )
         _route.value = Route.Deck
     }

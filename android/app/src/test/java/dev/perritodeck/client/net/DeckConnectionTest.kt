@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -32,10 +33,12 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.security.cert.CertificateException
 import java.util.concurrent.LinkedBlockingQueue
@@ -296,6 +299,133 @@ class DeckConnectionTest {
         assertEquals(DeckConnection.OTHER_COMPUTER_ON_USB, reason)
         assertTrue(reason!!.contains("pair again"))
         conn.disconnect()
+    }
+
+    /** A fake host on 127.0.0.1 that welcomes whoever says hello, [times] connections. */
+    private fun welcomingHost(times: Int = 1): MockWebServer = MockWebServer().apply {
+        repeat(times) {
+            enqueue(MockResponse().withWebSocketUpgrade(fakeHost { ws ->
+                ws.send(Codec.encode(Envelope(Message.WelcomeMsg(Welcome("fake", "0", 1, 2000)))))
+            }))
+        }
+        start(InetAddress.getByName("127.0.0.1"), 0)
+    }
+
+    /** `lan.test` stands in for the computer's network address; it leads to 127.0.0.1. */
+    private val viaNetwork = http.newBuilder().dns(object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> =
+            if (hostname == "lan.test") listOf(InetAddress.getByName("127.0.0.1")) else Dns.SYSTEM.lookup(hostname)
+    }).build()
+
+    /** `lan.test` doesn't answer at all, as when a firewall drops the connection. */
+    private val dropped = http.newBuilder().addInterceptor { chain ->
+        if (chain.request().url.host == "lan.test") throw java.net.SocketTimeoutException("connect timed out")
+        chain.proceed(chain.request())
+    }.build()
+
+    @Test
+    fun overTheCableAfterTheNetworkFailedItTellsTheHost() = runBlocking<Unit> {
+        val cable = welcomingHost()
+        val changes = mutableListOf<Boolean>()
+        val conn = DeckConnection(http, scope)
+        // The network address goes first here, so it times out before the cable is tried.
+        conn.connect(
+            "ws://lan.test:46710",
+            hello,
+            dropped,
+            fallbacks = listOf("ws://127.0.0.1:${cable.port}"),
+            onNetworkFailed = { changes += it },
+        )
+        val said = (nextReceived().msg as Message.HelloMsg).payload
+        assertTrue("networkFailed in $said", said.networkFailed)
+        withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
+        assertEquals(listOf(true), changes)
+        conn.disconnect()
+        runCatching { cable.shutdown() }
+    }
+
+    @Test
+    fun aRefusedNetworkAddressIsNotTheFirewall() = runBlocking<Unit> {
+        // Refused is what an address with no PerritoDeck gives, say while it restarts.
+        val cable = welcomingHost()
+        val deadLan = ServerSocket(0).use { it.localPort }
+        val changes = mutableListOf<Boolean>()
+        val conn = DeckConnection(http, scope)
+        conn.connect(
+            "ws://lan.test:$deadLan",
+            hello,
+            viaNetwork,
+            fallbacks = listOf("ws://127.0.0.1:${cable.port}"),
+            onNetworkFailed = { changes += it },
+        )
+        assertEquals(hello, (nextReceived().msg as Message.HelloMsg).payload)
+        withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
+        assertTrue(changes.isEmpty())
+        conn.disconnect()
+        runCatching { cable.shutdown() }
+    }
+
+    @Test
+    fun gettingThroughOverTheNetworkClearsIt() = runBlocking<Unit> {
+        val net = welcomingHost()
+        val changes = mutableListOf<Boolean>()
+        val conn = DeckConnection(http, scope)
+        conn.connect("ws://lan.test:${net.port}", hello, viaNetwork, networkFailed = true, onNetworkFailed = { changes += it })
+        // Only a connection over the cable says so.
+        assertEquals(hello, (nextReceived().msg as Message.HelloMsg).payload)
+        withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
+        assertEquals(listOf(false), changes)
+        conn.disconnect()
+        runCatching { net.shutdown() }
+    }
+
+    @Test
+    fun aNetworkThatStartsAnsweringIsNoticedFromTheCable() = runBlocking<Unit> {
+        // Someone fixed the firewall while the tablet was on the cable: it looks again now
+        // and then, and connects again so the computer hears the network works.
+        val cable = welcomingHost(times = 2)
+        val answers = java.util.concurrent.atomic.AtomicBoolean(false)
+        val changes = mutableListOf<Boolean>()
+        val conn = DeckConnection(http, scope, networkAnswers = { answers.get() }, networkRecheckMs = 200)
+        conn.connect(
+            "ws://127.0.0.1:${cable.port}",
+            hello,
+            fallbacks = listOf("ws://lan.test:1"),
+            networkFailed = true,
+            onNetworkFailed = { changes += it },
+        )
+        assertTrue((nextReceived().msg as Message.HelloMsg).payload.networkFailed)
+        withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
+        Thread.sleep(500) // a look or two that finds nothing
+        assertTrue(changes.isEmpty())
+        answers.set(true)
+        assertEquals(hello, (nextReceived().msg as Message.HelloMsg).payload)
+        assertEquals(listOf(false), changes)
+        conn.disconnect()
+        runCatching { cable.shutdown() }
+    }
+
+    @Test
+    fun onlyAConnectionWithNoAnswerLooksLikeAFirewall() {
+        val blocked = DeckConnection.Companion::looksBlocked
+        assertTrue(blocked(java.net.SocketTimeoutException("connect timed out")))
+        // What Android says.
+        assertTrue(
+            blocked(
+                java.net.SocketTimeoutException(
+                    "failed to connect to /192.168.1.60 (port 46710) from /192.168.1.189 (port 41234) after 10000ms",
+                ),
+            ),
+        )
+        assertTrue(blocked(IOException("wrapped", java.net.SocketTimeoutException("Connect timed out"))))
+        // Something answered: no PerritoDeck there, or it went quiet after connecting.
+        assertFalse(blocked(java.net.ConnectException("Failed to connect to /192.168.1.60:46710")))
+        assertFalse(blocked(java.net.SocketTimeoutException("timeout")))
+        // Wi-Fi off or another network: no firewall involved.
+        assertFalse(blocked(java.net.ConnectException("connect failed: ENETUNREACH (Network is unreachable)")))
+        assertFalse(blocked(java.net.NoRouteToHostException("No route to host")))
+        assertFalse(blocked(java.net.UnknownHostException("lan.test")))
+        assertFalse(blocked(javax.net.ssl.SSLHandshakeException("Connection reset by peer")))
     }
 
     @Test

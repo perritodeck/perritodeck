@@ -48,6 +48,12 @@ data class Hello(
     val token: String? = null,
     /** Secret issued by `paired`. */
     val deviceSecret: String? = null,
+    /**
+     * Connecting over the USB cable after a connection to the computer's network address
+     * got no answer (timed out), since this tablet last got through over the network: its
+     * firewall may be keeping tablets on Wi-Fi out. Left out when false.
+     */
+    val networkFailed: Boolean = false,
 )
 
 @Serializable

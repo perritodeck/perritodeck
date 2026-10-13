@@ -15,6 +15,7 @@ import dev.perritodeck.client.protocol.ProtocolException
 import dev.perritodeck.client.protocol.UnsupportedVersionException
 import dev.perritodeck.client.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,13 +25,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+
+/** Whether something takes a TCP connection at [url]'s address and port within 3 s. */
+private suspend fun tcpAnswers(url: String): Boolean = withContext(Dispatchers.IO) {
+    val authority = url.substringAfter("://").substringBefore('/')
+    val host = authority.substringBeforeLast(':').removeSurrounding("[", "]")
+    val port = authority.substringAfterLast(':').toIntOrNull() ?: return@withContext false
+    runCatching { Socket().use { it.connect(InetSocketAddress(host, port), 3_000) } }.isSuccess
+}
 
 sealed interface ConnState {
     data object Idle : ConnState
@@ -53,6 +66,10 @@ class DeckConnection(
     private val nanoTime: () -> Long = System::nanoTime,
     /** Turns a `setImage` data URL into something drawable; Android bitmaps in the app, fakes in tests. */
     private val decodeImage: (String) -> Any? = KeyImages::decode,
+    /** Whether the computer answers at a network address (a plain TCP connect). */
+    private val networkAnswers: suspend (url: String) -> Boolean = ::tcpAnswers,
+    /** How often to look again at the network while on the cable because it failed. */
+    private val networkRecheckMs: Long = NETWORK_RECHECK_MS,
 ) {
     private val _state = MutableStateFlow<ConnState>(ConnState.Idle)
     val state: StateFlow<ConnState> = _state.asStateFlow()
@@ -80,18 +97,29 @@ class DeckConnection(
     private val nextId = AtomicLong(1)
     private val pendingAcks = ConcurrentHashMap<Long, Long>()
 
-    /** [client] carries the TLS pin for this host; defaults to the constructor's client. */
     /**
-     * Connect and stay connected. [fallbacks] are other addresses for the same host
-     * (127.0.0.1 for a tablet on USB); retries alternate between them, and the one
-     * that worked is tried first next time.
+     * Connect and stay connected. [client] carries the TLS pin for this host; defaults to
+     * the constructor's client. [fallbacks] are other addresses for the same host
+     * (127.0.0.1 for a tablet on USB); retries alternate between them, and the one that
+     * worked is tried first next time.
+     *
+     * [networkFailed] says the host's network addresses didn't answer last time; while
+     * it's so, connections over the USB cable tell the host ([Hello.networkFailed]), so it
+     * can point at its firewall. [onNetworkFailed] hears when that changes, to remember it.
      */
-    fun connect(url: String, hello: Hello, client: OkHttpClient = http, fallbacks: List<String> = emptyList()) {
+    fun connect(
+        url: String,
+        hello: Hello,
+        client: OkHttpClient = http,
+        fallbacks: List<String> = emptyList(),
+        networkFailed: Boolean = false,
+        onNetworkFailed: (Boolean) -> Unit = {},
+    ) {
         disconnect()
         _layout.value = null
         _images.value = emptyMap()
         val urls = (listOf(url) + fallbacks).distinct()
-        job = scope.launch { runLoop(urls, hello, client) }
+        job = scope.launch { runLoop(urls, hello, client, networkFailed, onNetworkFailed) }
     }
 
     fun disconnect() {
@@ -152,20 +180,57 @@ class DeckConnection(
         ws.send(Codec.encode(Envelope(msg, id)))
     }
 
-    private suspend fun runLoop(urls: List<String>, hello: Hello, client: OkHttpClient) {
+    private suspend fun runLoop(
+        urls: List<String>,
+        hello: Hello,
+        client: OkHttpClient,
+        networkFailedAtStart: Boolean,
+        onNetworkFailed: (Boolean) -> Unit,
+    ) {
         var attempt = 0
         var lastError: String? = null
         var first = 0 // index of the address that last worked
         var everConnected = false
+        val networkFailed = AtomicBoolean(networkFailedAtStart)
+        fun setNetworkFailed(failed: Boolean) {
+            if (networkFailed.getAndSet(failed) != failed) onNetworkFailed(failed)
+        }
+        val networkUrls = urls.filterNot { isLoopback(hostOf(it)) }
         while (currentCoroutineContext().isActive) {
             attempt++
             val i = (first + attempt - 1) % urls.size
             val url = urls[i]
+            val overCable = isLoopback(hostOf(url))
             // On the first pass one address failing isn't news while the next is tried
             // (127.0.0.1 is refused whenever there's no USB cable).
             val shownError = if (!everConnected && attempt <= urls.size) null else lastError
             _state.value = ConnState.Connecting(url, attempt, shownError)
-            var end = runSession(url, hello, client)
+            val sessionHello = if (overCable && networkFailed.get()) hello.copy(networkFailed = true) else hello
+            var recheck: Job? = null
+            var end = runSession(url, sessionHello, client) {
+                if (!overCable) {
+                    // Through over the network: whatever kept it out is fixed.
+                    setNetworkFailed(false)
+                } else if (sessionHello.networkFailed && networkUrls.isNotEmpty()) {
+                    // On the cable because the network failed: look again now and then, and
+                    // once it answers, connect again so the computer hears it's fixed.
+                    recheck = scope.launch {
+                        while (isActive) {
+                            delay(networkRecheckMs)
+                            if (networkUrls.any { networkAnswers(it) }) {
+                                setNetworkFailed(false)
+                                socket?.cancel()
+                                return@launch
+                            }
+                        }
+                    }
+                }
+            }
+            recheck?.cancel()
+            // The network address didn't answer at all: maybe the computer's firewall.
+            if (end is SessionEnd.Retry && !end.wasConnected && end.blocked && !overCable) {
+                setNetworkFailed(true)
+            }
             // Over a USB cable 127.0.0.1 leads to whichever computer the tablet is plugged
             // into, which needn't be this one. That's no reason to give up on the others.
             // It can also be this one with a new identity (PerritoDeck reinstalled, its data
@@ -198,7 +263,8 @@ class DeckConnection(
     }
 
     private sealed interface SessionEnd {
-        data class Retry(val reason: String, val wasConnected: Boolean) : SessionEnd
+        /** [blocked]: connecting to the address got no answer ([looksBlocked]). */
+        data class Retry(val reason: String, val wasConnected: Boolean, val blocked: Boolean = false) : SessionEnd
         data class Fatal(val reason: String, val notPaired: Boolean = false) : SessionEnd
     }
 
@@ -206,10 +272,16 @@ class DeckConnection(
         data object Open : WsEvent
         data class Text(val text: String) : WsEvent
         data class Closed(val reason: String) : WsEvent
-        data class Failure(val reason: String) : WsEvent
+        data class Failure(val reason: String, val blocked: Boolean = false) : WsEvent
     }
 
-    private suspend fun runSession(url: String, hello: Hello, client: OkHttpClient): SessionEnd {
+    /** [onConnected] runs when the host welcomes this tablet. */
+    private suspend fun runSession(
+        url: String,
+        hello: Hello,
+        client: OkHttpClient,
+        onConnected: () -> Unit = {},
+    ): SessionEnd {
         val events = Channel<WsEvent>(Channel.UNLIMITED)
         val request = try {
             Request.Builder().url(url).build()
@@ -231,7 +303,7 @@ class DeckConnection(
                 events.trySend(WsEvent.Closed(reason.ifEmpty { "connection closed" }))
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                events.trySend(WsEvent.Failure(describeFailure(t, url)))
+                events.trySend(WsEvent.Failure(describeFailure(t, url), looksBlocked(t)))
             }
         })
         socket = ws
@@ -244,7 +316,7 @@ class DeckConnection(
                 is WsEvent.Failure -> return if (first.reason == PIN_MISMATCH) {
                     SessionEnd.Fatal(first.reason)
                 } else {
-                    SessionEnd.Retry(first.reason, false)
+                    SessionEnd.Retry(first.reason, false, first.blocked)
                 }
                 is WsEvent.Closed -> return SessionEnd.Retry(first.reason, false)
                 is WsEvent.Text -> return SessionEnd.Retry("unexpected data before open", false)
@@ -267,6 +339,7 @@ class DeckConnection(
                         when (val m = msg.msg) {
                             is Message.WelcomeMsg -> {
                                 connected = true
+                                onConnected()
                                 _state.value = ConnState.Connected(m.payload, url)
                                 heartbeat?.cancel()
                                 heartbeat = startHeartbeat(ws, m.payload.heartbeatIntervalMs, lastHeard)
@@ -362,6 +435,23 @@ class DeckConnection(
             }
         }
 
+        /**
+         * Whether connecting failed the way a firewall makes it fail: the connection
+         * attempt got no answer at all (Windows Firewall drops it silently). Not a refusal,
+         * which is what an address with no PerritoDeck running gives (a restart, say), and
+         * not when this tablet has no way there (Wi-Fi off, another network).
+         */
+        fun looksBlocked(t: Throwable): Boolean {
+            val chain = generateSequence(t) { it.cause }.toList()
+            val text = chain.joinToString(" ") { it.message.orEmpty() }.lowercase()
+            if (chain.any { it is java.net.NoRouteToHostException || it is java.net.UnknownHostException } || "unreachable" in text) {
+                return false
+            }
+            // "connect timed out", or Android's "failed to connect to /… after 10000ms"; a
+            // read timeout means something did answer.
+            return chain.any { it is java.net.SocketTimeoutException && "connect" in it.message.orEmpty().lowercase() }
+        }
+
         private fun hostOf(url: String): String =
             url.substringAfter("://").substringBefore('/').substringBeforeLast(':').removeSurrounding("[", "]")
 
@@ -370,6 +460,9 @@ class DeckConnection(
 
         /** Slider moves are sent at most this often while dragging. */
         const val SLIDER_INTERVAL_MS = 50L
+
+        /** On the cable because the network failed, the network is tried again this often. */
+        const val NETWORK_RECHECK_MS = 30_000L
 
         /** 0.5s, 1s, 2s, 4s, then 8s between attempts. */
         fun backoffMs(attempt: Int): Long = (250L shl attempt.coerceIn(1, 5)).coerceAtMost(8_000)
