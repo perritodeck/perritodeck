@@ -7,6 +7,8 @@ license = "Apache-2.0"
 repository = "https://github.com/perritodeck/perritodeck"
 homepage = "https://perritodeck.dev"
 publish = false
+# The other binary is the bridge for AI assistants (src/bin/perritodeck-mcp.rs).
+default-run = "perritodeck-app"
 
 # Built on its own (it needs the system WebView), so the headless host workspace
 # keeps building without GTK/WebKit.
@@ -21,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 perritodeck-host = { path = "../../crates/host" }
+perritodeck-mcp = { path = "../../crates/mcp" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

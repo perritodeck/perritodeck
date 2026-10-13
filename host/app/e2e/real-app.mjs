@@ -166,27 +166,43 @@ try {
   });
   log("Stream Deck settings page works in the real app");
 
-  // Settings: the MCP server runs, and the app itself is the stdio bridge assistants start.
-  await js("[...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Settings')).click()");
+  // Settings: the MCP server runs, and assistants start the bridge the app copied into
+  // its data folder (perritodeck-mcp), so they never keep the app's own program in use.
+  const settingsTab = "[...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Settings')).click()";
+  await js(settingsTab);
   await waitFor("MCP running", async () => (await text("main")).includes(`Running at http://127.0.0.1:${mcpPort}/mcp`));
+  const bridgeCopy = join(dataDir, "bin", process.platform === "win32" ? "perritodeck-mcp.exe" : "perritodeck-mcp");
+  if (!existsSync(bridgeCopy)) throw new Error(`the app didn't copy its bridge to ${bridgeCopy}`);
+  const claudeCode = await js("return document.querySelector('[aria-label=\"Claude Code command\"]').textContent");
+  if (!claudeCode.includes(bridgeCopy)) throw new Error(`the Claude Code command doesn't start the copied bridge: ${claudeCode}`);
   const rpc = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } },
     { jsonrpc: "2.0", method: "notifications/initialized" },
     { jsonrpc: "2.0", id: 2, method: "tools/list" },
     { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_profiles", arguments: {} } },
   ];
-  const bridged = spawnSync(app, ["mcp", "--data-dir", dataDir], {
-    input: rpc.map((m) => JSON.stringify(m)).join("\n") + "\n",
-    encoding: "utf8",
-    timeout: 20000,
-  });
-  const answers = bridged.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  if (answers.length !== 3) throw new Error(`the bridge answered ${answers.length} of 3: ${bridged.stdout} ${bridged.stderr}`);
-  if (answers[0].result?.protocolVersion !== "2025-11-25") throw new Error(`initialize: ${JSON.stringify(answers[0])}`);
-  if (!answers[1].result.tools.some((t) => t.name === "list_profiles")) throw new Error("no list_profiles tool");
-  if (answers[1].result.tools.some((t) => t.name === "press_key")) throw new Error("press_key offered without permission");
-  if (!answers[2].result.content[0].text.includes("SD")) throw new Error(`list_profiles: ${JSON.stringify(answers[2])}`);
-  log("MCP over the app's stdio bridge works");
+  const throughBridge = (command, args) => {
+    const bridged = spawnSync(command, args, {
+      input: rpc.map((m) => JSON.stringify(m)).join("\n") + "\n",
+      encoding: "utf8",
+      timeout: 20000,
+    });
+    const answers = bridged.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    if (answers.length !== 3) throw new Error(`${command} answered ${answers.length} of 3: ${bridged.stdout} ${bridged.stderr}`);
+    if (answers[0].result?.protocolVersion !== "2025-11-25") throw new Error(`initialize: ${JSON.stringify(answers[0])}`);
+    if (!answers[1].result.tools.some((t) => t.name === "list_profiles")) throw new Error("no list_profiles tool");
+    if (answers[1].result.tools.some((t) => t.name === "press_key")) throw new Error("press_key offered without permission");
+    if (!answers[2].result.content[0].text.includes("SD")) throw new Error(`list_profiles: ${JSON.stringify(answers[2])}`);
+  };
+  throughBridge(bridgeCopy, ["--data-dir", dataDir]);
+  log("MCP over the copied perritodeck-mcp bridge works");
+  // Assistants set up before the bridge start the app itself; that still works, and
+  // Settings asks to set them up again.
+  throughBridge(app, ["mcp", "--data-dir", dataDir]);
+  await js("[...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Buttons')).click()");
+  await js(settingsTab);
+  await waitFor("the note about the older setup", async () => (await text("main")).includes("older command that starts PerritoDeck itself"));
+  log("MCP over the app's own bridge still works, and Settings asks to set it up again");
 
   // Logs are written to files next to the data, with the secrets left out.
   const logFile = join(dataDir, "logs", "perritodeck.log");

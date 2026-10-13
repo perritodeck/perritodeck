@@ -661,6 +661,8 @@ export const mock = {
   mcpToken: "mocktoken0001",
   /** A port "another program" holds, so turning MCP on there fails. */
   busyPort: 46799,
+  /** An assistant connected through `perritodeck-app mcp`, the setup from before the bridge. */
+  appBridgeUsed: !!init().appBridgeUsed,
   pluginSettings: {} as Record<string, Record<string, unknown>>,
   /** Removing or restarting a plugin waits for this, like a plugin slow to stop. */
   stopping: null as Promise<unknown> | null,
@@ -689,10 +691,11 @@ export const mock = {
   },
 };
 
-function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: number }): McpView {
+function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: number; appBridgeUsed: boolean }): McpView {
   const settings = { ...m.mcpSettings };
   const url = `http://127.0.0.1:${settings.port}/mcp`;
-  const command = "/usr/bin/perritodeck-app";
+  // The bridge the app copies into its data folder.
+  const command = "/home/me/.config/perritodeck/bin/perritodeck-mcp";
   const state: McpView["state"] = !settings.enabled
     ? { state: "off" }
     : settings.port === m.busyPort
@@ -702,22 +705,23 @@ function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: numb
     settings,
     state,
     url,
+    appBridgeUsed: m.appBridgeUsed,
     snippets: {
       command,
-      args: ["mcp"],
-      stdioConfig: JSON.stringify({ mcpServers: { perritodeck: { command, args: ["mcp"] } } }, null, 2),
+      args: [],
+      stdioConfig: JSON.stringify({ mcpServers: { perritodeck: { command, args: [] } } }, null, 2),
       httpConfig: JSON.stringify(
         { mcpServers: { perritodeck: { type: "http", url, headers: { Authorization: `Bearer ${m.mcpToken}` } } } },
         null,
         2,
       ),
-      claudeCodeStdio: `claude mcp add --scope user perritodeck "--" ${command} mcp`,
+      claudeCodeStdio: `claude mcp add --scope user perritodeck "--" ${command}`,
       claudeCodeHttp: `claude mcp add --scope user --transport http perritodeck ${url} --header "Authorization: Bearer ${m.mcpToken}"`,
     },
   };
 }
 
-function init(): { checkUpdates?: boolean; latest?: { version: string; url: string } | string | null } {
+function init(): { checkUpdates?: boolean; latest?: { version: string; url: string } | string | null; appBridgeUsed?: boolean } {
   return typeof window !== "undefined" ? ((window as unknown as { __perritoMockInit?: object }).__perritoMockInit ?? {}) : {};
 }
 

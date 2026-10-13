@@ -600,6 +600,9 @@ fn data_dir() -> Result<std::path::PathBuf, String> {
 fn start_host(app: &tauri::App) -> Result<Host, String> {
     let mut opts = HostOptions::new(data_dir()?).with_saved_network();
     opts.profile = std::env::var_os("PERRITODECK_PROFILE").map(Into::into);
+    // The bridge assistants start ships next to the app; the host copies it into the
+    // data folder so they don't keep the app's own program in use.
+    opts.mcp_bridge = perritodeck_host::mcp::shipped_bridge();
     // First-party plugins ship inside the app, ready to add from the Plugins page.
     opts.plugin_catalog = app
         .path()
@@ -704,9 +707,11 @@ fn update_tooltip(handle: &AppHandle) {
 }
 
 /// `perritodeck-app mcp [--data-dir <folder>] [--config]`: the app doubles as the stdio
-/// bridge for AI assistants (the installed app has no separate command-line host).
-/// Handled before Tauri starts, so it never opens a window or takes the
-/// single-instance lock. Returns the exit code.
+/// bridge for AI assistants. That was the setup before `perritodeck-mcp` (which the app
+/// ships and copies into the data folder); it keeps working for assistants set up then,
+/// and Settings asks to set them up again, because while one runs the app's program is
+/// in use and can't be updated. Handled before Tauri starts, so it never opens a window
+/// or takes the single-instance lock. Returns the exit code.
 pub fn run_mcp_bridge(args: &[String]) -> i32 {
     let mut config = false;
     let mut dir = None;
@@ -743,7 +748,8 @@ pub fn run_mcp_bridge(args: &[String]) -> i32 {
             return 1;
         }
     };
-    match runtime.block_on(perritodeck_host::mcp::run_command(&dir, config)) {
+    let agent = concat!("perritodeck-app/", env!("CARGO_PKG_VERSION"));
+    match runtime.block_on(perritodeck_host::mcp::run_command(&dir, config, agent)) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("perritodeck-app mcp: {e}");

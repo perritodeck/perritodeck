@@ -609,10 +609,14 @@ test.describe("getting help and AI assistants", () => {
     await page.getByLabel("Let AI assistants use PerritoDeck").check();
     await expect(page.getByLabel("Settings for apps that start a command")).toContainText('"args": [');
     await page.getByRole("button", { name: "Copy" }).first().click();
+    // The bridge in the data folder, not the app itself.
     expect(JSON.parse(await clipboard(page))).toEqual({
-      mcpServers: { perritodeck: { command: "/usr/bin/perritodeck-app", args: ["mcp"] } },
+      mcpServers: { perritodeck: { command: "/home/me/.config/perritodeck/bin/perritodeck-mcp", args: [] } },
     });
-    await expect(page.getByLabel("Claude Code command", { exact: true })).toHaveText('claude mcp add --scope user perritodeck "--" /usr/bin/perritodeck-app mcp');
+    await expect(page.getByLabel("Claude Code command", { exact: true })).toHaveText(
+      'claude mcp add --scope user perritodeck "--" /home/me/.config/perritodeck/bin/perritodeck-mcp',
+    );
+    await expect(page.getByRole("note")).toHaveCount(0);
 
     await page.getByText("Connect by address instead").click();
     const http = page.getByLabel("Settings for apps that connect to a URL");
@@ -621,6 +625,16 @@ test.describe("getting help and AI assistants", () => {
     await expect(page.getByText("New token made.")).toBeVisible();
     await expect(http).toContainText("Bearer mocktoken0002");
     await expect(page.getByLabel("Claude Code command by address")).toContainText("mocktoken0002");
+  });
+
+  test("asks to set up again an assistant that starts the app itself", async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as any).__perritoMockInit = { appBridgeUsed: true };
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByLabel("Let AI assistants use PerritoDeck").check();
+    await expect(page.getByRole("note")).toContainText("older command that starts PerritoDeck itself");
   });
 });
 

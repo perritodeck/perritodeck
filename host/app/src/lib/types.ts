@@ -280,6 +280,9 @@ export interface McpView {
   state: McpState;
   url: string;
   snippets: McpSnippets;
+  /** An assistant connected through the app's own program (`perritodeck-app mcp`), the
+   * setup from before the separate bridge. It works, but keeps the app from updating. */
+  appBridgeUsed: boolean;
 }
 
 export interface Update {

@@ -3324,6 +3324,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "perritodeck-host",
+ "perritodeck-mcp",
  "serde",
  "serde_json",
  "tauri",
@@ -3448,6 +3449,7 @@ name = "perritodeck-mcp"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "directories",
  "perritodeck-actions",
  "perritodeck-profile",
  "rand",
@@ -3456,6 +3458,7 @@ dependencies = [
  "sha2 0.11.0",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

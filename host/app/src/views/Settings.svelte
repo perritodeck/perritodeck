@@ -263,6 +263,12 @@
       </div>
       {#if mcpPortProblem && mcpPort.trim() !== ""}<small class="bad">{mcpPortProblem}</small>{/if}
 
+      {#if m.appBridgeUsed}
+        <p class="notice" role="note">
+          An assistant is still set up with the older command that starts PerritoDeck itself, which keeps PerritoDeck
+          from being updated while that assistant is open. Set it up again with the settings below.
+        </p>
+      {/if}
       <div class="snippet">
         <div class="snippet-head">
           <span>Claude Desktop and other apps that start a command</span>
@@ -495,6 +501,14 @@
     border-radius: 8px;
     background: color-mix(in srgb, var(--danger) 14%, var(--paper));
     color: var(--ink);
+    max-width: 60ch;
+  }
+  .notice {
+    margin: 4px 0;
+    padding: 8px 12px;
+    border-left: 4px solid var(--ink);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--ink) 6%, var(--paper));
     max-width: 60ch;
   }
   .snippet { display: grid; gap: 4px; width: 100%; max-width: 640px; }
