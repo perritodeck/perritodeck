@@ -3,7 +3,13 @@
 //! The window is a view onto [`perritodeck_host::Host`]; closing it leaves the host
 //! running in the tray so the tablets keep working.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    ffi::OsString,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use perritodeck_host::{
     logging, updates, ActionSpec, AppSettings, AutoSwitch, DeviceInfo, Edit, Host, HostEvent,
@@ -26,6 +32,8 @@ const HIDDEN_ARG: &str = "--hidden";
 struct App {
     host: Result<Arc<Host>, String>,
     pause_item: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// Set by "Restart now": start the app again once it has exited.
+    relaunch: AtomicBool,
 }
 
 impl App {
@@ -210,9 +218,29 @@ fn open_release_page(handle: AppHandle, url: String) -> Res<()> {
         .map_err(|e| e.to_string())
 }
 
+/// "Restart now", after a change that needs it (the port, the network). Quits like
+/// Quit does; the exit handler in [`run`] then starts the app again.
 #[tauri::command]
-fn restart_app(handle: AppHandle) {
-    handle.request_restart();
+fn restart_app(app: State<'_, App>, handle: AppHandle) {
+    app.relaunch.store(true, Ordering::Relaxed);
+    handle.exit(0);
+}
+
+/// Start the app again, as `AppHandle::request_restart` does, but without
+/// [`HIDDEN_ARG`]: the person just pressed "Restart now" in the window, so it should
+/// come back even when this run was started at login. Call it while exiting, once the
+/// plugins have stopped and the single-instance lock is gone.
+fn relaunch(handle: &AppHandle) -> ! {
+    handle.cleanup_before_exit();
+    let mut env = handle.env();
+    env.args_os = relaunch_args(env.args_os);
+    tauri::process::restart(&env)
+}
+
+/// This run's arguments without [`HIDDEN_ARG`].
+fn relaunch_args(mut args: Vec<OsString>) -> Vec<OsString> {
+    args.retain(|a| a != HIDDEN_ARG);
+    args
 }
 
 /// Let the person pick an image for a key; it's copied next to the profiles.
@@ -753,6 +781,7 @@ pub fn run() {
             app.manage(App {
                 host,
                 pause_item: Mutex::new(None),
+                relaunch: AtomicBool::new(false),
             });
             let pause = build_tray(app, paused)?;
             *app.state::<App>().pause_item.lock().expect("pause item") = Some(pause);
@@ -834,10 +863,17 @@ pub fn run() {
             app.run(|handle, event| {
                 // Quit (`app.exit`) ends the process right after this: stop the plugins
                 // first, so they and the programs they started don't outlive the app.
+                // Plugins' exit handlers (the single-instance lock) have run already.
                 if let tauri::RunEvent::Exit = event {
-                    if let Some(Ok(host)) = handle.try_state::<App>().map(|a| a.host().cloned()) {
+                    let Some(state) = handle.try_state::<App>() else {
+                        return;
+                    };
+                    if let Ok(host) = state.host() {
                         info!("stopping plugins before exit");
                         host.stop_plugins();
+                    }
+                    if state.relaunch.load(Ordering::Relaxed) {
+                        relaunch(handle);
                     }
                 }
             })
@@ -845,5 +881,23 @@ pub fn run() {
     if let Err(e) = result {
         error!("PerritoDeck couldn't start: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restart_now_drops_the_started_at_login_flag() {
+        let args = |a: &[&str]| a.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            relaunch_args(args(&["perritodeck-app", HIDDEN_ARG])),
+            args(&["perritodeck-app"])
+        );
+        assert_eq!(
+            relaunch_args(args(&["perritodeck-app", "--other"])),
+            args(&["perritodeck-app", "--other"])
+        );
     }
 }
