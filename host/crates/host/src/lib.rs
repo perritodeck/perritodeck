@@ -1200,13 +1200,19 @@ impl Host {
     }
 
     /// Stop every plugin before the program exits, waiting (blocking, a few seconds at
-    /// most) for Python and Node plugins to finish. Without this, quitting the app left
-    /// Stream Deck plugins and plugins' child processes running.
+    /// most) until both PerritoDeck's own plugins and Stream Deck plugins have ended,
+    /// with the programs they started. Without this, quitting the app left plugins'
+    /// processes running (`node.exe`, say, when Windows refused it a job object).
     pub fn stop_plugins(&self) {
+        let until = std::time::Instant::now() + Duration::from_secs(3);
+        // Both kinds are told first, so they stop side by side within the one limit.
         if let Some(sd) = &self.sd_plugins {
             sd.shutdown();
         }
         self.plugins.shutdown_and_wait(Duration::from_secs(3));
+        if let Some(sd) = &self.sd_plugins {
+            sd.wait_stopped(until.saturating_duration_since(std::time::Instant::now()));
+        }
     }
 
     /// Stop the MCP endpoint (it also stops when the host is dropped).

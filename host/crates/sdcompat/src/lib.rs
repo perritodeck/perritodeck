@@ -27,7 +27,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, OnceLock, Weak,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -435,11 +435,25 @@ impl SdHost {
         Ok(())
     }
 
-    /// Stop every plugin.
+    /// Stop every plugin (this doesn't wait; see [`SdHost::wait_stopped`]).
     pub fn shutdown(&self) {
         let st = self.0.state.lock().expect("state poisoned");
         for p in st.plugins.values() {
             stop(p);
+        }
+    }
+
+    /// Wait (blocking, up to `limit`) until the processes of every plugin stopped by
+    /// [`SdHost::shutdown`] are gone, with the programs they started, for an app that's
+    /// about to exit.
+    pub fn wait_stopped(&self, limit: Duration) {
+        let until = Instant::now() + limit;
+        let exited: Vec<_> = {
+            let st = self.0.state.lock().expect("state poisoned");
+            st.plugins.values().map(|p| p.exited.clone()).collect()
+        };
+        while exited.iter().any(|e| !e.load(Ordering::Relaxed)) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
         }
     }
 
@@ -461,8 +475,8 @@ fn stop(p: &Plugin) {
 
 /// Wait (blocking, a few seconds at most) for a stopped plugin's process to be gone.
 fn wait_exited(p: &Plugin) {
-    let until = std::time::Instant::now() + Duration::from_secs(4);
-    while !p.exited.load(Ordering::Relaxed) && std::time::Instant::now() < until {
+    let until = Instant::now() + Duration::from_secs(4);
+    while !p.exited.load(Ordering::Relaxed) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(20));
     }
 }

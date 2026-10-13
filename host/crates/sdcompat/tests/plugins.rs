@@ -301,6 +301,32 @@ async fn removing_a_plugin_ends_the_programs_it_started() {
     assert!(!process_alive(&child), "the plugin's own program was ended");
 }
 
+/// Quitting waits until Stream Deck plugins, and the programs they started, are gone.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn quitting_waits_for_plugins_and_their_programs() {
+    if !node_available() {
+        eprintln!("skipped: needs Node.js 22 or newer");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let host = SdHost::start(dir.path().join("sdplugins")).await.unwrap();
+    let (folder, pid, child) = install_parent(&host, dir.path()).await;
+
+    let sd = host.clone();
+    let deleted = tokio::task::spawn_blocking(move || {
+        sd.shutdown();
+        sd.wait_stopped(Duration::from_secs(5));
+        // Both worked in the plugin's folder, which can't be deleted while either runs.
+        std::fs::remove_dir_all(folder)
+    })
+    .await
+    .unwrap();
+    assert!(deleted.is_ok(), "the folder is free: {deleted:?}");
+    assert!(!process_alive(&pid), "the plugin was ended");
+    assert!(!process_alive(&child), "the plugin's own program was ended");
+}
+
 #[tokio::test]
 async fn refuses_things_that_arent_plugins() {
     let dir = tempfile::tempdir().unwrap();
