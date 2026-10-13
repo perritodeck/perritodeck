@@ -227,6 +227,11 @@ mod imp {
         if threads.is_empty() {
             return Err(std::io::Error::other("its thread wasn't found"));
         }
+        // The main thread of a process we've just started is always ours to open. A
+        // thread someone else added (security software, from a service) may not be;
+        // skipping it beats refusing to start every plugin. Only resuming none fails.
+        let mut resumed_any = false;
+        let mut last_error = None;
         for thread in threads {
             // SAFETY: plain Win32 calls; the thread handle is closed before the next.
             unsafe {
@@ -234,20 +239,26 @@ mod imp {
                 if handle.is_null() {
                     let error = std::io::Error::last_os_error();
                     // A thread that has ended since the snapshot needs no resuming.
-                    if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
-                        continue;
+                    if error.raw_os_error() != Some(ERROR_INVALID_PARAMETER as i32) {
+                        last_error = Some(error);
                     }
-                    return Err(error);
+                    continue;
                 }
                 let resumed = ResumeThread(handle);
                 let error = std::io::Error::last_os_error();
                 CloseHandle(handle);
                 if resumed == u32::MAX {
-                    return Err(error);
+                    last_error = Some(error);
+                } else {
+                    resumed_any = true;
                 }
             }
         }
-        Ok(())
+        match (resumed_any, last_error) {
+            (true, _) => Ok(()),
+            (false, Some(error)) => Err(error),
+            (false, None) => Err(std::io::Error::other("its threads had all ended")),
+        }
     }
 
     /// The ids of the threads process `pid` has now.
@@ -371,7 +382,8 @@ mod tests {
         let were_suspended = workers.iter().all(|w| !counting(w));
 
         let resumed = imp::resume(std::process::id());
-        let all_run = workers.iter().all(counting);
+        // A busy machine may take a while to schedule them: look for up to ~5 s.
+        let all_run = (0..100).any(|_| workers.iter().all(counting));
 
         // Let them go whatever happened, so a failure doesn't hang the test.
         for handle in handles {
