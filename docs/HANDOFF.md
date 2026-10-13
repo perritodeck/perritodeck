@@ -61,7 +61,9 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
 - **MCP:** `perritodeck-app mcp` (GUI-subsystem exe) works as a stdio bridge; added to Claude
   Code with the command from Settings → AI assistants (in Git Bash), `claude mcp get` showed
   Connected and a `list_tablets` call through Claude Code answered. The user-scope entry was
-  removed again afterwards so other sessions don't start the bridge.
+  removed again afterwards so other sessions don't start the bridge. Since next-steps item 1,
+  assistants start `perritodeck-mcp` from the data folder instead; `perritodeck-app mcp`
+  still works.
 - **Diagnostics:** Copy diagnostics and the logs folder work; the report now also says
   whether Windows classes the network Public or Private.
 
@@ -126,8 +128,10 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
 - Node plugins and Stream Deck plugins can't start programs outside their job (libuv can't
   ask for breakaway), so anything they launch ends with them; a host-side "open" message
   would fix it.
-- The MCP bridge is the app exe, so a connected assistant locks it (rebuilds, installer
-  upgrades). Follow-up: a separate console `perritodeck-mcp.exe`.
+- ~~The MCP bridge is the app exe, so a connected assistant locks it.~~ Fixed (next-steps
+  item 1): assistants start `perritodeck-mcp` from `<data dir>/bin`; verified with Claude Code
+  connected across a quit, rebuild and restart. The updated real-app e2e still needs a Linux
+  run.
 - Linux and macOS have not been compiled since these changes (only Windows here); the weekly
   CI or a local build should check them first. Reviewers flagged the Linux text paths
   (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky parts.
@@ -143,7 +147,9 @@ What worked in this session (none of it is committed; recreate as needed):
 - **Drive the real app:** start it with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`
   and attach Playwright with `chromium.connectOverCDP("http://127.0.0.1:9333")`; Tauri
   commands can be called with `window.__TAURI_INTERNALS__.invoke(...)`, e.g. `test_action`
-  to run any action inside the GUI-subsystem app.
+  to run any action inside the GUI-subsystem app. Playwright emulates a light colour scheme
+  while attached, so a dark-mode app flashes light on every check: call
+  `page.emulateMedia({ colorScheme: null })` right after attaching.
 - **Drive the tablet:** `adb -s <serial> exec-out screencap -p`, `uiautomator dump`, `input tap`;
   `svc power stayon usb` keeps it awake (set back with `svc power stayon false`). Quote `&`
   in URLs for `adb shell` (it goes through the tablet's `sh`); uiautomator reports unpanned

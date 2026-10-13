@@ -20,7 +20,18 @@ including the cloud one.
 
 ---
 
-## 1. A separate MCP bridge exe, so assistants don't lock the app 🖥
+## 1. A separate MCP bridge exe, so assistants don't lock the app 🖥 — ✅ done (2026-10-12)
+
+**Landed.** `perritodeck-mcp` (a `[[bin]]` in `host/crates/mcp`, also a second binary of the
+app package so Tauri bundles it) is copied to `<data dir>/bin` at start. A copy an assistant is
+running is renamed aside and replaced. Settings, `--config` and the guide point at the copy,
+and Settings notes assistants still on `perritodeck-app mcp`. Every request carries
+`PerritoDeck-Bridge: <version>`, and `tests/old_bridges.rs` replays each version's requests.
+Verified on Windows: Claude Code stayed connected through the copy while the app was quit,
+both exes were deleted and rebuilt with `npx tauri build --no-bundle`, and the app was
+restarted. Its next call worked through the same bridge process. Still to run: the updated
+real-app e2e on Linux (CI's weekly job or the cloud session; WSL here has no toolchain). Also
+untested: a macOS universal build with two binaries.
 
 **Problem.** The stdio bridge is the app itself (`perritodeck-app mcp`). While Claude Desktop
 or Claude Code has it running, Windows locks `perritodeck-app.exe`, so rebuilds fail, and so

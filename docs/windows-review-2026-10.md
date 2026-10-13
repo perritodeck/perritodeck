@@ -66,7 +66,7 @@ tablet. "Verified" means seen working on the hardware, not just in tests.
 | 17 | Plugin `main` outside its folder | Fixed; not re-tested |
 | 18 | `platformVersion` | Fixed; not checked against a plugin |
 | 19 | Tray left-click | Open (by request) |
-| 20 | MCP stdio bridge note | **Verified**: the GUI-subsystem exe works as a stdio bridge with Claude Code; the Claude Code command now quotes Windows paths and uses `--scope user`. The exe lock while connected stays a follow-up |
+| 20 | MCP stdio bridge note | **Verified**: the GUI-subsystem exe works as a stdio bridge with Claude Code; the Claude Code command now quotes Windows paths and uses `--scope user`. **Exe lock fixed**: assistants now start `perritodeck-mcp.exe` from the data folder; with Claude Code connected, the app was quit, rebuilt and restarted (next-steps item 1) |
 
 New problems found by running it (all fixed unless marked):
 
