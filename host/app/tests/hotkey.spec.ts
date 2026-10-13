@@ -1,16 +1,17 @@
 import { expect, test } from "@playwright/test";
-import { chordFromEvent } from "../src/lib/hotkey";
+import { chordFromEvent, type Os } from "../src/lib/hotkey";
 
 // The Record button's key press → hotkey text, without a browser. Each case is the
 // KeyboardEvent a browser reports on that keyboard layout (code is the US position).
 
 type Mods = Partial<Record<"ctrlKey" | "altKey" | "shiftKey" | "metaKey", boolean>>;
 
-function press(code: string, key: string, mods: Mods = {}, mac = false) {
-  return chordFromEvent({ code, key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods }, mac);
+function press(code: string, key: string, mods: Mods = {}, os: Os = "windows") {
+  return chordFromEvent({ code, key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods }, os);
 }
 
 const ctrl = { ctrlKey: true };
+const ctrlShift = { ctrlKey: true, shiftKey: true };
 const altGr = { ctrlKey: true, altKey: true }; // how Windows reports AltGr
 
 test("letters are the letter the key types, not its US position", () => {
@@ -66,7 +67,36 @@ test("digits, function keys and named keys go by position", () => {
 
 test("on a Mac, Option keys go by position", () => {
   // Option changes the character (Option+A is "å"), which the host couldn't find.
-  expect(press("KeyA", "å", { altKey: true }, true)).toBe("Option+A");
-  expect(press("Minus", "–", { altKey: true }, true)).toBe("Option+Minus");
-  expect(press("Slash", "?", { metaKey: true, shiftKey: true }, true)).toBe("Shift+Cmd+?");
+  expect(press("KeyA", "å", { altKey: true }, "mac")).toBe("Option+A");
+  expect(press("Minus", "–", { altKey: true }, "mac")).toBe("Option+Minus");
+  expect(press("Slash", "?", { metaKey: true, shiftKey: true }, "mac")).toBe("Shift+Cmd+?");
+});
+
+test("Shift and punctuation keep the shifted character on Windows", () => {
+  // The host finds the key that types it on the layout in use, Shift included.
+  expect(press("Slash", "?", ctrlShift)).toBe("Ctrl+Shift+?");
+  expect(press("BracketLeft", "{", ctrlShift)).toBe("Ctrl+Shift+{");
+  // German: '_' is Shift on the US '/' key, '?' Shift on the ß key. Their US characters
+  // would name other keys there ('/' is Shift+7).
+  expect(press("Slash", "_", ctrlShift)).toBe("Ctrl+Shift+_");
+  expect(press("Minus", "?", ctrlShift)).toBe("Ctrl+Shift+?");
+});
+
+test("on Linux, Shift and punctuation go by the unshifted character", () => {
+  // The host only finds characters a key types without Shift, so '?' would fail.
+  expect(press("Slash", "?", ctrlShift, "linux")).toBe("Ctrl+Shift+/");
+  expect(press("BracketLeft", "{", ctrlShift, "linux")).toBe("Ctrl+Shift+[");
+  expect(press("Equal", "+", ctrlShift, "linux")).toBe("Ctrl+Shift+=");
+  expect(press("Minus", "_", ctrlShift, "linux")).toBe("Ctrl+Shift+Minus");
+  expect(press("Quote", '"', { shiftKey: true }, "linux")).toBe("Shift+'");
+  // A key with no US character to fall back on keeps what it typed.
+  expect(press("IntlBackslash", ">", ctrlShift, "linux")).toBe("Ctrl+Shift+>");
+  // Letters keep the character (the host reads them in either case), on any layout.
+  expect(press("KeyY", "Z", ctrlShift, "linux")).toBe("Ctrl+Shift+Z");
+  expect(press("BracketLeft", "Ü", ctrlShift, "linux")).toBe("Ctrl+Shift+Ü");
+  // Without Shift, punctuation is still the character it types (German '-').
+  expect(press("Slash", "-", ctrl, "linux")).toBe("Ctrl+Minus");
+  // Digits and named keys are unchanged.
+  expect(press("Digit1", "!", ctrlShift, "linux")).toBe("Ctrl+Shift+1");
+  expect(press("NumpadAdd", "+", ctrlShift, "linux")).toBe("Ctrl+Shift+Plus");
 });
