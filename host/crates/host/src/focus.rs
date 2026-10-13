@@ -40,19 +40,11 @@ const SHELL_PROCESSES: [&str; 13] = [
     "consent", // UAC prompt
 ];
 
-/// `explorer.exe` window classes that are the shell: the taskbars, the desktop, the
-/// task switcher and the tray overflow. File Explorer windows (`CabinetWClass`) count as
-/// an app.
-const SHELL_EXPLORER_CLASSES: [&str; 8] = [
-    "Shell_TrayWnd",
-    "Shell_SecondaryTrayWnd",
-    "Progman",
-    "WorkerW",
-    "MultitaskingViewFrame",
-    "TaskSwitcherWnd",
-    "XamlExplorerHostIslandWindow",
-    "TopLevelWindowForOverflowXamlIsland",
-];
+/// `explorer.exe` window classes that are File Explorer (Control Panel too), an app
+/// someone may have a profile for. Every other window explorer owns is the shell: the
+/// taskbars, the desktop, Alt+Tab, Task View, the tray overflow, menus, the Run box, and
+/// the hidden windows it hands the foreground to while an app starts.
+const FILE_EXPLORER_CLASSES: [&str; 2] = ["CabinetWClass", "ExploreWClass"];
 
 /// Whether a foreground window of `process` (exe name without `.exe`) with window class
 /// `class` is part of the Windows shell.
@@ -61,7 +53,7 @@ fn is_windows_shell(process: &str, class: &str) -> bool {
     SHELL_PROCESSES
         .iter()
         .any(|p| p.eq_ignore_ascii_case(process))
-        || (process.eq_ignore_ascii_case("explorer") && SHELL_EXPLORER_CLASSES.contains(&class))
+        || (process.eq_ignore_ascii_case("explorer") && !FILE_EXPLORER_CLASSES.contains(&class))
 }
 
 // Asking the OS which window is in front needs its C APIs.
@@ -305,8 +297,14 @@ mod tests {
         assert!(is_windows_shell("Widgets", ""));
         assert!(is_windows_shell("ScreenClippingHost", ""));
         assert!(is_windows_shell("TextInputHost", ""));
+        // Explorer's hidden window while an app starts, its XAML surfaces and the Run box.
+        assert!(is_windows_shell("explorer", "ForegroundStaging"));
+        assert!(is_windows_shell("explorer", "Windows.UI.Core.CoreWindow"));
+        assert!(is_windows_shell("explorer", "XamlExplorerHostIslandWindow"));
+        assert!(is_windows_shell("Explorer", "#32770"));
         // File Explorer is an app someone may have a profile for.
         assert!(!is_windows_shell("explorer", "CabinetWClass"));
+        assert!(!is_windows_shell("EXPLORER", "ExploreWClass"));
         assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
     }
 }
