@@ -3,8 +3,10 @@
 //! Rust's own program search on Windows only appends `.exe`, so `code` (`code.cmd`),
 //! `npm` and `az` aren't found. When a plain spawn reports NotFound, the callers retry
 //! with [`search_path`], which looks for the PATHEXT names that `CreateProcess` can run.
-//! Launch also falls back to `ShellExecuteW`, which knows App Paths names (`obs64`,
-//! `chrome`), shortcuts and documents.
+//! Launch also falls back to `ShellExecuteW` for what `CreateProcess` can't start: App
+//! Paths names (`chrome`, `msedge`; OBS registers none, so it needs its full path),
+//! shortcuts, documents, links such as `steam://…` and `shell:AppsFolder\…`, and
+//! programs that ask for administrator rights.
 //!
 //! The helpers that don't call Windows are compiled everywhere so the tests run on Linux.
 #![cfg_attr(not(windows), allow(dead_code))]
@@ -163,12 +165,47 @@ pub(crate) fn quote_args(args: &[String]) -> String {
     out
 }
 
-/// Whether a failed spawn is worth handing to the shell: the file wasn't found, or it
-/// isn't a program (`ERROR_BAD_EXE_FORMAT`, for shortcuts and documents).
+/// `CreateProcess` refuses a program that asks for administrator rights.
+const ERROR_ELEVATION_REQUIRED: i32 = 740;
+
+/// Whether a failed spawn of `program` is worth handing to the shell: the file wasn't
+/// found; it isn't a program (`ERROR_BAD_EXE_FORMAT`: shortcuts, documents); it isn't a
+/// file name at all (`ERROR_INVALID_NAME`: `steam://rungameid/570`,
+/// `shell:AppsFolder\…`, and Rust's own "no file name" for `discord://`); or it asks
+/// for administrator rights, which the shell requests with the UAC prompt. Launch runs
+/// whatever program it's given, so links get no scheme check here. Rust's other
+/// InvalidInput errors stay errors: one of them refuses batch-file arguments that
+/// `cmd.exe` would misread, and the shell would pass those on as they are.
 #[cfg(all(windows, feature = "system"))]
-pub(crate) fn shell_can_try(e: &std::io::Error) -> bool {
+pub(crate) fn shell_can_try(program: &str, e: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
     const ERROR_BAD_EXE_FORMAT: i32 = 193;
-    e.kind() == std::io::ErrorKind::NotFound || e.raw_os_error() == Some(ERROR_BAD_EXE_FORMAT)
+    matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidFilename)
+        || matches!(
+            e.raw_os_error(),
+            Some(ERROR_BAD_EXE_FORMAT | ERROR_ELEVATION_REQUIRED)
+        )
+        || (e.kind() == ErrorKind::InvalidInput && program.ends_with(['/', '\\']))
+}
+
+/// The error to show when the shell couldn't start the program either, from the
+/// `ShellExecuteW` result code. `first` is what `CreateProcess` said, kept where it
+/// says it better.
+pub(crate) fn shell_error(code: isize, first: std::io::Error) -> std::io::Error {
+    use std::io::{Error, ErrorKind};
+    match code {
+        // SE_ERR_FNF and SE_ERR_PNF. "program not found" beats "the filename syntax is
+        // incorrect" for a link nothing handles.
+        2 | 3 if first.kind() == ErrorKind::NotFound => first,
+        2 | 3 => Error::new(ErrorKind::NotFound, "not found"),
+        // SE_ERR_ACCESSDENIED, which is also what a cancelled UAC prompt returns.
+        5 if first.raw_os_error() == Some(ERROR_ELEVATION_REQUIRED) => Error::new(
+            ErrorKind::PermissionDenied,
+            "it needs administrator rights, and the Windows prompt was cancelled",
+        ),
+        5 => Error::new(ErrorKind::PermissionDenied, "access denied"),
+        _ => first,
+    }
 }
 
 /// Start `program` through `ShellExecuteW`, on a thread of its own with COM initialised
@@ -233,6 +270,46 @@ mod tests {
         assert_eq!(q(&[r"C:\a b\"]), r#""C:\a b\\""#);
         assert_eq!(q(&[r"C:\plain\"]), r"C:\plain\");
         assert_eq!(q(&[r#"a\"b"#]), r#""a\\\"b""#);
+    }
+
+    #[test]
+    fn shell_errors_say_what_went_wrong() {
+        use std::io::{Error, ErrorKind};
+        let msg = |code, first| shell_error(code, first).to_string();
+        let not_found = || Error::new(ErrorKind::NotFound, "program not found");
+        assert_eq!(msg(2, not_found()), "program not found");
+        // A link with no app behind it isn't a "filename syntax" problem.
+        assert_eq!(msg(2, Error::from_raw_os_error(123)), "not found");
+        assert_eq!(
+            msg(5, Error::from_raw_os_error(ERROR_ELEVATION_REQUIRED)),
+            "it needs administrator rights, and the Windows prompt was cancelled"
+        );
+        assert_eq!(msg(5, not_found()), "access denied");
+        // Codes with nothing better to say keep the first error.
+        assert_eq!(msg(32, not_found()), "program not found");
+    }
+
+    #[cfg(all(windows, feature = "system"))]
+    #[test]
+    fn the_shell_gets_what_createprocess_cannot_start() {
+        use std::{io::Error, process::Command};
+        for code in [2, 3, 123, 161, 193, 740] {
+            assert!(
+                shell_can_try("x", &Error::from_raw_os_error(code)),
+                "{code}"
+            );
+        }
+        // Access denied (a folder, a locked file) is no better through the shell.
+        assert!(!shell_can_try("x", &Error::from_raw_os_error(5)));
+        // Rust refuses `discord://` itself, as a path with no file name.
+        let no_name = Command::new("discord://").spawn().unwrap_err();
+        assert!(shell_can_try("discord://", &no_name), "{no_name}");
+        // Batch-file arguments that cmd.exe would misread stay refused.
+        let dir = tempfile::tempdir().unwrap();
+        let bat = dir.path().join("x.bat");
+        std::fs::write(&bat, "").unwrap();
+        let refused = Command::new(&bat).arg("a\nb").spawn().unwrap_err();
+        assert!(!shell_can_try(bat.to_str().unwrap(), &refused), "{refused}");
     }
 
     #[test]

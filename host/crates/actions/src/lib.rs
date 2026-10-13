@@ -177,7 +177,8 @@ pub enum ActionError {
     TimeoutTooLong(u64),
     #[error("input failed: {0}")]
     Input(String),
-    #[error("could not start {program:?}: {source}")]
+    // Quoted plainly, not with `{:?}`, which doubles every backslash in a Windows path.
+    #[error("could not start \"{program}\": {source}")]
     Spawn {
         program: String,
         #[source]
@@ -187,7 +188,7 @@ pub enum ActionError {
     NotConfigured(String),
     #[error("{service}: {reason}")]
     Integration { service: String, reason: String },
-    #[error("could not open {target:?}: {reason}")]
+    #[error("could not open \"{target}\": {reason}")]
     Open { target: String, reason: String },
 }
 
@@ -357,16 +358,17 @@ impl Executor {
                             });
                             Ok(Outcome::Ok)
                         }
-                        // App Paths names (`obs64`), shortcuts and documents.
+                        // App Paths names, shortcuts, documents, links and programs
+                        // that need administrator rights.
                         #[cfg(all(windows, feature = "system"))]
-                        Err(source) if launch::shell_can_try(&source) => {
+                        Err(source) if launch::shell_can_try(program, &source) => {
                             match launch::shell_execute(program, args).await {
                                 Ok(()) => Ok(Outcome::Ok),
                                 Err(code) => {
                                     debug!(code, "ShellExecute couldn't start {program} either");
                                     Err(ActionError::Spawn {
                                         program: program.clone(),
-                                        source,
+                                        source: launch::shell_error(code, source),
                                     })
                                 }
                             }

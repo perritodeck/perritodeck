@@ -282,6 +282,26 @@ fn specs_round_trip_through_json() {
     assert_eq!(s, back);
 }
 
+#[tokio::test]
+async fn launch_errors_show_the_path_as_typed() {
+    let (ex, _) = setup();
+    let missing = if cfg!(windows) {
+        r"C:\no\such\folder\app.exe"
+    } else {
+        "/no/such/folder/app"
+    };
+    let launch = ActionSpec::Launch {
+        program: missing.into(),
+        args: vec![],
+    };
+    let err = ex.run(&launch).await.unwrap_err().to_string();
+    // Not `"C:\\no\\such…"`, as `{:?}` would print it.
+    assert!(
+        err.starts_with(&format!("could not start \"{missing}\": ")),
+        "{err}"
+    );
+}
+
 // Command tests use programs present on every CI runner.
 #[cfg(unix)]
 mod commands {
