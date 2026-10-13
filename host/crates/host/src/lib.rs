@@ -1844,13 +1844,17 @@ fn lan_addrs_for(listen: IpAddr, all: impl FnOnce() -> Vec<IpAddr>) -> Vec<IpAdd
 /// a USB cable reaches the host there through `adb reverse` even when the network
 /// doesn't let it through (a firewall, a Public network), and without it a computer
 /// with no network at all would show a link with no address in it.
+///
+/// Only when listening on every address, though: `adb reverse` connects to 127.0.0.1
+/// on this computer, which a host listening on one network address (`--listen
+/// 192.168.1.60`) doesn't answer.
 fn pairing_addrs_for(listen: IpAddr, lan: Vec<IpAddr>, usb: bool) -> Vec<IpAddr> {
     let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
     if listen.is_loopback() {
         return vec![localhost];
     }
     let mut addrs = lan;
-    if usb && !addrs.contains(&localhost) {
+    if usb && listen.is_unspecified() && !addrs.contains(&localhost) {
         addrs.push(localhost);
     }
     addrs

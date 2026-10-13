@@ -1142,6 +1142,12 @@ fn network_addresses() {
     assert_eq!(pairing_addrs_for(any, vec![], true), [localhost]);
     assert_eq!(pairing_addrs_for(localhost, vec![], false), [localhost]);
     assert_eq!(pairing_addrs_for(localhost, vec![], true), [localhost]);
+    // Listening on IPv6's "every address" too.
+    let any6 = IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED);
+    assert_eq!(pairing_addrs_for(any6, vec![], true), [localhost]);
+    // On one network address, adb's forward to 127.0.0.1 here wouldn't reach the host.
+    let one = ip("192.168.1.60");
+    assert_eq!(pairing_addrs_for(one, vec![one], true), [one]);
 }
 
 #[tokio::test]
