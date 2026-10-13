@@ -153,6 +153,9 @@ pub enum HostEvent {
     /// A profile was loaded, reloaded, removed or rejected, a tablet switched profile,
     /// or keys were paused or resumed.
     ProfileChanged,
+    /// A Stream Deck plugin drew keys of a profile differently (at most a few times a
+    /// second), so the editor can refresh its preview.
+    KeyLooksChanged { profile: String },
     /// A different app came to the front.
     #[serde(rename_all = "camelCase")]
     ForegroundApp { app: Option<String> },
@@ -1496,6 +1499,7 @@ impl Host {
             self.deck.reload_error_of(&id),
             Some(&self.profiles_dir),
         );
+        view.show_agent_looks(&self.deck.agent_looks(&id));
         let history = self.history.lock().expect("history poisoned");
         view.can_undo = !history.undo.is_empty();
         view.can_redo = !history.redo.is_empty();
@@ -1954,6 +1958,11 @@ fn spawn_event_loop(
             if now != seen {
                 seen = now;
                 let _ = watched.events.send(HostEvent::ProfileChanged);
+            }
+            // Asked on this timer, so a plugin that redraws all the time costs the editor
+            // at most five refreshes a second.
+            for profile in watched.deck.take_looks_changed() {
+                let _ = watched.events.send(HostEvent::KeyLooksChanged { profile });
             }
         }
     });

@@ -196,6 +196,8 @@ struct State {
     devices: HashMap<String, DeviceView>,
     /// Agent keys on at least one tablet: context → (key, how many tablets).
     agent_refs: HashMap<String, (AgentKey, usize)>,
+    /// Profiles whose agent looks changed since [`Deck::take_looks_changed`] last asked.
+    looks_changed: HashSet<String>,
 }
 
 impl State {
@@ -291,6 +293,7 @@ impl Deck {
                 assignments: HashMap::new(),
                 devices: HashMap::new(),
                 agent_refs: HashMap::new(),
+                looks_changed: HashSet::new(),
             }),
             outbox,
             executor,
@@ -544,8 +547,12 @@ impl Deck {
             entry.1 = entry.1.saturating_sub(1);
             if entry.1 == 0 {
                 let (key, _) = st.agent_refs.remove(c).expect("just seen");
-                if let Some(slot) = st.slots.get_mut(&key.profile) {
-                    slot.agent_looks.remove(&(key.page, [key.row, key.col]));
+                let drawn = st
+                    .slots
+                    .get_mut(&key.profile)
+                    .and_then(|slot| slot.agent_looks.remove(&(key.page, [key.row, key.col])));
+                if drawn.is_some_and(|l| l != AgentLook::default()) {
+                    st.looks_changed.insert(key.profile.clone());
                 }
                 if let Some(a) = &agents {
                     a.disappear(&key);
@@ -572,11 +579,16 @@ impl Deck {
             .agent_looks
             .entry((key.page, [key.row, key.col]))
             .or_default();
+        let before = look.clone();
         if let Some(t) = title {
             look.title = t;
         }
         if let Some(i) = image {
             look.image = i;
+        }
+        // Plugins often send the same look again; only a real change reaches the editor.
+        if *look != before {
+            st.looks_changed.insert(key.profile.clone());
         }
         for (id, index) in showing(&st, &key) {
             if let Some(d) = st.devices.get_mut(&id) {
@@ -584,6 +596,31 @@ impl Deck {
             }
             self.refresh_key(&mut st, &id, index);
         }
+    }
+
+    /// What agents drew on a profile's keys, per (page index, `[row, col]`), for the
+    /// editor's preview. Agents only draw keys that are on at least one tablet, so a page
+    /// no tablet shows has no looks here.
+    pub fn agent_looks(&self, profile: &str) -> HashMap<(usize, [u32; 2]), AgentLook> {
+        let st = self.lock();
+        st.slots
+            .get(profile)
+            .map(|slot| {
+                slot.agent_looks
+                    .iter()
+                    .filter(|(_, look)| **look != AgentLook::default())
+                    .map(|(at, look)| (*at, look.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The profiles whose agent looks changed since the last call, so UIs can refresh.
+    pub fn take_looks_changed(&self) -> Vec<String> {
+        let mut st = self.lock();
+        let mut changed: Vec<String> = st.looks_changed.drain().collect();
+        changed.sort();
+        changed
     }
 
     /// Flash ✓ (`ok`) or ⚠ on an agent's key.

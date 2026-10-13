@@ -924,6 +924,58 @@ fn stream_deck_plugin_keys_are_run_by_agents() {
     assert!(log(&agents).is_empty(), "tab is on page Two");
 }
 
+#[test]
+fn agent_looks_are_kept_for_the_editor() {
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(SD_PROFILE).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    deck.set_agents(Arc::new(FakeAgents::default()));
+    // A key no tablet shows has no agent, so nothing is drawn.
+    deck.agent_draw("default/0/0/1", Some(Some("3".into())), None);
+    assert!(deck.agent_looks("default").is_empty());
+    assert!(deck.take_looks_changed().is_empty());
+
+    connect(&deck, true);
+    deck.agent_draw(
+        "default/0/0/1",
+        Some(Some("3".into())),
+        Some(Some(vec![1, 2, 3])),
+    );
+    let drawn = AgentLook {
+        title: Some("3".into()),
+        image: Some(vec![1, 2, 3]),
+    };
+    assert_eq!(deck.agent_looks("default").get(&(0, [0, 1])), Some(&drawn));
+    assert!(deck.agent_looks("nope").is_empty());
+    assert_eq!(deck.take_looks_changed(), ["default"]);
+    assert!(deck.take_looks_changed().is_empty(), "told once");
+
+    // The same look again isn't a change.
+    deck.agent_draw(
+        "default/0/0/1",
+        Some(Some("3".into())),
+        Some(Some(vec![1, 2, 3])),
+    );
+    assert!(deck.take_looks_changed().is_empty());
+
+    // Putting the profile's look back leaves nothing to show.
+    deck.agent_draw("default/0/0/1", Some(None), Some(None));
+    assert!(deck.agent_looks("default").is_empty());
+    assert_eq!(deck.take_looks_changed(), ["default"]);
+
+    // The last tablet leaving takes the look away.
+    deck.agent_draw("default/0/0/1", None, Some(Some(vec![4])));
+    deck.take_looks_changed();
+    deck.disconnected("tab");
+    assert!(deck.agent_looks("default").is_empty());
+    assert_eq!(deck.take_looks_changed(), ["default"]);
+}
+
 /// The test profile with profile-switching keys on Main's bottom row and More's top row.
 fn switching_profile() -> Profile {
     let keys = r##"

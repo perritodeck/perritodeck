@@ -1,5 +1,8 @@
 //! What the desktop app shows: serializable views of profiles and keys.
 
+use std::collections::HashMap;
+
+use perritodeck_deck::AgentLook;
 use perritodeck_profile::{edit::KeyFields, NavSpec, Profile, SimpleNav};
 use serde::Serialize;
 
@@ -61,6 +64,26 @@ pub struct KeyView {
     pub has_icon: bool,
     /// The key's image (first state) as a PNG data URL, for the editor's preview.
     pub icon_data: Option<String>,
+    /// What a Stream Deck plugin drew on the key, as a PNG data URL filling the key.
+    /// Display only: the tablets show it instead of the key's own background and image.
+    pub live_image: Option<String>,
+    /// The title a Stream Deck plugin gave the key, shown instead of `title`.
+    pub live_title: Option<String>,
+}
+
+impl ProfileView {
+    /// Show what agents (Stream Deck plugins) drew on the keys, as the tablets do. Agents
+    /// only draw keys on at least one tablet; the others keep the profile's own look.
+    pub fn show_agent_looks(&mut self, looks: &HashMap<(usize, [u32; 2]), AgentLook>) {
+        for (index, page) in self.pages.iter_mut().enumerate() {
+            for key in &mut page.keys {
+                if let Some(look) = looks.get(&(index, [key.row, key.col])) {
+                    key.live_title = look.title.clone();
+                    key.live_image = look.image.as_deref().map(perritodeck_render::data_url);
+                }
+            }
+        }
+    }
 }
 
 pub fn view_of(id: &str, profile: &Profile, reload_error: Option<String>) -> ProfileView {
@@ -166,6 +189,8 @@ pub fn view_with_icons(
                             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                             Some(format!("data:image/gif;base64,{b64}"))
                         }),
+                        live_image: None,
+                        live_title: None,
                     }
                 })
                 .collect(),

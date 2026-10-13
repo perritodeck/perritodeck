@@ -162,6 +162,93 @@ fn events_serialize_for_the_ui() {
         serde_json::to_string(&e).unwrap(),
         r#"{"kind":"keyPressed","deviceId":"d","keyIndex":3}"#
     );
+    let e = HostEvent::KeyLooksChanged {
+        profile: "default".into(),
+    };
+    assert_eq!(
+        serde_json::to_string(&e).unwrap(),
+        r#"{"kind":"keyLooksChanged","profile":"default"}"#
+    );
+}
+
+/// Stream Deck plugins that do nothing, so a test draws their keys itself.
+struct QuietAgents;
+
+impl perritodeck_deck::KeyAgents for QuietAgents {
+    fn device(&self, _: &str, _: Option<perritodeck_protocol::Grid>) {}
+    fn appear(&self, _: &perritodeck_deck::AgentKey) {}
+    fn disappear(&self, _: &perritodeck_deck::AgentKey) {}
+    fn press(&self, _: &perritodeck_deck::AgentKey, _: bool) {}
+}
+
+#[tokio::test]
+async fn keys_a_plugin_draws_show_in_the_editor() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    host.deck.set_agents(Arc::new(QuietAgents));
+    let counter = Edit::SetKey {
+        page: "Main".into(),
+        at: [2, 2],
+        key: KeyFields {
+            title: Some("Count".into()),
+            action: Some(perritodeck_actions::ActionSpec::SdPlugin {
+                plugin: "com.example.counter".into(),
+                action: "com.example.counter.up".into(),
+                settings: serde_json::Value::Null,
+            }),
+            ..Default::default()
+        },
+    };
+    host.edit_profile("default", &[counter]).unwrap();
+    let live = |v: &ProfileView| {
+        let k = v.pages[0]
+            .keys
+            .iter()
+            .find(|k| k.row == 2 && k.col == 2)
+            .expect("the counter key");
+        (k.title.clone(), k.live_title.clone(), k.live_image.clone())
+    };
+    // No tablet shows it, so the plugin draws nothing: the profile's own look.
+    assert_eq!(
+        live(&host.profile_view(None).unwrap()),
+        ("Count".into(), None, None)
+    );
+
+    let mut events = host.subscribe();
+    let screen = perritodeck_protocol::Screen {
+        width_px: 1920,
+        height_px: 1200,
+        density_dpi: 224,
+    };
+    let grid = perritodeck_protocol::Grid { cols: 5, rows: 3 };
+    host.deck.connected("tab", grid, screen, &["keys".into()]);
+    let png = perritodeck_render::Pixmap::new(4, 4)
+        .unwrap()
+        .encode_png()
+        .unwrap();
+    host.deck.agent_draw(
+        "default/0/2/2",
+        Some(Some("3".into())),
+        Some(Some(png.clone())),
+    );
+    assert_eq!(
+        live(&host.profile_view(None).unwrap()),
+        (
+            "Count".into(),
+            Some("3".into()),
+            Some(perritodeck_render::data_url(&png))
+        ),
+        "the drawing is shown; the key's own title stays for editing"
+    );
+    let told = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(HostEvent::KeyLooksChanged { profile }) = events.recv().await {
+                break profile;
+            }
+        }
+    })
+    .await;
+    assert_eq!(told.as_deref(), Ok("default"), "no KeyLooksChanged event");
 }
 
 async fn quiet_host(dir: &std::path::Path) -> Host {
