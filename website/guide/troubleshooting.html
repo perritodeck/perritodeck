@@ -81,6 +81,18 @@
   <p>If another program already uses port 46710, choose a different <strong>Port</strong> in <span class="ui">Settings</span>, click <span class="ui">Save network settings</span> and then <span class="ui">Restart now</span>. Tablets that found the computer by themselves follow; if you typed an address into Perrito, change it there too.</p>
 </div>
 
+<h3 id="cable-only">The tablet only works with the cable</h3>
+<p>A tablet on a USB cable connects even when Wi-Fi can't get through, so the cable can hide a firewall problem until you unplug it. PerritoDeck shows a note on the <span class="ui">Tablets</span> and <span class="ui">Pair a tablet</span> pages when:</p>
+<ul>
+  <li>a tablet tried Wi-Fi, got no answer at all and came over the cable instead, or</li>
+  <li>on Windows, the firewall has no rule letting PerritoDeck take connections on the network you're on. This is common on a network Windows calls <em>public</em>: there, the first-run question's default answer lets nothing in.</li>
+</ul>
+<p>The note says what to change; the steps are the same as under <a href="#firewall">Firewall</a>. On Windows you can either tick PerritoDeck for the kind of network you're on (<em>Public</em> or <em>Private</em>), or, at home, make the network private: Settings → Network &amp; internet → Wi-Fi or Ethernet → your network → <em>Network profile type</em> → Private. The note goes away by itself once Wi-Fi works: while it's on the cable, Perrito tries the computer's Wi-Fi address again every 30 seconds. If you only ever use the cable, untick <span class="ui">Let tablets connect over Wi-Fi</span> in <span class="ui">Settings</span> instead.</p>
+<div class="tech">
+  <p class="box-label">Technical details</p>
+  <p>A firewall usually drops a blocked connection without answering, so the tablet's connection times out. A refusal means the address has no PerritoDeck listening (it's restarting, say), so that doesn't count. The tablet says so in its <code>hello</code> (<code>networkFailed</code>) when it then connects over the cable. On Windows, PerritoDeck reads the firewall's rules (it never changes them): an enabled inbound rule for its program, or for TCP port 46710, on the network types in use.</p>
+</div>
+
 <h3 id="didnt-start">"The host didn't start"</h3>
 <p>Only one PerritoDeck can run on a computer at a time, because they'd all want the same port. If you see this message, another copy is already running, perhaps the command-line version in a terminal. Quit it and open PerritoDeck again. The message also shows the exact error, which helps if it's something else.</p>
 

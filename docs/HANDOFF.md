@@ -112,8 +112,10 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
 ## 4. Still open
 
 - **UAC prompt during auto-switch**: not tried (needs a person to answer the prompt).
-- **Firewall (finding 6)**: open by request. Each exe path gets its own prompt; on a Public
-  network the default answer lets nothing in. The diagnostics report now shows the category.
+- **Firewall (finding 6)**: each exe path gets its own prompt; on a Public network the
+  default answer lets nothing in. Detection is done (next-steps item 2): the Tablets and Pair
+  pages say when a tablet fell back to the cable or Windows Firewall has no rule for
+  PerritoDeck. The installer rule waits for the maintainer's decision.
 - **Installers** (NSIS/MSI), autostart at login, uninstall: not built or tried this session.
 - A live value with no data yet shows its raw token in small type on the key
   (e.g. `(plugin:dev.perritodeck.sysmon:disk)`). Deliberate ("unknown names are left as

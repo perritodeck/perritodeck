@@ -64,6 +64,22 @@ bridge on Linux.
 
 ## 2. Firewall: tablets on Wi-Fi silently blocked 🖥 — *maintainer decision needed*
 
+**Detection ✅ done (2026-10-12); installer ⏳ waiting for the maintainer's decision.**
+
+- Perrito sends `networkFailed` in `hello` over the cable after its Wi-Fi connection timed
+  out. Refusals don't count (a restarting PerritoDeck refuses). While on the cable it
+  re-checks the network every 30 s, and reconnects once when it answers.
+- The host names those tablets. On Windows it also reads Windows Firewall's rules
+  (read-only) instead of guessing from the network category: that guess stayed on for good
+  on this PC (Public network, PerritoDeck allowed, tablet always on the cable).
+- The Tablets and Pair pages show the steps; the guide has a "Tablet only works with the
+  cable" entry.
+- Verified on the Fire 7: flagged, banner shown, and cleared by itself 30 s after Wi-Fi
+  answered again; no false alarm after a restart.
+- Not tried on hardware: a real Windows Firewall block (changing firewall rules was out of
+  scope). The query was checked against allowed and unlisted programs, and the banner
+  wording by Playwright.
+
 **Problem.** On a network Windows classes as **Public** (this PC's is), the first-run firewall
 prompt's default blocks inbound connections. Each exe path gets its own prompt. Until someone
 allows it, tablets only work over the cable, and nothing says why.
