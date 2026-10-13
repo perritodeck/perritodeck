@@ -543,7 +543,25 @@ impl Host {
         // forwards them once it does.
         let live_sink: Arc<std::sync::OnceLock<Arc<Deck>>> = Arc::default();
         let sink = live_sink.clone();
-        let plugins = perritodeck_plugins::PluginHost::start(
+        // What plugins ask to open (a browser for a sign-in, an app) is opened here, by
+        // the host, like an Open or Launch key: outside the plugin's process tree, so
+        // it outlives the plugin.
+        let opens = Executor::new(input.clone(), Arc::new(OpenSystem));
+        let opener: perritodeck_plugins::Opener = Arc::new(move |request| {
+            let opens = opens.clone();
+            Box::pin(async move {
+                let spec = match request {
+                    perritodeck_plugins::OpenRequest::Target(target) => ActionSpec::OpenPath {
+                        path: target.into(),
+                    },
+                    perritodeck_plugins::OpenRequest::Program { program, args } => {
+                        ActionSpec::Launch { program, args }
+                    }
+                };
+                opens.run(&spec).await.map(drop).map_err(|e| e.to_string())
+            })
+        });
+        let plugins = perritodeck_plugins::PluginHost::start_with_opener(
             dir.join("plugins"),
             env!("CARGO_PKG_VERSION"),
             Arc::new(move |k, v| {
@@ -551,6 +569,7 @@ impl Host {
                     deck.set_live([(k, v)]);
                 }
             }),
+            opener,
         );
         let executor = Executor::new(input, Arc::new(OpenSystem))
             .with_integrations(builtins)

@@ -259,6 +259,126 @@ async fn a_plugin_being_removed_or_updated_isnt_started_again_by_a_scan() {
     assert_eq!(host.list().len(), 1);
 }
 
+const ASKS_TO_OPEN: &str = r#"
+import json, sys
+def send(m):
+    sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["event"] == "hello":
+        send({"event": "value", "id": "greeting", "value": "features " + ",".join(m.get("features", []))})
+        send({"event": "ready"})
+        send({"event": "open", "id": 1, "target": "https://perritodeck.dev/guide/"})
+        send({"event": "open", "id": 2, "program": "code", "args": ["."]})
+        send({"event": "open", "id": 3, "args": ["nothing to open"]})
+        send({"event": "open", "id": 4, "target": "C:/no/such/file.txt"})
+        send({"event": "open", "target": "https://example.com/no-answer-wanted"})
+    elif m["event"] == "opened":
+        send({"event": "value", "id": "greeting", "value": "%s %s %s" % (m["id"], m["ok"], m.get("message", ""))})
+    elif m["event"] == "shutdown":
+        break
+"#;
+
+/// Plugins can't start programs that outlive them on Windows (their process tree ends
+/// with them), so they ask the host to open things for the person instead.
+#[tokio::test(flavor = "multi_thread")]
+async fn plugins_ask_the_host_to_open_things() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(
+        root.path(),
+        "test.opener",
+        "python",
+        "plugin.py",
+        Some(ASKS_TO_OPEN),
+    );
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let opened: Arc<Mutex<Vec<OpenRequest>>> = Arc::default();
+    let (sink, record) = (seen.clone(), opened.clone());
+    let opener: Opener = Arc::new(move |r: OpenRequest| {
+        let record = record.clone();
+        Box::pin(async move {
+            let missing = matches!(&r, OpenRequest::Target(t) if t.contains("no/such"));
+            record.lock().unwrap().push(r);
+            if missing {
+                Err("it doesn't exist".into())
+            } else {
+                Ok(())
+            }
+        })
+    });
+    let _host = PluginHost::start_with_opener(
+        root.path().to_owned(),
+        "9.9",
+        Arc::new(move |_, v| sink.lock().unwrap().push(v)),
+        opener,
+    );
+    wait_for("the replies", || seen.lock().unwrap().len() >= 5).await;
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen[0], "features open");
+    let mut replies = seen[1..].to_vec();
+    replies.sort();
+    assert_eq!(
+        replies,
+        [
+            "1 True ",
+            "2 True ",
+            "3 False say what to open: a target, or a program",
+            "4 False it doesn't exist",
+        ]
+    );
+    wait_for("the last open", || opened.lock().unwrap().len() == 4).await;
+    let opened = opened.lock().unwrap().clone();
+    assert!(opened.contains(&OpenRequest::Target(
+        "https://perritodeck.dev/guide/".into()
+    )));
+    assert!(opened.contains(&OpenRequest::Program {
+        program: "code".into(),
+        args: vec![".".into()],
+    }));
+    assert!(opened.contains(&OpenRequest::Target(
+        "https://example.com/no-answer-wanted".into()
+    )));
+}
+
+#[test]
+fn what_an_open_message_asks_for() {
+    let req = |v: Value| open_request(&v);
+    assert_eq!(
+        req(json!({ "target": " https://a.example " })),
+        Some(OpenRequest::Target("https://a.example".into()))
+    );
+    assert_eq!(
+        req(json!({ "program": "obs64" })),
+        Some(OpenRequest::Program {
+            program: "obs64".into(),
+            args: vec![]
+        })
+    );
+    assert_eq!(req(json!({ "program": "x", "args": [1] })), None);
+    assert_eq!(req(json!({ "program": "x", "args": "-v" })), None);
+    assert_eq!(req(json!({ "target": "" })), None);
+    assert_eq!(
+        OpenRequest::Target("https://x.example/?code=secret".into()).describe(),
+        "a web address"
+    );
+    assert_eq!(
+        OpenRequest::Program {
+            program: r"C:\Program Files\obs-studio\bin\64bit\obs64.exe".into(),
+            args: vec![]
+        }
+        .describe(),
+        if cfg!(windows) {
+            "the program obs64.exe"
+        } else {
+            r"the program C:\Program Files\obs-studio\bin\64bit\obs64.exe"
+        }
+    );
+}
+
 #[test]
 fn a_plugin_being_stopped_gets_no_actions_when_it_says_ready() {
     let manifest = Manifest::parse(
@@ -266,18 +386,21 @@ fn a_plugin_being_stopped_gets_no_actions_when_it_says_ready() {
             .to_string(),
     )
     .unwrap();
-    let values: ValueSink = Arc::new(|_, _| {});
+    let sinks = Sinks {
+        values: Arc::new(|_, _| {}),
+        opener: None,
+    };
     let (tx, _rx) = mpsc::unbounded_channel();
     let ready = json!({ "event": "ready" });
 
     let stopping = Running::new(manifest.clone(), PathBuf::new(), json!({}), PathBuf::new());
     stopping.request_stop();
-    handle(&stopping, &ready, &values, &tx);
+    handle(&stopping, &ready, &sinks, &tx);
     assert!(stopping.to_plugin.lock().unwrap().is_none());
     assert_eq!(*stopping.status.lock().unwrap(), Status::Starting);
 
     let running = Running::new(manifest, PathBuf::new(), json!({}), PathBuf::new());
-    handle(&running, &ready, &values, &tx);
+    handle(&running, &ready, &sinks, &tx);
     assert!(running.to_plugin.lock().unwrap().is_some());
     assert_eq!(*running.status.lock().unwrap(), Status::Running);
 }

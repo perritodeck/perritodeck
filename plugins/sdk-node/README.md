@@ -19,5 +19,10 @@ Keep the plugin's own files in `plugin.dataDir` (a folder the host gives each
 plugin; created on first use). `plugin.every(seconds, fn)` never runs two ticks at
 once: the next one starts `seconds` after the previous one settled.
 
+To open a web page, file or app for the person, call
+`await plugin.openForUser("https://…")` or `await plugin.startForUser("code", ["."])`
+instead of using `child_process`. The host opens them, so they keep running after the
+plugin stops. On Windows, everything a plugin starts itself ends with the plugin.
+
 With `"runtime": "node"` and `"main": "plugin.js"` in `perritodeck-plugin.json`
 (see [PROTOCOL.md](../PROTOCOL.md)). Run the tests with `node --test`.

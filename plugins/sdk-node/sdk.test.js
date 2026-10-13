@@ -182,3 +182,43 @@ test("dataDir uses the host's folder and creates it", async () => {
     path.join("C:\\L", "PerritoDeck", "plugin-data", "x"),
   );
 });
+
+test("asks the host to open things for the person", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lines = [];
+  output.on("data", (d) => {
+    for (const l of d.toString().split("\n").filter(Boolean)) lines.push(JSON.parse(l));
+  });
+  const until = async (pred) => {
+    for (let i = 0; i < 200; i++) {
+      const hit = lines.find(pred);
+      if (hit) return hit;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error("timed out");
+  };
+  const send = (m) => input.write(JSON.stringify(m) + "\n");
+  const p = new Plugin({ input, output });
+  const done = p.start();
+  send({ event: "hello", protocol: 1, host: "test", features: ["open"] });
+  await until((m) => m.event === "ready");
+
+  const page = p.openForUser("https://perritodeck.dev/guide/");
+  const asked = await until((m) => m.event === "open");
+  assert.deepStrictEqual(asked, { event: "open", id: 1, target: "https://perritodeck.dev/guide/" });
+  send({ event: "opened", id: 1, ok: true });
+  await page;
+
+  const app = p.startForUser("code", ["."]);
+  assert.deepStrictEqual(await until((m) => m.id === 2), { event: "open", id: 2, program: "code", args: ["."] });
+  send({ event: "opened", id: 2, ok: false, message: "couldn't start code" });
+  await assert.rejects(app, /couldn't start code/);
+
+  // Still waiting when the host stops the plugin: that's an answer too.
+  const late = p.openForUser("C:/somewhere/file.txt");
+  await until((m) => m.id === 3);
+  send({ event: "shutdown" });
+  await assert.rejects(late, /stopped/);
+  await done;
+});

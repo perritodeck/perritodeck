@@ -41,6 +41,44 @@ const STABLE_AFTER: Duration = Duration::from_secs(30);
 /// Called with (`plugin:<plugin id>:<value id>`, value) when a plugin publishes a value.
 pub type ValueSink = Arc<dyn Fn(String, String) + Send + Sync>;
 
+/// Something a plugin asked the host to open for the person (an `open` message). The
+/// host opens it, so it isn't in the plugin's process tree and keeps running after the
+/// plugin stops; on Windows a plugin's own children end with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenRequest {
+    /// A web address, file, folder or app link, opened as double-clicking would.
+    Target(String),
+    /// A program and its arguments.
+    Program { program: String, args: Vec<String> },
+}
+
+impl OpenRequest {
+    /// What it is, for the log, without addresses or paths (sign-in links carry codes).
+    fn describe(&self) -> String {
+        match self {
+            OpenRequest::Target(t) if t.contains("://") => "a web address".into(),
+            OpenRequest::Target(_) => "a file, folder or link".into(),
+            OpenRequest::Program { program, .. } => {
+                let name = Path::new(program)
+                    .file_name()
+                    .map_or_else(|| program.clone(), |n| n.to_string_lossy().into_owned());
+                format!("the program {name}")
+            }
+        }
+    }
+}
+
+/// Opens what plugins ask for (the host runs it like its Open and Launch actions); an
+/// `Err` is a sentence for the plugin.
+pub type Opener = Arc<dyn Fn(OpenRequest) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
+
+/// What the plugins' messages reach in the host.
+#[derive(Clone)]
+struct Sinks {
+    values: ValueSink,
+    opener: Option<Opener>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Status {
@@ -174,7 +212,7 @@ pub struct PluginHost {
     runtime: tokio::runtime::Handle,
     dir: PathBuf,
     host_version: String,
-    values: ValueSink,
+    sinks: Sinks,
     plugins: Mutex<HashMap<String, Arc<Running>>>,
     broken: Mutex<Vec<BrokenPlugin>>,
     /// Plugin settings, one JSON file per plugin (kept when a plugin is updated).
@@ -188,8 +226,28 @@ pub struct PluginHost {
 
 impl PluginHost {
     /// Start every plugin installed in `dir` (one folder per plugin). Call from
-    /// inside a Tokio runtime.
+    /// inside a Tokio runtime. Plugins that ask to open something are told this host
+    /// can't; see [`PluginHost::start_with_opener`].
     pub fn start(dir: PathBuf, host_version: &str, values: ValueSink) -> Arc<Self> {
+        Self::start_with(dir, host_version, values, None)
+    }
+
+    /// [`PluginHost::start`], opening what plugins ask for with `opener`.
+    pub fn start_with_opener(
+        dir: PathBuf,
+        host_version: &str,
+        values: ValueSink,
+        opener: Opener,
+    ) -> Arc<Self> {
+        Self::start_with(dir, host_version, values, Some(opener))
+    }
+
+    fn start_with(
+        dir: PathBuf,
+        host_version: &str,
+        values: ValueSink,
+        opener: Option<Opener>,
+    ) -> Arc<Self> {
         let settings_dir = dir
             .parent()
             .map_or_else(|| dir.join(".settings"), |p| p.join("plugin-settings"));
@@ -200,7 +258,7 @@ impl PluginHost {
             busy: Mutex::new(HashSet::new()),
             dir,
             host_version: host_version.to_owned(),
-            values,
+            sinks: Sinks { values, opener },
             plugins: Mutex::new(HashMap::new()),
             broken: Mutex::new(Vec::new()),
         });
@@ -263,7 +321,7 @@ impl PluginHost {
             self.runtime.spawn(supervise(
                 running,
                 self.host_version.clone(),
-                self.values.clone(),
+                self.sinks.clone(),
             ));
         }
         drop(busy);
@@ -715,7 +773,7 @@ impl Drop for Exited<'_> {
     }
 }
 
-async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
+async fn supervise(p: Arc<Running>, host_version: String, sinks: Sinks) {
     let _exited = Exited(&p.exited);
     let _ = std::fs::create_dir_all(&p.data_dir);
     let mut quick_restarts = 0u32;
@@ -784,8 +842,14 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let settings = p.settings.lock().expect("settings poisoned").clone();
         let _ = tx.send(
-            json!({ "event": "hello", "protocol": PROTOCOL, "host": host_version, "settings": settings })
-                .to_string(),
+            json!({
+                "event": "hello",
+                "protocol": PROTOCOL,
+                "host": host_version,
+                "settings": settings,
+                "features": if sinks.opener.is_some() { vec!["open"] } else { vec![] },
+            })
+            .to_string(),
         );
         let writer = tokio::spawn(async move {
             while let Some(line) = rx.recv().await {
@@ -811,7 +875,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         let ready_tx = tx.clone();
         let reader = {
             let p = p.clone();
-            let values = values.clone();
+            let sinks = sinks.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -819,7 +883,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                         debug!(plugin = %p.manifest.id, "not JSON: {line}");
                         continue;
                     };
-                    handle(&p, &msg, &values, &ready_tx);
+                    handle(&p, &msg, &sinks, &ready_tx);
                 }
             })
         };
@@ -879,8 +943,9 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
     }
 }
 
-fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSender<String>) {
+fn handle(p: &Running, msg: &Value, sinks: &Sinks, tx: &mpsc::UnboundedSender<String>) {
     let name = &p.manifest.name;
+    let values = &sinks.values;
     match msg["event"].as_str() {
         Some("ready") => {
             {
@@ -935,8 +1000,60 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
                 _ => info!(plugin = %p.manifest.id, "{text}"),
             }
         }
+        Some("open") => {
+            if p.stop.load(Ordering::Relaxed) {
+                return; // an old copy that's being stopped
+            }
+            let id = msg["id"].as_u64();
+            let reply = move |tx: &mpsc::UnboundedSender<String>, result: Result<(), String>| {
+                let Some(id) = id else { return };
+                let mut m = json!({ "event": "opened", "id": id, "ok": result.is_ok() });
+                if let Err(e) = result {
+                    m["message"] = e.into();
+                }
+                let _ = tx.send(m.to_string());
+            };
+            let Some(request) = open_request(msg) else {
+                reply(tx, Err("say what to open: a target, or a program".into()));
+                return;
+            };
+            let Some(opener) = sinks.opener.clone() else {
+                reply(
+                    tx,
+                    Err("this PerritoDeck can't open things for plugins".into()),
+                );
+                return;
+            };
+            info!(plugin = %p.manifest.id, "opening {} for the plugin", request.describe());
+            let (tx, plugin) = (tx.clone(), p.manifest.id.clone());
+            tokio::spawn(async move {
+                let result = opener(request).await;
+                if let Err(e) = &result {
+                    warn!(plugin = %plugin, "couldn't open what it asked for: {e}");
+                }
+                reply(&tx, result);
+            });
+        }
         _ => {}
     }
+}
+
+/// The [`OpenRequest`] in an `open` message: `target`, or `program` with `args`.
+fn open_request(msg: &Value) -> Option<OpenRequest> {
+    let text = |k: &str| msg[k].as_str().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(target) = text("target") {
+        return Some(OpenRequest::Target(target.to_owned()));
+    }
+    let program = text("program")?.to_owned();
+    let args = match &msg["args"] {
+        Value::Null => Vec::new(),
+        Value::Array(a) => a
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned))
+            .collect::<Option<_>>()?,
+        _ => return None,
+    };
+    Some(OpenRequest::Program { program, args })
 }
 
 #[cfg(test)]

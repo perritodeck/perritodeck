@@ -81,10 +81,11 @@ Host → plugin:
 
 | `event` | Fields | Meaning |
 |---|---|---|
-| `hello` | `protocol` (1), `host` (version), `settings` (object) | First line after start. |
+| `hello` | `protocol` (1), `host` (version), `settings` (object), `features` (array of strings) | First line after start. `features` lists what this host can do beyond the messages below; today that's `open` (see `open`). Older hosts leave it out. |
 | `settings` | `settings` (object) | The plugin's settings changed on the Plugins page. |
 | `watch` | `values` (array of strings) | The argument values profiles use right now, e.g. `["up:nas", "up:10.0.0.1"]`; sent when the list changes and again after each start. Publish only these, and stop polling the rest. |
 | `run` | `id` (number), `action`, `settings` (object), `device` | A key was pressed (or a slider moved). Answer with `result` and the same `id` within 10 seconds. |
+| `opened` | `id`, `ok` (bool), `message?` | How an `open` with that `id` went; `message` says why it failed. |
 | `shutdown` | | Exit now (the host also closes stdin). |
 
 Plugin → host:
@@ -95,6 +96,16 @@ Plugin → host:
 | `result` | `id`, `ok` (bool), `message?` | How a `run` went. `ok: false` flashes ⚠ with the message; `ok: true` with a message flashes ⚠ too (a warning). |
 | `value` | `id` (value id), `value` (string) | Publish a live value. |
 | `log` | `level` (`info`, `warn`, `error`), `message` | Write to the host's log. |
+| `open` | `target`, or `program` and `args?` (array of strings); `id?` | Ask the host to open something for the person: a web address, file, folder or app link (`target`, opened as double-clicking would), or a program. The host opens it the way its Open and Launch keys do, so it keeps running after the plugin stops. With an `id`, the host answers with `opened`. Only for hosts whose `hello` lists `open` in `features`. |
 
 Unknown events are ignored in both directions, so either side can add some later.
+
+### Opening things for the person
+
+On Windows the host runs each plugin in a job object, so that a plugin's own helpers
+end with it. That means a browser or app the plugin starts itself closes when the plugin
+stops or restarts. Use `open` instead. The Node SDK has `plugin.openForUser(target)` and
+`plugin.startForUser(program, args)`, which use it when the host can and otherwise start
+the program themselves, as before. The Python SDK's `open_for_user` and
+`start_for_user` leave the job by themselves and work with any host.
 If a plugin exits, the host restarts it with a growing delay, up to 5 times in a row.

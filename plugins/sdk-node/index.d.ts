@@ -33,6 +33,13 @@ export declare class Plugin {
   /** Key titles show it as {plugin:<plugin id>:<value id>}. */
   setValue(id: string, value: string | number | boolean, arg?: string): void;
   log(message: string, level?: "info" | "warn" | "error"): void;
+  /** Open a web address, file, folder or app link for the person, as double-clicking
+   * would. The host opens it, so it keeps running after the plugin stops (on Windows,
+   * what a plugin starts itself ends with it). Rejects with the reason if it couldn't. */
+  openForUser(target: string): Promise<void>;
+  /** Start a program for the person, e.g. startForUser("code", ["."]); the host starts
+   * it, as for openForUser. */
+  startForUser(program: string, args?: string[]): Promise<void>;
   /** Talk to the host until it says goodbye. */
   start(): Promise<void>;
 }

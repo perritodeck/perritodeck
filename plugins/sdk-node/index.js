@@ -22,8 +22,13 @@
 // the previous one settled. plugin.dataDir is a folder for the plugin's own files
 // (PERRITODECK_PLUGIN_DATA from the host, or a per-user folder when run by hand),
 // created the first time it is read.
+//
+// To open a web page, file or app for the person, use plugin.openForUser(target) or
+// plugin.startForUser(program, args), not child_process: on Windows everything a plugin
+// starts itself ends when the plugin stops, so the host opens these instead.
 "use strict";
 
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -31,6 +36,8 @@ const readline = require("node:readline");
 
 const PROTOCOL = 1;
 const DATA_ENV = "PERRITODECK_PLUGIN_DATA";
+/** How long openForUser and startForUser wait for the host to say how it went. */
+const OPEN_TIMEOUT_MS = 15000;
 
 /** The plugin id from the manifest next to the main script, or the folder's name. */
 function pluginName(main = process.argv[1]) {
@@ -69,6 +76,9 @@ class Plugin {
     this._dataDir = null;
     this._input = input;
     this._output = output;
+    this._opens = new Map(); // open requests waiting for the host's "opened"
+    this._nextOpen = 1;
+    this._hostOpens = false; // the host said hello with the "open" feature
     this.hostVersion = null;
     /** The plugin's own settings, as saved on the Plugins page. */
     this.settings = {};
@@ -169,6 +179,58 @@ class Plugin {
     this._send({ event: "log", level, message: String(message) });
   }
 
+  /**
+   * Open a web address, file, folder or app link for the person, the way double-clicking
+   * would. The host opens it, so it keeps running after the plugin stops. Resolves once
+   * it's open; rejects with the reason when it couldn't be.
+   */
+  openForUser(target) {
+    const opener = { win32: "explorer.exe", darwin: "open" }[process.platform] ?? "xdg-open";
+    return this._open({ target: String(target) }, () => [opener, [String(target)]]);
+  }
+
+  /** Start a program for the person: startForUser("code", ["."]). Like openForUser, the
+   * host starts it, so it keeps running after the plugin stops. */
+  startForUser(program, args = []) {
+    const argv = args.map(String);
+    return this._open({ program: String(program), args: argv }, () => [String(program), argv]);
+  }
+
+  _open(fields, fallback) {
+    if (!this._hostOpens) {
+      // A host from before the "open" message: start it here, as plugins used to (on
+      // Windows it then ends with the plugin).
+      return new Promise((resolve, reject) => {
+        const [cmd, args] = fallback();
+        const child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
+        child.once("error", reject);
+        child.once("spawn", () => {
+          child.unref();
+          resolve();
+        });
+      });
+    }
+    const id = this._nextOpen++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._opens.delete(id);
+        reject(new Error("PerritoDeck didn't say whether it could open it"));
+      }, OPEN_TIMEOUT_MS);
+      timer.unref?.();
+      this._opens.set(id, { resolve, reject, timer });
+      this._send({ event: "open", id, ...fields });
+    });
+  }
+
+  _opened(m) {
+    const waiting = this._opens.get(m.id);
+    if (!waiting) return;
+    this._opens.delete(m.id);
+    clearTimeout(waiting.timer);
+    if (m.ok) waiting.resolve();
+    else waiting.reject(new Error(m.message || "it couldn't be opened"));
+  }
+
   _send(message) {
     this._output.write(JSON.stringify(message) + "\n");
   }
@@ -204,6 +266,7 @@ class Plugin {
         if (!m || typeof m !== "object") return;
         if (m.event === "hello") {
           this.hostVersion = m.host;
+          this._hostOpens = Array.isArray(m.features) && m.features.includes("open");
           this.settings = m.settings ?? {};
           const settings = this.settings;
           this._ready = this._enqueue(async () => {
@@ -226,6 +289,8 @@ class Plugin {
         } else if (m.event === "run") {
           // Actions wait for onStart (a host only sends them after ready, but be safe).
           Promise.resolve(this._ready).then(() => this._run(m.id, m.action, m.settings));
+        } else if (m.event === "opened") {
+          this._opened(m);
         } else if (m.event === "shutdown") {
           rl.close();
         }
@@ -234,6 +299,11 @@ class Plugin {
         this._stopped = true;
         for (const h of this._timeouts) clearTimeout(h);
         this._timeouts.clear();
+        for (const { reject, timer } of this._opens.values()) {
+          clearTimeout(timer);
+          reject(new Error("PerritoDeck stopped the plugin"));
+        }
+        this._opens.clear();
         resolve();
       });
     });
