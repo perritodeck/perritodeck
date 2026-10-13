@@ -32,6 +32,14 @@ CLIXML_ERROR = (
     '<S S="Error"> _x000D__x000A_</S></Objs>'
 ).encode("utf-8")
 
+# An error holding an emoji (U+1F44B): each UTF-16 half is escaped on its own.
+CLIXML_EMOJI_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<S S="Error">hi _xD83D__xDC4B_ there_x000D__x000A_</S>'
+    '<S S="Error">At line:2 char:1_x000D__x000A_</S></Objs>'
+)
+
 
 class FakeClipboard:
     def __init__(self, text=None):
@@ -308,6 +316,8 @@ class WindowsPowerShellTest(Base):
                 clip.WindowsClipboard().get()
         self.assertEqual(str(caught.exception), "Requested Clipboard operation did not succeed. <Für_x0041_>")
         self.assertEqual(clip.error_text(CLIXML_ERROR.decode("utf-8").split("<S S=")[0] + "</Objs>"), "")
+        self.assertEqual(clip.error_text(CLIXML_EMOJI_ERROR), "hi \U0001F44B there")
+        self.assertEqual(clip.error_text(CLIXML_EMOJI_ERROR.replace("_xDC4B_", "")), "hi � there")
         long = done(b"", 1, ("x" * 300).encode())
         with mock.patch.object(clip.subprocess, "run", return_value=long):
             with self.assertRaises(RuntimeError) as caught:

@@ -206,6 +206,9 @@ def error_text(stderr):
         return lines[-1] if lines else ""
     text = html.unescape("".join(re.findall(r'<S S="Error">(.*?)</S>', text, re.S)))
     text = re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), text)
+    # A character outside the BMP (an emoji) comes as its two UTF-16 halves, each
+    # escaped on its own; join them, or they'd print as "??".
+    text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return lines[0] if lines else ""
 

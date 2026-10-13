@@ -40,6 +40,14 @@ CLIXML_CMDLET_ERROR = (
     '<S S="Error"> _x000D__x000A_</S></Objs>'
 )
 
+# An error holding an emoji (U+1F44B): each UTF-16 half is escaped on its own.
+CLIXML_EMOJI_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<S S="Error">hi _xD83D__xDC4B_ there_x000D__x000A_</S>'
+    '<S S="Error">At line:2 char:1_x000D__x000A_</S></Objs>'
+)
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -134,6 +142,8 @@ class WindowsTest(Base):
         )
         progress_only = CLIXML_CMDLET_ERROR.split("<S S=")[0] + "</Objs>"
         self.assertEqual(shot.error_text(progress_only), "")
+        self.assertEqual(shot.error_text(CLIXML_EMOJI_ERROR), "hi \U0001F44B there")
+        self.assertEqual(shot.error_text(CLIXML_EMOJI_ERROR.replace("_xDC4B_", "")), "hi � there")
         self.assertEqual(shot.error_text("plain\nlast line\n"), "last line")
         self.assertEqual(shot.error_text(None), "")
         with self.assertRaises(RuntimeError) as caught:

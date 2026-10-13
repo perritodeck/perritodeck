@@ -26,6 +26,14 @@ CLIXML_ERROR = (
     '<S S="Error"> _x000D__x000A_</S></Objs>'
 )
 
+# An error holding an emoji (U+1F44B): each UTF-16 half is escaped on its own.
+CLIXML_EMOJI_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<S S="Error">hi _xD83D__xDC4B_ there_x000D__x000A_</S>'
+    '<S S="Error">At line:2 char:1_x000D__x000A_</S></Objs>'
+)
+
 
 class MediaTest(unittest.TestCase):
     def setUp(self):
@@ -163,6 +171,8 @@ class WindowsTest(unittest.TestCase):
             self.run_windows("", media.windows_state, stderr=CLIXML_ERROR)
         self.assertEqual(str(caught.exception), "Unable to find type [Windows.Media.Control.X & Y].")
         self.assertEqual(media.error_text(CLIXML_ERROR.split("<S S=")[0] + "</Objs>"), "")
+        self.assertEqual(media.error_text(CLIXML_EMOJI_ERROR), "hi \U0001F44B there")
+        self.assertEqual(media.error_text(CLIXML_EMOJI_ERROR.replace("_xDC4B_", "")), "hi � there")
         self.assertEqual(media.error_text("one\ntwo\n"), "two")
 
     def test_controls(self):
