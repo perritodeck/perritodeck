@@ -614,11 +614,12 @@ fn start_host(app: &tauri::App) -> Result<Host, String> {
 }
 
 fn build_tray(app: &tauri::App, paused: bool) -> tauri::Result<CheckMenuItem<Wry>> {
-    let open = MenuItem::with_id(app, "open", "Open PerritoDeck", true, None::<&str>)?;
-    let pair = MenuItem::with_id(app, "pair", "Pair a tablet…", true, None::<&str>)?;
-    let pause = CheckMenuItem::with_id(app, "pause", "Pause keys", true, paused, None::<&str>)?;
+    // `&` marks each item's access key (Windows and Linux; macOS leaves it out).
+    let open = MenuItem::with_id(app, "open", "&Open PerritoDeck", true, None::<&str>)?;
+    let pair = MenuItem::with_id(app, "pair", "P&air a tablet…", true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", "Pause &keys", true, paused, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit PerritoDeck", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "&Quit PerritoDeck", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &pair, &pause, &sep, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("PerritoDeck")
