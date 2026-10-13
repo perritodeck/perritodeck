@@ -57,21 +57,31 @@ allow = [
 # r-efi is "MIT OR Apache-2.0 OR LGPL-2.1-or-later"; cargo-deny picks an allowed option,
 # so LGPL is never needed and stays off the list.
 
-# Our own render crate embeds the Inter font (SIL OFL 1.1, see crates/render/assets/OFL.txt).
-exceptions = [
-    { allow = ["OFL-1.1"], crate = "perritodeck-render" },
-]
+# No exceptions. Our own render crate embeds the Inter font (SIL OFL 1.1, see
+# crates/render/assets/OFL.txt) and says `license = "Apache-2.0 AND OFL-1.1"`, but
+# [licenses.private] below skips every crate that can't be published, and every
+# perritodeck-* crate sets `publish = false`. An OFL-1.1 exception for perritodeck-render
+# would never be reached, and cargo-deny warns about exceptions it never uses
+# (license-exception-not-encountered). The font's notice is kept in
+# THIRD_PARTY_NOTICES.md and the licence texts file instead. If a perritodeck-* crate is
+# ever published, put the exception back:
+#   exceptions = [{ allow = ["OFL-1.1"], crate = "perritodeck-render" }]
+exceptions = []
 
 [licenses.private]
-# The perritodeck-* crates are not published; they carry the workspace licence.
+# Skips the licence check for every crate with `publish = false`, which is all the
+# perritodeck-* crates: they carry the workspace licence (Apache-2.0).
 ignore = true
 registries = []
 
 [bans]
 multiple-versions = "allow"   # common in Tauri/windows-rs trees; not worth failing on
-# The perritodeck-* path crates count as "public" until they set `publish = false`;
-# switch this back to "deny" once they do (see THIRD_PARTY_NOTICES.md follow-ups).
-wildcards = "warn"
+# `allow-wildcard-paths` below only excuses path dependencies (they carry no version) in
+# crates that can't be published, which is every perritodeck-* crate (`publish = false`).
+# Any other wildcard version fails. Checked clean on both workspaces with cargo-deny 0.20.2
+# (2026-10-13). The same `publish = false` also takes those crates out of the licence check
+# (see [licenses.private] above), which is why there's no exception for perritodeck-render.
+wildcards = "deny"
 allow-wildcard-paths = true   # path dependencies inside this repo
 highlight = "all"
 deny = [

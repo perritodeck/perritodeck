@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
+publish = false
 
 # The stdio bridge assistants start (src/main.rs, see src/cli.rs).
 [[bin]]
