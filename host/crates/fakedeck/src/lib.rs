@@ -92,6 +92,7 @@ pub fn fake_hello(device_id: &str, device_secret: Option<String>, grid: Option<G
         requested_grid: grid,
         token: None,
         device_secret,
+        network_failed: false,
     }
 }
 

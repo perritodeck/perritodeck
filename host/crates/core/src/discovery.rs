@@ -139,23 +139,99 @@ pub fn network_categories() -> Vec<String> {
     }
 }
 
+/// What Windows Firewall does with tablets connecting to a program on the network types
+/// in use now, read from its rules (nothing is changed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Firewall {
+    /// It's off, or a rule lets the program (or its port) in. Otherwise a rule blocks
+    /// it, or no rule mentions it and Windows turns it away by default.
+    pub lets_in: bool,
+    /// A network in use is one Windows calls Public.
+    pub public: bool,
+}
+
+/// Whether Windows Firewall lets tablets reach `exe` on TCP `port`. `None` on other
+/// systems, or when Windows doesn't say (another firewall may be in charge then). Takes
+/// about a second.
+pub fn windows_firewall(exe: &std::path::Path, port: u16) -> Option<Firewall> {
+    #[cfg(windows)]
+    {
+        // Rule fields: Direction 1 = in, Action 0 = block, Protocol 6 = TCP and 256 = any,
+        // Profiles and CurrentProfileTypes 1 = domain, 2 = private, 4 = public.
+        const SCRIPT: &str = r#"
+$fw = New-Object -ComObject HNetCfg.FwPolicy2
+$cur = $fw.CurrentProfileTypes
+$on = $false
+foreach ($p in 1, 2, 4) { if (($cur -band $p) -and $fw.FirewallEnabled($p)) { $on = $true } }
+$exe = [Environment]::ExpandEnvironmentVariables($env:PERRITODECK_FW_EXE)
+$port = $env:PERRITODECK_FW_PORT
+$v = 'none'
+if (-not $on) { $v = 'off' } else {
+  foreach ($r in $fw.Rules) {
+    if (-not $r.Enabled -or $r.Direction -ne 1 -or -not ($r.Profiles -band $cur)) { continue }
+    if ($r.Protocol -ne 6 -and $r.Protocol -ne 256) { continue }
+    $app = $r.ApplicationName
+    if ($app -and [Environment]::ExpandEnvironmentVariables($app) -ne $exe) { continue }
+    if ($r.LocalPorts -ne '*' -and ($r.LocalPorts -split ',' | ForEach-Object { $_.Trim() }) -notcontains $port) { continue }
+    if (-not $app -and $r.LocalPorts -eq '*') { continue }
+    if ($r.Action -eq 0) { $v = 'block'; break }
+    $v = 'allow'
+  }
+}
+'{0} {1}' -f $v, $cur
+"#;
+        let exe = exe.display().to_string();
+        let port = port.to_string();
+        parse_firewall(&powershell(
+            SCRIPT,
+            &[("PERRITODECK_FW_EXE", &exe), ("PERRITODECK_FW_PORT", &port)],
+        )?)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (exe, port);
+        None
+    }
+}
+
+#[cfg(any(windows, test))]
+fn parse_firewall(out: &str) -> Option<Firewall> {
+    let (verdict, profiles) = out
+        .lines()
+        .map(str::trim)
+        .rfind(|l| !l.is_empty())?
+        .split_once(' ')?;
+    let profiles: u32 = profiles.trim().parse().ok()?;
+    let lets_in = match verdict {
+        "allow" | "off" => true,
+        "none" | "block" => false,
+        _ => return None,
+    };
+    Some(Firewall {
+        lets_in,
+        public: profiles & 4 != 0,
+    })
+}
+
 #[cfg(windows)]
 fn windows_network_categories() -> Option<Vec<String>> {
     let out = powershell(
         "Get-NetConnectionProfile | ForEach-Object { '{0}: {1}' -f $_.InterfaceAlias, $_.NetworkCategory }",
+        &[],
     )?;
     Some(parse_categories(&out))
 }
 
 /// Runs a Windows PowerShell command and returns what it printed, or `None` if it
-/// couldn't start or didn't finish within a few seconds.
+/// couldn't start or didn't finish within a few seconds. Values go in through `env`,
+/// never quoted into the command.
 ///
 /// Windows PowerShell writes to a pipe in the console's old code page (437, 850, ...),
 /// so one adapter called, say, "Conexión de área local" isn't valid UTF-8. The command
 /// asks for UTF-8 first, and anything that still isn't is replaced rather than losing
 /// the whole answer.
 #[cfg(windows)]
-fn powershell(command: &str) -> Option<String> {
+fn powershell(command: &str, env: &[(&str, &str)]) -> Option<String> {
     use std::io::Read as _;
     use std::os::windows::process::CommandExt as _;
     use std::process::{Command, Stdio};
@@ -168,6 +244,7 @@ fn powershell(command: &str) -> Option<String> {
     let command = format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; {command}");
     let mut child = Command::new(exe)
         .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -217,6 +294,20 @@ fn percent_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn firewall_answers() {
+        let fw = |lets_in, public| Some(Firewall { lets_in, public });
+        assert_eq!(parse_firewall("allow 4\r\n"), fw(true, true));
+        assert_eq!(parse_firewall("none 4"), fw(false, true));
+        assert_eq!(parse_firewall("block 2"), fw(false, false));
+        assert_eq!(parse_firewall("off 6"), fw(true, true));
+        assert_eq!(parse_firewall(""), None);
+        assert_eq!(
+            parse_firewall("New-Object : Retrieving the COM class factory failed"),
+            None
+        );
+    }
 
     #[test]
     fn default_route_address_comes_first() {
@@ -300,7 +391,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn powershell_output_keeps_accented_letters() {
-        let out = powershell("'Conexión de área local: Public'").unwrap();
+        let out = powershell("'Conexión de área local: Public'", &[]).unwrap();
         assert_eq!(out.trim(), "Conexión de área local: Public");
     }
 

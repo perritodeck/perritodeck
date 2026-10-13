@@ -16,7 +16,7 @@ pub mod usb;
 pub mod views;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -219,6 +219,25 @@ pub struct HostStatus {
     pub companion: Option<String>,
 }
 
+/// Why tablets may not get through to this computer over Wi-Fi, for the Tablets and
+/// Pair pages: most often the firewall.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkHint {
+    /// Tablets (by name) that tried the network, got no answer and came over the USB
+    /// cable instead.
+    pub fell_back: Vec<String>,
+    /// Windows Firewall blocks PerritoDeck on the networks in use now, or has no rule
+    /// letting it in (so it turns tablets away by default).
+    pub firewall_blocks: bool,
+    /// A network in use is one Windows calls Public.
+    pub public_network: bool,
+    /// The port tablets connect to.
+    pub port: u16,
+    /// `windows`, `macos` or `linux`: whose firewall to explain.
+    pub os: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginsView {
@@ -312,6 +331,9 @@ struct Shared {
     events: broadcast::Sender<HostEvent>,
     /// What each tablet said about itself when it last connected.
     tablet_details: Mutex<HashMap<String, TabletDetails>>,
+    /// Tablets that last came over the USB cable because this computer's network
+    /// addresses didn't answer them: its firewall may be keeping tablets on Wi-Fi out.
+    fell_back: Mutex<BTreeSet<String>>,
     /// Tablets switched by a "switch profile" key since the app in front last changed.
     /// Auto-switch rules leave them be until it changes again, or the key would undo
     /// itself while the rule's app is in front.
@@ -406,6 +428,8 @@ pub struct Host {
     mcp: tokio::sync::Mutex<McpRuntime>,
     mcp_state: Mutex<McpState>,
     mcp_bridges: mcp::BridgesSeen,
+    /// What Windows Firewall does with tablets, and when that was asked.
+    firewall: Mutex<Option<(std::time::Instant, Option<discovery::Firewall>)>>,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -619,6 +643,7 @@ impl Host {
             recent_apps: Mutex::new(VecDeque::new()),
             events: events.clone(),
             tablet_details: Mutex::new(HashMap::new()),
+            fell_back: Mutex::new(BTreeSet::new()),
             key_switched: Mutex::new(HashSet::new()),
         });
         let remember = Arc::downgrade(&shared);
@@ -675,6 +700,7 @@ impl Host {
             mcp: Default::default(),
             mcp_state: Mutex::new(McpState::Off),
             mcp_bridges: Default::default(),
+            firewall: Mutex::new(None),
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -812,12 +838,76 @@ impl Host {
         let removed = self.store.as_ref().is_some_and(|s| s.revoke(device_id));
         if removed {
             self.handle.kick(device_id);
+            self.shared
+                .fell_back
+                .lock()
+                .expect("fell back poisoned")
+                .remove(device_id);
             let mut settings = self.shared.settings.lock().expect("settings poisoned");
             if settings.device_profiles.remove(device_id).is_some() {
                 let _ = self.shared.save_settings(&settings);
             }
         }
         removed
+    }
+
+    /// Whether to tell people their firewall may be keeping tablets on Wi-Fi out, and
+    /// why. `None` when nothing says so, or this host only takes tablets on a USB cable
+    /// anyway. May take a second on Windows (it reads the firewall's rules), so don't
+    /// call it on the UI thread.
+    pub fn network_hint(&self) -> Option<NetworkHint> {
+        self.network_hint_with(!self.addr.ip().is_loopback(), || self.firewall())
+    }
+
+    /// [`Host::network_hint`], told whether tablets can come over the network at all and
+    /// how to find out what Windows Firewall does with them.
+    fn network_hint_with(
+        &self,
+        on_network: bool,
+        firewall: impl FnOnce() -> Option<discovery::Firewall>,
+    ) -> Option<NetworkHint> {
+        let store = self.store.as_ref()?;
+        if !on_network {
+            return None;
+        }
+        let names: BTreeMap<String, String> = store
+            .devices()
+            .into_iter()
+            .map(|(id, d)| (id, d.name))
+            .collect();
+        let fell_back: Vec<String> = self
+            .shared
+            .fell_back
+            .lock()
+            .expect("fell back poisoned")
+            .iter()
+            .filter_map(|id| names.get(id).cloned())
+            .collect();
+        let fw = firewall();
+        let firewall_blocks = fw.is_some_and(|f| !f.lets_in);
+        (firewall_blocks || !fell_back.is_empty()).then(|| NetworkHint {
+            fell_back,
+            firewall_blocks,
+            public_network: fw.is_some_and(|f| f.public),
+            port: self.addr.port(),
+            os: std::env::consts::OS.to_owned(),
+        })
+    }
+
+    /// What Windows Firewall does with tablets reaching this program, asked at most every
+    /// 15 seconds (someone fixing it comes back to the app soon after).
+    fn firewall(&self) -> Option<discovery::Firewall> {
+        let mut cached = self.firewall.lock().expect("firewall poisoned");
+        if let Some((at, fw)) = *cached {
+            if at.elapsed() < Duration::from_secs(15) {
+                return fw;
+            }
+        }
+        let fw = std::env::current_exe()
+            .ok()
+            .and_then(|exe| discovery::windows_firewall(&exe, self.addr.port()));
+        *cached = Some((std::time::Instant::now(), fw));
+        fw
     }
 
     pub fn rename_device(&self, device_id: &str, name: &str) -> Result<(), String> {
@@ -2003,14 +2093,25 @@ fn spawn_event_loop(
                 ServerEvent::Connected {
                     device_id,
                     device_name,
+                    peer,
                     grid,
                     screen,
                     capabilities,
                     platform,
                     app_version,
                     os_version,
-                    ..
+                    network_failed,
                 } => {
+                    // The tablet says so until it gets through over the network again.
+                    let over_cable = peer.ip().to_canonical().is_loopback();
+                    let mut fell_back = shared.fell_back.lock().expect("fell back poisoned");
+                    if over_cable && network_failed {
+                        info!(device = %device_id, "came over the USB cable: the network didn't answer it");
+                        fell_back.insert(device_id.clone());
+                    } else {
+                        fell_back.remove(&device_id);
+                    }
+                    drop(fell_back);
                     shared
                         .tablet_details
                         .lock()

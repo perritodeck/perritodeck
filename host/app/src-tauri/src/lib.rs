@@ -13,8 +13,8 @@ use std::{
 
 use perritodeck_host::{
     logging, updates, ActionSpec, AppSettings, AutoSwitch, DeviceInfo, Edit, Host, HostEvent,
-    HostOptions, HostStatus, McpSettings, McpView, Network, OnlineEntry, PairingOffer, PluginsView,
-    ProfileSummary, ProfileView, SdPluginsView,
+    HostOptions, HostStatus, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PairingOffer,
+    PluginsView, ProfileSummary, ProfileView, SdPluginsView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -56,6 +56,14 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Res<T> + Send + 'static
 #[tauri::command]
 fn get_status(app: State<'_, App>) -> Res<HostStatus> {
     Ok(app.host()?.status())
+}
+
+/// Whether the firewall may be keeping tablets on Wi-Fi out (asks Windows about the
+/// network, which takes a second).
+#[tauri::command]
+async fn network_hint(app: State<'_, App>) -> Res<Option<NetworkHint>> {
+    let host = app.host()?.clone();
+    blocking(move || Ok(host.network_hint())).await
 }
 
 #[tauri::command]
@@ -825,6 +833,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_status,
+            network_hint,
             list_devices,
             revoke_device,
             rename_device,

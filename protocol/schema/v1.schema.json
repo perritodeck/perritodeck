@@ -292,6 +292,10 @@
           "minLength": 1,
           "maxLength": 128,
           "description": "Secret issued by `paired`. Required by hosts that require pairing (the default from Phase 2)."
+        },
+        "networkFailed": {
+          "type": "boolean",
+          "description": "True when connecting over a USB cable (127.0.0.1) after a connection to the host's network address got no answer (timed out) since the client last connected over the network: the host's firewall may be keeping clients on Wi-Fi out. Omitted otherwise."
         }
       }
     },

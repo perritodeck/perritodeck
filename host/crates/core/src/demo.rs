@@ -100,6 +100,7 @@ mod tests {
             requested_grid: req,
             token: None,
             device_secret: None,
+            network_failed: false,
         }
     }
 

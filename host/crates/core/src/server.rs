@@ -98,6 +98,9 @@ pub enum ServerEvent {
         platform: perritodeck_protocol::Platform,
         app_version: String,
         os_version: String,
+        /// It came over the USB cable after this computer's network addresses didn't
+        /// answer it (see `Hello::network_failed`).
+        network_failed: bool,
     },
     Paired {
         device_id: String,
@@ -338,6 +341,7 @@ impl Connection {
             platform: hello.platform,
             app_version: hello.app_version.clone(),
             os_version: hello.os_version.clone(),
+            network_failed: hello.network_failed,
         });
 
         let welcome = Message::Welcome(Welcome {

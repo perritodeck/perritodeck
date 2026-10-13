@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "type": "hello",
+  "id": 1,
+  "payload": {
+    "deviceId": "7f3c2a9e-4b1d-4e8a-9c55-1a2b3c4d5e6f",
+    "deviceName": "Amazon KFMUWI",
+    "appVersion": "0.1.0",
+    "platform": "android",
+    "osVersion": "9",
+    "screen": {
+      "widthPx": 1024,
+      "heightPx": 600,
+      "densityDpi": 160
+    },
+    "capabilities": [
+      "keys",
+      "haptics",
+      "multiTouch",
+      "images",
+      "sliders"
+    ],
+    "deviceSecret": "q3mK8vLx0Zt2YpR6sW1aB9cD4eF7gH5jN0oP2uQ8iE4",
+    "networkFailed": true
+  }
+}

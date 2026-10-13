@@ -60,7 +60,7 @@ client                                   host
 
 | Type | Direction | Payload |
 |---|---|---|
-| `hello` | C → H | `deviceId`, `deviceName`, `appVersion`, `platform`, `osVersion`, `screen {widthPx, heightPx, densityDpi}`, `capabilities[]`, `requestedGrid?`, `deviceSecret?` (`token?` is deprecated) |
+| `hello` | C → H | `deviceId`, `deviceName`, `appVersion`, `platform`, `osVersion`, `screen {widthPx, heightPx, densityDpi}`, `capabilities[]`, `requestedGrid?`, `deviceSecret?`, `networkFailed?` (true over a USB cable when the host's network addresses didn't answer; `token?` is deprecated) |
 | `pair` | C → H | `code`, `deviceId`, `deviceName` — first message instead of `hello` |
 | `paired` | H → C | `deviceSecret`, `hostId` (certificate fingerprint), `hostName`; then the host closes |
 | `welcome` | H → C | `hostName`, `hostVersion`, `protocolVersion`, `heartbeatIntervalMs` |

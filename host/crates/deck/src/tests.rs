@@ -113,6 +113,7 @@ fn hello() -> Hello {
         requested_grid: None,
         token: None,
         device_secret: None,
+        network_failed: false,
     }
 }
 

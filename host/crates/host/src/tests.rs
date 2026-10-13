@@ -773,6 +773,78 @@ async fn installs_plugins_from_the_online_catalogue() {
     assert!(other.unwrap_err().contains("not dev.example.other"));
 }
 
+/// A tablet whose Wi-Fi attempts got no answer says so when it comes over the USB cable
+/// (test tablets all arrive from 127.0.0.1, as a cable does), and the hint names it
+/// until it comes back without that.
+#[tokio::test(flavor = "multi_thread")]
+async fn tablets_that_fell_back_to_the_cable_are_named() {
+    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.pair_codes = vec!["246810".into()];
+    let host = Host::start(opts).await.unwrap();
+    let addr = host.addr.to_string();
+    let first = Endpoint {
+        addr: addr.clone(),
+        security: ClientSecurity::TrustOnFirstUse,
+    };
+    let paired = Client::pair(&first, "246810", "tab-1", "Fire 7")
+        .await
+        .unwrap();
+    let ep = Endpoint {
+        addr,
+        security: ClientSecurity::Pinned(paired.host_id.clone()),
+    };
+
+    // Listening on this computer only, tablets can't use the network anyway.
+    assert_eq!(host.network_hint(), None);
+    // Nothing went wrong yet; it's up to what Windows Firewall would do.
+    use perritodeck_core::discovery::Firewall;
+    let unknown = || None;
+    assert_eq!(host.network_hint_with(true, unknown), None);
+    let fw = |lets_in| {
+        move || {
+            Some(Firewall {
+                lets_in,
+                public: true,
+            })
+        }
+    };
+    assert_eq!(host.network_hint_with(true, fw(true)), None);
+    let blocked = host.network_hint_with(true, fw(false)).unwrap();
+    assert!(blocked.firewall_blocks && blocked.public_network && blocked.fell_back.is_empty());
+
+    let mut events = host.subscribe();
+    let mut connected = async move || {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !matches!(events.recv().await, Ok(HostEvent::Connected { .. })) {}
+        })
+        .await
+        .expect("a Connected event");
+    };
+    let mut hello = fake_hello("tab-1", Some(paired.device_secret.clone()), None);
+    hello.network_failed = true;
+    let (tablet, _, _) = Client::handshake(&ep, hello.clone()).await.unwrap();
+    connected().await;
+    let hint = host.network_hint_with(true, unknown).unwrap();
+    assert_eq!(hint.fell_back, vec!["Fire 7".to_owned()]);
+    assert!(!hint.firewall_blocks);
+    tablet.close().await;
+
+    // It got through over Wi-Fi meanwhile, so it comes back with nothing to report.
+    hello.network_failed = false;
+    let (tablet, _, _) = Client::handshake(&ep, hello).await.unwrap();
+    connected().await;
+    assert_eq!(host.network_hint_with(true, unknown), None);
+    tablet.close().await;
+}
+
 /// A tablet showing a Companion profile appears in (a fake) Companion, shows what it
 /// draws, and sends presses and releases back.
 #[tokio::test(flavor = "multi_thread")]
