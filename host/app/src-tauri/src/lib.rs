@@ -91,9 +91,12 @@ fn list_profiles(app: State<'_, App>) -> Res<Vec<ProfileSummary>> {
     Ok(app.host()?.profiles())
 }
 
+/// Off the UI thread: the editor asks again whenever a Stream Deck plugin redraws a key
+/// (up to a few times a second), and each answer reads and encodes the key images.
 #[tauri::command]
-fn get_profile(app: State<'_, App>, id: Option<String>) -> Res<ProfileView> {
-    app.host()?.profile_view(id.as_deref())
+async fn get_profile(app: State<'_, App>, id: Option<String>) -> Res<ProfileView> {
+    let host = app.host()?.clone();
+    blocking(move || host.profile_view(id.as_deref())).await
 }
 
 /// Apply editor changes to a profile file; tablets update straight away.
