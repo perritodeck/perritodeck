@@ -64,7 +64,7 @@ mod imp {
     use windows_sys::{
         core::BOOL,
         Win32::{
-            Foundation::{CloseHandle, HWND, LPARAM},
+            Foundation::{CloseHandle, HANDLE, HWND, LPARAM},
             System::Threading::{
                 OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
                 PROCESS_QUERY_LIMITED_INFORMATION,
@@ -117,27 +117,56 @@ mod imp {
     }
 
     /// The exe name, without `.exe`, of process `pid`.
-    fn process_name(pid: u32) -> Option<String> {
-        // SAFETY: the handle is closed before returning and the buffer outlives the
-        // call that fills it.
-        unsafe {
+    pub(super) fn process_name(pid: u32) -> Option<String> {
+        // SAFETY: the handle is closed before returning.
+        let named = unsafe {
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if process.is_null() {
-                return None;
+                None
+            } else {
+                let name = image_name(process);
+                CloseHandle(process);
+                name
             }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok =
-                QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
-            CloseHandle(process);
-            if ok == 0 {
-                return None;
-            }
-            let path = String::from_utf16_lossy(&buf[..len as usize]);
-            std::path::Path::new(&path)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
+        };
+        // Another account's processes can't be opened (an app run as administrator
+        // with an admin's password, as work PCs do), nor games under some anti-cheat.
+        // The system's process list still names them.
+        named.or_else(|| listed_name(pid))
+    }
+
+    /// The exe name, without `.exe`, of the process `process` is a handle to.
+    fn image_name(process: HANDLE) -> Option<String> {
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        // SAFETY: the length passed is the buffer's, in characters, and the buffer
+        // outlives the call that fills it.
+        let ok = unsafe {
+            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len)
+        };
+        if ok == 0 {
+            return None;
         }
+        exe_stem(&String::from_utf16_lossy(&buf[..len as usize]))
+    }
+
+    /// Process `pid`'s exe name from the system's process list (a Toolhelp snapshot),
+    /// which needs no access to the process itself.
+    pub(super) fn listed_name(pid: u32) -> Option<String> {
+        let pid = sysinfo::Pid::from_u32(pid);
+        let mut system = sysinfo::System::new();
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[pid]),
+            false,
+            sysinfo::ProcessRefreshKind::nothing(),
+        );
+        exe_stem(&system.process(pid)?.name().to_string_lossy())
+    }
+
+    fn exe_stem(path: &str) -> Option<String> {
+        std::path::Path::new(path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
     }
 
     /// The first child window of `frame` that belongs to another process than the
@@ -307,5 +336,20 @@ mod tests {
         assert!(!is_windows_shell("explorer", "CabinetWClass"));
         assert!(!is_windows_shell("EXPLORER", "ExploreWClass"));
         assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn processes_are_named_even_when_they_cant_be_opened() {
+        let me = std::env::current_exe().unwrap();
+        let me = me.file_stem().unwrap().to_str().unwrap();
+        let pid = std::process::id();
+        assert_eq!(imp::process_name(pid).as_deref(), Some(me));
+        assert_eq!(imp::listed_name(pid).as_deref(), Some(me));
+        // The System process has no image path (and usually can't be opened), so its
+        // name comes from the process list.
+        assert_eq!(imp::process_name(4).as_deref(), Some("System"));
+        // Process ids are multiples of 4, so there's never a 4001.
+        assert_eq!(imp::listed_name(4001), None);
     }
 }
