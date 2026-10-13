@@ -40,4 +40,12 @@ plugin; created on first use). `on_settings` and `on_watch` callbacks run in ord
 on one worker thread, so a slow one never delays actions; stdin and stdout are UTF-8
 whatever the locale.
 
+On Windows the host ends every program a plugin started when the plugin stops
+(restarted, updated, removed, or PerritoDeck quitting), so players and helpers never
+linger. Open browsers and apps meant for the user with `open_for_user(target)` (a web
+address, file, folder or app name, opened as a double-click would) or
+`start_for_user([program, *args])` instead of `webbrowser`, `os.startfile` or
+`subprocess`: those keep running, start in the program's own folder rather than the
+plugin's, and get none of the plugin's pipes.
+
 Run the tests with `python3 -m unittest test_sdk.py`.

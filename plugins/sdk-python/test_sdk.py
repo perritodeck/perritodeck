@@ -2,11 +2,13 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -254,6 +256,150 @@ class OrderingTest(unittest.TestCase):
         self.assertEqual(pipe.receive(), {"event": "value", "id": "settings", "value": "2"})
         pipe.send({"event": "shutdown"})
         self.assertEqual(proc.wait(timeout=5), 0)
+
+
+def remove_soon(folder):
+    """Delete a folder a program started in it may still be leaving (Windows keeps a
+    process's working folder busy until it has exited)."""
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            shutil.rmtree(folder)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)
+
+
+class ProgramsForTheUserTest(unittest.TestCase):
+    """open_for_user and start_for_user: programs that outlive the plugin."""
+
+    def setUp(self):
+        import perritodeck_plugin as sdk
+
+        self.sdk = sdk
+        self.home = os.path.expanduser("~")
+        self.folder = os.path.abspath(tempfile.mkdtemp())
+        self.addCleanup(remove_soon, self.folder)
+        self.exe = os.path.join(self.folder, "app.exe")
+        open(self.exe, "w").close()
+
+    def on(self, platform):
+        """Pretend to be on `platform`, with subprocess.Popen faked."""
+        patchers = [mock.patch.object(self.sdk.sys, "platform", platform), mock.patch.object(self.sdk.subprocess, "Popen")]
+        for p in patchers:
+            p.start()
+            self.addCleanup(p.stop)
+        return self.sdk.subprocess.Popen
+
+    def test_the_program_a_command_starts(self):
+        program = self.sdk._program
+        self.assertEqual(program(["C:\\Tools\\app.exe", "-x"]), "C:\\Tools\\app.exe")
+        self.assertEqual(program('"C:\\Program Files\\OBS\\obs64.exe" --startrecording'), "C:\\Program Files\\OBS\\obs64.exe")
+        self.assertEqual(program("notepad notes.txt"), "notepad")
+        self.assertEqual(program("  "), "")
+        self.assertEqual(program([]), "")
+
+    def test_it_starts_in_its_own_folder_or_home_never_the_plugins(self):
+        self.assertEqual(self.sdk._start_folder(self.exe), self.folder)
+        self.assertEqual(self.sdk._start_folder("spotify:"), self.home)
+        self.assertEqual(self.sdk._start_folder(self.folder), self.home)  # a folder isn't a program
+        self.assertEqual(self.sdk._start_folder(""), self.home)
+
+    def test_start_on_windows_leaves_the_job_with_a_console_of_its_own(self):
+        popen = self.on("win32")
+        self.sdk.start_for_user([self.exe, "--profile", "work"])
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0], [self.exe, "--profile", "work"])
+        self.assertEqual(kwargs["cwd"], self.folder)
+        self.assertEqual(kwargs["creationflags"], 0x01000000 | 0x10)  # breakaway, new console
+        self.assertTrue(kwargs["close_fds"])
+        self.assertNotIn("stdout", kwargs)  # never the plugin's pipes; its new console's
+        self.sdk.start_for_user('"%s" --profile work' % self.exe)
+        self.assertEqual(popen.call_args.kwargs["cwd"], self.folder)
+
+    def test_start_inside_a_job_that_cant_be_left(self):
+        popen = self.on("win32")
+        popen.side_effect = [PermissionError(13, "Access is denied"), mock.DEFAULT]
+        self.sdk.start_for_user(["notepad"])
+        self.assertEqual([c.kwargs["creationflags"] for c in popen.call_args_list], [0x01000010, 0x10])
+        self.assertEqual(popen.call_args.kwargs["cwd"], self.home)
+
+    def test_start_elsewhere_in_a_session_of_its_own(self):
+        popen = self.on("linux")
+        self.sdk.start_for_user(["flatpak", "run", "com.spotify.Client"])
+        kwargs = popen.call_args.kwargs
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)  # never the protocol pipe
+        self.assertEqual(kwargs["cwd"], self.home)
+        self.assertNotIn("creationflags", kwargs)
+
+    def test_open_hands_over_to_the_desktop(self):
+        for platform, opener in (("darwin", "open"), ("linux", "xdg-open")):
+            with mock.patch.object(self.sdk.sys, "platform", platform), mock.patch.object(self.sdk.subprocess, "Popen") as popen:
+                popen.return_value.communicate.return_value = (None, b"")
+                popen.return_value.returncode = 0
+                self.sdk.open_for_user(self.exe)
+            self.assertEqual(popen.call_args.args[0], [opener, self.exe])
+            self.assertEqual(popen.call_args.kwargs["cwd"], self.folder)
+        popen = self.on("win32")
+        popen.return_value.communicate.return_value = (None, b"")
+        popen.return_value.returncode = 0
+        self.sdk.open_for_user("https://example.com/?a=1&b=2")
+        args, kwargs = popen.call_args
+        # Opened by a helper that left the job, so whatever it starts is outside too.
+        self.assertEqual(args[0][0], sys.executable)
+        self.assertEqual(args[0][-1], "https://example.com/?a=1&b=2")
+        self.assertEqual(kwargs["creationflags"], 0x01000000 | 0x08000000)  # breakaway, no window
+        self.assertEqual(kwargs["cwd"], self.home)
+        self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
+
+    def test_open_failures_raise_and_slow_opens_dont(self):
+        popen = self.on("win32")
+        popen.return_value.communicate.return_value = (None, b"[WinError 2] The system cannot find the file specified: 'x'")
+        popen.return_value.returncode = 1
+        with self.assertRaisesRegex(OSError, "WinError 2"):
+            self.sdk.open_for_user("x")
+        popen.return_value.communicate.side_effect = subprocess.TimeoutExpired("python", 5)
+        self.sdk.open_for_user("x")  # still opening: not an error
+        popen.return_value.kill.assert_not_called()
+
+    def test_open_without_xdg_open_asks_the_standard_library(self):
+        import webbrowser
+
+        popen = self.on("linux")
+        popen.side_effect = FileNotFoundError("xdg-open")
+        with mock.patch.object(webbrowser, "open", return_value=True) as browser:
+            self.sdk.open_for_user("https://example.com")
+        browser.assert_called_once_with("https://example.com")
+        with mock.patch.object(webbrowser, "open", return_value=False):
+            with self.assertRaises(OSError):
+                self.sdk.open_for_user("https://example.com")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows only")
+    def test_open_on_windows(self):
+        with self.assertRaisesRegex(OSError, "WinError 2"):
+            self.sdk.open_for_user(os.path.join(self.folder, "missing.exe"))
+        import winreg
+
+        try:
+            winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, ".pyw")
+        except OSError:
+            self.skipTest("no program opens .pyw files")
+        # A windowless script that says which folder it was started in.
+        said = os.path.join(self.folder, "cwd.txt")
+        script = os.path.join(self.folder, "where.pyw")
+        with open(script, "w") as f:
+            f.write("import os\nopen(%r, 'w').write(os.getcwd())\nos.replace(%r, %r)\n" % (said + ".tmp", said + ".tmp", said))
+        self.sdk.open_for_user(script)
+        deadline = time.monotonic() + 15
+        while not os.path.exists(said) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        with open(said) as f:
+            self.assertEqual(os.path.normcase(f.read()), os.path.normcase(self.folder))
 
 
 if __name__ == "__main__":

@@ -484,3 +484,113 @@ async fn programs_a_plugin_started_end_with_it() {
     // Removing waits until the job's processes are gone, not only the plugin.
     assert!(!process_alive(&child), "the plugin's own program was ended");
 }
+
+/// Starts three programs: a plain child, one through the SDK's start_for_user and one
+/// (a windowless script) through open_for_user, as a Focus key opens an app or a
+/// sign-in opens a browser. Only the plain child should end with the plugin.
+#[cfg(windows)]
+const OPENER_PLUGIN: &str = r#"
+import json, os, subprocess, sys, winreg
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from perritodeck_plugin import open_for_user, start_for_user
+data = os.environ["PERRITODECK_PLUGIN_DATA"]
+def note(name, value):
+    open(os.path.join(data, name + ".tmp"), "w").write(str(value))
+    os.replace(os.path.join(data, name + ".tmp"), os.path.join(data, name))
+pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+sleep = "import time; time.sleep(120)"
+note("child", subprocess.Popen([pythonw, "-c", sleep]).pid)
+note("started", start_for_user([pythonw, "-c", sleep]).pid)
+try:
+    winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, ".pyw")
+    pyw = True
+except OSError:
+    pyw = False
+if pyw:
+    script = os.path.join(data, "opened.pyw")
+    open(script, "w").write(
+        "import os, time\n"
+        "open(%r, 'w').write(str(os.getpid()))\n"
+        "os.replace(%r, %r)\n"
+        "time.sleep(120)\n" % ((os.path.join(data, "opened.tmp"),) * 2 + (os.path.join(data, "opened"),)))
+    open_for_user(script)
+else:
+    note("opened", "none")  # nothing opens .pyw files here
+note("pid", os.getpid())
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["event"] == "hello":
+        sys.stdout.write(json.dumps({"event": "ready"}) + "\n"); sys.stdout.flush()
+    elif m["event"] == "shutdown":
+        break
+"#;
+
+/// Kills the processes it names when dropped, so a failing test leaves none behind.
+#[cfg(windows)]
+struct KillOnDrop(Vec<String>);
+
+#[cfg(windows)]
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        for pid in &self.0 {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/PID", pid])
+                .output();
+        }
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn programs_opened_for_the_user_outlive_the_plugin() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    let dir = write_plugin(
+        &plugins,
+        "test.opener",
+        "python",
+        "plugin.py",
+        Some(OPENER_PLUGIN),
+    );
+    let sdk = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../plugins/sdk-python/perritodeck_plugin.py");
+    std::fs::copy(sdk, dir.join("perritodeck_plugin.py")).unwrap();
+    let host = PluginHost::start(plugins.clone(), "1", Arc::new(|_, _| {}));
+    let data = root.path().join("plugin-data/test.opener");
+    wait_for("pids", || {
+        data.join("pid").is_file() && data.join("opened").is_file()
+    })
+    .await;
+    let read = |f: &str| std::fs::read_to_string(data.join(f)).unwrap();
+    let (child, started, opened) = (read("child"), read("started"), read("opened"));
+    let mut survivors = KillOnDrop(vec![started.clone()]);
+    if opened != "none" {
+        survivors.0.push(opened.clone());
+    }
+    assert!(process_alive(&child) && process_alive(&started));
+    let h = host.clone();
+    tokio::task::spawn_blocking(move || h.remove("test.opener"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !process_alive(&child),
+        "a plain child ended with the plugin"
+    );
+    assert!(
+        process_alive(&started),
+        "start_for_user's program outlived it"
+    );
+    if opened == "none" {
+        eprintln!("skipped open_for_user: nothing opens .pyw files here");
+    } else {
+        assert!(
+            process_alive(&opened),
+            "open_for_user's program outlived it"
+        );
+    }
+}

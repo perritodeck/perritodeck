@@ -41,6 +41,18 @@ state, caches). The host gives each plugin one (PERRITODECK_PLUGIN_DATA); run ou
 the host, it falls back to a per-user folder (see _default_data_dir). It is created
 the first time you use it.
 
+Programs for the user: on Windows the host ends everything a plugin started when the
+plugin stops (it's restarted, updated or removed, or PerritoDeck quits), so a sound
+player or helper never outlives it. A browser or app the plugin opens for the user
+must not go with it, so open those with these instead of webbrowser, os.startfile or
+subprocess:
+
+    open_for_user("https://example.com/sign-in")   # or a file, folder or app name
+    start_for_user([r"C:\\Tools\\app.exe", "--profile", "work"])
+
+Both start the program in its own folder (or the user's home folder), never the
+plugin's, and give it none of the plugin's pipes.
+
 stdin and stdout are switched to UTF-8 whatever the system locale is, so titles and
 settings with emoji or non-Latin text work on Windows too.
 
@@ -54,13 +66,31 @@ import io
 import json
 import os
 import queue
+import subprocess
 import sys
 import threading
 import traceback
 
 PROTOCOL = 1
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 DATA_ENV = "PERRITODECK_PLUGIN_DATA"
+
+# Windows process creation flags.
+_CREATE_NEW_CONSOLE = 0x00000010
+_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+_CREATE_NO_WINDOW = 0x08000000
+# Seconds open_for_user waits to hear whether the desktop could open something.
+_OPEN_TIMEOUT = 5
+# Run by open_for_user on Windows, outside the plugin's job object: opens argv[1] the
+# way double-clicking would (ShellExecute), so what it starts is outside the job too.
+_OPEN_HELPER = (
+    "import os, sys\n"
+    "try:\n"
+    "    os.startfile(sys.argv[1])\n"
+    "except OSError as e:\n"
+    "    sys.stderr.write(str(e))\n"
+    "    sys.exit(1)\n"
+)
 
 
 def _utf8_streams():
@@ -101,6 +131,92 @@ def _default_data_dir(name):
         return os.path.join(home, "Library", "Application Support", "PerritoDeck", "plugin-data", name)
     base = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
     return os.path.join(base, "perritodeck", "plugin-data", name)
+
+
+def open_for_user(target, cwd=None):
+    """Open a web address, file, folder or app for the user, the way double-clicking
+    would (Windows: ShellExecute, so App Paths names like "obs64" and "spotify:"
+    links work too; macOS: open; elsewhere: xdg-open). It keeps running after the
+    plugin stops.
+
+    It starts in cwd, or else the file's own folder (the user's home folder for
+    anything that isn't a file). Raises OSError when it couldn't be opened."""
+    target = str(target)
+    folder = cwd or _start_folder(target)
+    if sys.platform == "win32":
+        if not sys.executable:  # an embedded Python: nothing to run the helper with
+            os.startfile(target)
+            return
+        # -I -S: start fast, and ignore the plugin's environment and folder.
+        opener = [sys.executable, "-I", "-S", "-X", "utf8", "-c", _OPEN_HELPER, target]
+        flags = _CREATE_NO_WINDOW
+    elif sys.platform == "darwin":
+        opener, flags = ["open", target], 0
+    else:
+        opener, flags = ["xdg-open", target], 0
+    try:
+        helper = _start(opener, folder, flags, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except FileNotFoundError:  # no xdg-open: let the standard library guess
+        import webbrowser
+
+        if webbrowser.open(target):
+            return
+        raise OSError(f"found no program to open {target}")
+    try:
+        _, err = helper.communicate(timeout=_OPEN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return  # the desktop is still busy opening it; let it carry on
+    if helper.returncode:
+        detail = err.decode("utf-8", "replace").strip().splitlines()
+        raise OSError(detail[-1] if detail else f"couldn't open {target}")
+
+
+def start_for_user(args, cwd=None):
+    """Start a program for the user: [program, argument, ...], or on Windows also a
+    command line. It keeps running after the plugin stops, and on Windows a console
+    program gets a console window of its own. Returns the subprocess.Popen.
+
+    It starts in cwd, or else the program's own folder when it's given as a path (as
+    a shortcut's "Start in" does; OBS, for one, can't find its files otherwise), or
+    else the user's home folder."""
+    folder = cwd or _start_folder(_program(args))
+    if sys.platform == "win32":
+        # No pipes at all, so a console program gets its new console's.
+        return _start(args, folder, _CREATE_NEW_CONSOLE, close_fds=True)
+    return _start(args, folder, 0, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _start(args, cwd, flags, **kwargs):
+    """Popen for a program that outlives the plugin: on Windows outside the plugin's
+    job object (where Windows allows that), elsewhere in a session of its own."""
+    if sys.platform != "win32":
+        return subprocess.Popen(args, cwd=cwd, start_new_session=True, **kwargs)
+    try:
+        return subprocess.Popen(args, cwd=cwd, creationflags=flags | _CREATE_BREAKAWAY_FROM_JOB, **kwargs)
+    except PermissionError:
+        # Started by something whose job can't be left (an older PerritoDeck, some
+        # terminals): start it inside, as a plain Popen would.
+        return subprocess.Popen(args, cwd=cwd, creationflags=flags, **kwargs)
+
+
+def _program(args):
+    """The program a command starts: its first item, or a command line's first word."""
+    if not isinstance(args, str):
+        return str(args[0]) if args else ""
+    line = args.strip()
+    if line.startswith('"'):
+        return line[1:].split('"', 1)[0]
+    return line.split(None, 1)[0] if line else ""
+
+
+def _start_folder(path):
+    """Where a program started for the user runs: the folder of `path` if that's a
+    file, or else the user's home folder. Never the plugin's own folder: a program
+    working in it would stop the plugin being updated or removed on Windows."""
+    if path and os.path.isfile(path):
+        return os.path.dirname(os.path.abspath(path))
+    home = os.path.expanduser("~")
+    return home if os.path.isdir(home) else None
 
 
 class Plugin:
