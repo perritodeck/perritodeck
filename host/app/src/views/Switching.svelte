@@ -123,8 +123,9 @@
     {#if front}
       In front just now: <code>{front}</code>.
     {/if}
-    App names are the ones listed as you type: switch to an app, come back here, and it shows up. The first matching rule
-    wins.
+    App names are the ones listed as you type: switch to an app, come back here, and it shows up. Capitals and the
+    <code>.exe</code> on the end don’t matter, so <code>obs64</code> and <code>OBS64.exe</code> are the same app. The
+    first matching rule wins.
   </p>
 {/if}
 
