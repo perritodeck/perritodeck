@@ -210,6 +210,10 @@ class LinuxActionsTest(unittest.TestCase):
         self.backend = win.WmctrlBackend()
         self.backend.xprop = "/usr/bin/xprop"
         self.backend.xdotool = None
+        # launch() and spawn() pick their way of starting a program from sys.platform.
+        patcher = mock.patch.object(win.sys, "platform", "linux")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         patcher = mock.patch.object(win, "backend", return_value=self.backend)
         patcher.start()
         self.addCleanup(patcher.stop)

@@ -19,6 +19,11 @@ import plugin as obs  # noqa: E402
 obs.BACKOFF_FIRST = 0.05
 obs.BACKOFF_MAX = 0.2
 obs.CONNECT_WAIT = 0.4
+# configure() doesn't interrupt a connection attempt that is under way, and a test's
+# configure() can land in one aimed at the previous test's stopped server. Linux refuses
+# that at once; Windows retries the SYN for about 2 s first. So waits that follow
+# configure() allow for one whole attempt (CONNECT_TIMEOUT at most) before their own.
+AFTER_CONFIGURE = obs.CONNECT_TIMEOUT + 2.0
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 SALT = "lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI="
@@ -321,7 +326,7 @@ class PluginTest(unittest.TestCase):
     def connect(self, server=None, password=None):
         server = server or self.server
         obs.configure({"url": server.url, "password": password or ""})
-        wait_for(lambda: obs.client.connected and obs.client.url == server.url, message="connection")
+        wait_for(lambda: obs.client.connected and obs.client.url == server.url, AFTER_CONFIGURE, "connection")
         self.settle(server)
 
     def settle(self, server=None):
@@ -471,7 +476,8 @@ class ConnectionTest(PluginTest):
         port = self.server.port
         self.server.stop()
         obs.configure({"url": f"ws://127.0.0.1:{port}"})
-        wait_for(lambda: "refused" in obs.client.last_error, message="refused error")
+        # Its own attempt is refused too, which also takes Windows about 2 s.
+        wait_for(lambda: "refused" in obs.client.last_error, AFTER_CONFIGURE + obs.CONNECT_TIMEOUT, "refused error")
         with self.assertRaisesRegex(RuntimeError, r"couldn't reach OBS at ws://127\.0\.0\.1:\d+: connection refused"):
             obs.stream({"mode": "start"})
         self.value("connected", "off")
@@ -541,14 +547,14 @@ class AuthTest(PluginTest):
 
     def test_wrong_password(self):
         obs.configure({"url": self.server.url, "password": "nope"})
-        wait_for(lambda: "rejected the password" in obs.client.last_error, message="auth error")
+        wait_for(lambda: "rejected the password" in obs.client.last_error, AFTER_CONFIGURE, "auth error")
         with self.assertRaisesRegex(RuntimeError, "OBS rejected the password"):
             obs.record({"mode": "start"})
         self.value("connected", "off")
 
     def test_missing_password(self):
         obs.configure({"url": self.server.url, "password": ""})
-        wait_for(lambda: "needs a password" in obs.client.last_error, message="password needed")
+        wait_for(lambda: "needs a password" in obs.client.last_error, AFTER_CONFIGURE, "password needed")
 
 
 class ActionTest(PluginTest):

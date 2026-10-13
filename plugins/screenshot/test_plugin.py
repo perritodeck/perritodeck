@@ -47,13 +47,15 @@ class FolderTest(Base):
         with open(os.path.join(config, "user-dirs.dirs"), "w") as f:
             f.write('# written by xdg-user-dirs-update\nXDG_DESKTOP_DIR="$HOME/Schreibtisch"\nXDG_PICTURES_DIR="$HOME/Bilder"\n')
         self.assertEqual(shot.xdg_pictures("/home/ana", config), "/home/ana/Bilder")
-        self.assertEqual(shot.xdg_pictures("/home/ana", "/nonexistent"), "/home/ana/Pictures")
+        self.assertEqual(shot.xdg_pictures("/home/ana", "/nonexistent"), os.path.join("/home/ana", "Pictures"))
 
     def test_folder_setting_and_default(self):
         self.assertEqual(shot.folder(), self.out)
         self.assertTrue(os.path.isdir(self.out))
-        with mock.patch.dict(os.environ, {"HOME": self.tmp.name, "XDG_CONFIG_HOME": os.path.join(self.tmp.name, "none")}):
-            self.assertEqual(shot.folder({"folder": "~/caps"}), os.path.join(self.tmp.name, "caps"))
+        # ~ is HOME on Linux and macOS but USERPROFILE on Windows, where "~/caps" also keeps its "/".
+        home = {"HOME": self.tmp.name, "USERPROFILE": self.tmp.name, "XDG_CONFIG_HOME": os.path.join(self.tmp.name, "none")}
+        with mock.patch.dict(os.environ, home):
+            self.assertEqual(os.path.normpath(shot.folder({"folder": "~/caps"})), os.path.join(self.tmp.name, "caps"))
             self.assertEqual(shot.folder({}, platform="linux"), os.path.join(self.tmp.name, "Pictures", "Screenshots"))
             self.assertEqual(shot.folder({}, platform="darwin"), os.path.join(self.tmp.name, "Pictures", "Screenshots"))
 
