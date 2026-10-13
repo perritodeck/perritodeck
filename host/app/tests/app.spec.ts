@@ -305,6 +305,23 @@ test.describe("editing", () => {
     await expect(page.getByText("The steps aren't valid JSON.")).toBeVisible();
   });
 
+  test("a pasted path loses its quotes", async ({ page }) => {
+    // Explorer's "Copy as path" adds them.
+    const obs = "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe";
+    await key(page, "Empty, row 3 column 2").click();
+    await page.getByLabel("When pressed").selectOption("launch");
+    await expect(page.getByLabel("Program")).toHaveAttribute("placeholder", obs);
+    await page.getByLabel("Program").fill(`"${obs}"`);
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
+      .toEqual({ type: "launch", program: obs, args: [] });
+    await page.getByLabel("When pressed").selectOption("openPath");
+    await page.getByLabel("File or folder").fill(' "C:\\Users\\me\\Music" ');
+    await expect
+      .poll(async () => (await lastEdits(page))?.[0]?.key.action)
+      .toEqual({ type: "openPath", path: "C:\\Users\\me\\Music" });
+  });
+
   test("random action as JSON", async ({ page }) => {
     await key(page, "Empty, row 3 column 2").click();
     await page.getByLabel("When pressed").selectOption("random");

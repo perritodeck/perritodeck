@@ -194,6 +194,11 @@
     let navOut: NavSpec | null = null;
     let slider: SliderSpec | null = null;
     const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+    // Without the quotes Explorer's "Copy as path" puts around a path.
+    const unquote = (s: string) => {
+      const t = s.trim();
+      return /^"[^"]*"$/.test(t) ? t.slice(1, -1).trim() : t;
+    };
     switch (choice) {
       case "none":
         break;
@@ -226,20 +231,20 @@
         action = { type: "openUrl", url: url.trim() };
         break;
       case "openPath":
-        if (!path.trim()) return "Enter the file or folder to open.";
-        action = { type: "openPath", path: path.trim() };
+        if (!unquote(path)) return "Enter the file or folder to open.";
+        action = { type: "openPath", path: unquote(path) };
         break;
       case "launch":
-        if (!program.trim()) return "Enter the program to start.";
-        action = { type: "launch", program: program.trim(), args: lines(args) };
+        if (!unquote(program)) return "Enter the program to start.";
+        action = { type: "launch", program: unquote(program), args: lines(args) };
         break;
       case "command": {
-        if (!program.trim()) return "Enter the program to run.";
+        if (!unquote(program)) return "Enter the program to run.";
         const t = Number(timeoutS);
         if (timeoutS && !(t > 0)) return "The time limit is a number of seconds.";
         action = {
           type: "command",
-          program: program.trim(),
+          program: unquote(program),
           args: lines(args),
           ...(timeoutS ? { timeoutMs: Math.round(t * 1000) } : {}),
         };
@@ -320,8 +325,8 @@
             ...(sliderFollow ? { follow: sliderFollow } : {}),
           };
         } else {
-          if (!sliderProgram.trim()) return "Enter the program to run.";
-          slider = { type: "command", program: sliderProgram.trim(), args: lines(sliderArgs) };
+          if (!unquote(sliderProgram)) return "Enter the program to run.";
+          slider = { type: "command", program: unquote(sliderProgram), args: lines(sliderArgs) };
         }
         break;
       default:
@@ -746,7 +751,14 @@
   {:else if choice === "launch" || choice === "command"}
     <div class="field">
       <label for="{uid}-f8">Program</label>
-      <input id="{uid}-f8" bind:value={program} oninput={() => changed()} spellcheck="false" placeholder="obs64.exe" />
+      <!-- A full path: OBS, for one, isn't found by name. -->
+      <input
+        id="{uid}-f8"
+        bind:value={program}
+        oninput={() => changed()}
+        spellcheck="false"
+        placeholder={choice === "launch" ? "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe" : "hostname"}
+      />
     </div>
     <div class="field">
       <label for="{uid}-f9">Arguments, one per line</label>
