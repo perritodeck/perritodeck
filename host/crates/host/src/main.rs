@@ -269,6 +269,10 @@ fn print_pairing(host: &Host) {
         offer.fingerprint
     );
     println!();
+    // The code as text, which also shows the addresses the tablet will try. On a dark
+    // terminal the code is drawn light on dark, and some scanners can't read that.
+    println!("  Pairing link: {}", offer.uri);
+    println!();
 }
 
 fn spawn_console(host: Arc<Host>) {
