@@ -62,16 +62,26 @@ pub(crate) fn search_path(
         .map(|e| e.trim().to_ascii_lowercase())
         .filter(|e| RUNNABLE.contains(&e.as_str()))
         .collect();
-    let dirs: Vec<PathBuf> = if has_path(program) {
-        vec![PathBuf::new()]
-    } else {
-        path.map(|p| std::env::split_paths(p).collect())
-            .unwrap_or_default()
-    };
-    dirs.iter()
-        .filter(|d| d.as_os_str().is_empty() || d.is_absolute())
+    search_dirs(program, path)
+        .iter()
         .flat_map(|d| exts.iter().map(move |e| d.join(format!("{program}{e}"))))
         .find(|p| p.is_file())
+}
+
+/// The folders [`search_path`] looks in: for a path, only the path itself (the empty
+/// folder); for a bare name, the absolute PATH folders. An empty entry (`;;` or a
+/// trailing `;`) or a relative one would mean the host's current folder, which
+/// `CreateProcess` searches but Rust's std deliberately doesn't.
+fn search_dirs(program: &str, path: Option<&OsStr>) -> Vec<PathBuf> {
+    if has_path(program) {
+        return vec![PathBuf::new()];
+    }
+    path.map(|p| {
+        std::env::split_paths(p)
+            .filter(|d| d.is_absolute())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Join arguments into one command line the way the Microsoft C runtime parses it
@@ -224,5 +234,20 @@ mod tests {
             search_path(full.to_str().unwrap(), None, Some(ext)),
             Some(b.path().join("code.cmd"))
         );
+    }
+
+    #[test]
+    fn empty_and_relative_path_entries_are_skipped() {
+        let a = tempfile::tempdir().unwrap();
+        // ";src;<a>;" on Windows: the empty entries and `src` would be the current folder.
+        let path = std::env::join_paths([Path::new(""), Path::new("src"), a.path(), Path::new("")])
+            .unwrap();
+        assert_eq!(
+            search_dirs("code", Some(&path)),
+            vec![a.path().to_path_buf()]
+        );
+        assert_eq!(search_dirs("code", None), Vec::<PathBuf>::new());
+        // A path is looked up as given, whatever PATH says.
+        assert_eq!(search_dirs("./code", Some(&path)), vec![PathBuf::new()]);
     }
 }
