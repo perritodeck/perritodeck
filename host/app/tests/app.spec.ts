@@ -652,6 +652,24 @@ test.describe("plugins", () => {
     await expect(sd.getByText("Counter", { exact: true })).toHaveCount(0);
   });
 
+  test("a plugin's buttons wait while it stops", async ({ page }) => {
+    await page.getByRole("button", { name: "Plugins" }).click();
+    const sd = page.locator("section", { has: page.getByRole("heading", { name: "Stream Deck plugins" }) });
+    await sd.getByRole("button", { name: "Add a plugin file…" }).click();
+    await page.evaluate(() => {
+      const m = (window as any).__perritoMock;
+      m.stopping = new Promise((done) => (m.letStop = done));
+    });
+    const restart = sd.getByRole("button", { name: "Restart Counter" });
+    await restart.click();
+    await expect(restart).toBeDisabled();
+    await expect(restart).toHaveText("Restarting…");
+    await page.evaluate(() => (window as any).__perritoMock.letStop());
+    await expect(restart).toBeEnabled();
+    await expect(restart).toHaveText("Restart");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
   test("adds and updates plugins from the online catalogue", async ({ page }) => {
     await page.getByRole("button", { name: "Plugins" }).click();
     const online = page.locator("section", { has: page.getByRole("heading", { name: "More plugins online" }) });

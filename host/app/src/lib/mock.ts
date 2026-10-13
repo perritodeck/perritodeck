@@ -491,9 +491,12 @@ export const mock = {
       case "install_plugin_folder":
         return out(null);
       case "remove_plugin":
+        await this.stopping;
         installedPlugins = installedPlugins.filter((p) => p.manifest.id !== args?.id);
         return out(undefined);
       case "restart_plugin":
+        await this.stopping;
+        return out(undefined);
       case "open_plugins_folder":
         return out(undefined);
       case "import_icon_data":
@@ -541,9 +544,11 @@ export const mock = {
       case "sd_settings_page":
         return out("about:blank#sd-settings");
       case "remove_sd_plugin":
+        await this.stopping;
         sdPlugins = sdPlugins.filter((p) => p.uuid !== args?.uuid);
         return out(undefined);
       case "restart_sd_plugin":
+        await this.stopping;
         return out(undefined);
       case "list_online_plugins": {
         if (typeof this.onlineIndex === "string") throw this.onlineIndex;
@@ -640,6 +645,8 @@ export const mock = {
   /** A port "another program" holds, so turning MCP on there fails. */
   busyPort: 46799,
   pluginSettings: {} as Record<string, Record<string, unknown>>,
+  /** Removing or restarting a plugin waits for this, like a plugin slow to stop. */
+  stopping: null as Promise<unknown> | null,
   /** The online catalogue; a string is an error. */
   onlineIndex: [
     { id: "dev.example.weather", name: "Weather", version: "1.2.0", description: "Today's weather on a key.", author: "Example", url: "w.zip", sha256: "00" },

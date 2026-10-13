@@ -101,6 +101,19 @@
     await load();
   }
 
+  // Plugins being added, removed or restarted. Stopping one can take a few seconds, so
+  // its button says so and can't be pressed again meanwhile.
+  let working = $state<string[]>([]);
+
+  async function actOn(id: string, f: () => Promise<unknown>) {
+    working = [...working, id];
+    try {
+      await act(f);
+    } finally {
+      working = working.filter((w) => w !== id);
+    }
+  }
+
   function statusText(s: PluginStatus): string {
     switch (s.state) {
       case "running":
@@ -159,8 +172,11 @@
             {#if confirming === p.manifest.id}
               <div class="confirm" role="group" aria-label="Remove {p.manifest.name}?">
                 <span>Keys using it will stop working.</span>
-                <button class="btn danger small" onclick={() => act(() => api.removePlugin(p.manifest.id)).then(() => (confirming = null))}
-                  >Remove</button
+                <button
+                  class="btn danger small"
+                  disabled={working.includes(p.manifest.id)}
+                  onclick={() => actOn(p.manifest.id, () => api.removePlugin(p.manifest.id)).then(() => (confirming = null))}
+                  >{working.includes(p.manifest.id) ? "Removing…" : "Remove"}</button
                 >
                 <button class="btn quiet small" onclick={() => (confirming = null)}>Keep</button>
               </div>
@@ -174,7 +190,9 @@
                   aria-label="Settings for {p.manifest.name}">Settings</button
                 >
               {/if}
-              <button class="btn quiet small" onclick={() => act(() => api.restartPlugin(p.manifest.id))}>Restart</button>
+              <button class="btn quiet small" disabled={working.includes(p.manifest.id)} onclick={() => actOn(p.manifest.id, () => api.restartPlugin(p.manifest.id))}
+                >{working.includes(p.manifest.id) ? "Restarting…" : "Restart"}</button
+              >
               <button class="btn quiet small" onclick={() => (confirming = p.manifest.id)}>Remove…</button>
             {/if}
           </li>
@@ -253,13 +271,21 @@
               {#if confirming === p.uuid}
                 <div class="confirm" role="group" aria-label="Remove {p.name}?">
                   <span>Keys using it will stop working.</span>
-                  <button class="btn danger small" onclick={() => act(() => api.removeSdPlugin(p.uuid)).then(() => (confirming = null))}
-                    >Remove</button
+                  <button
+                    class="btn danger small"
+                    disabled={working.includes(p.uuid)}
+                    onclick={() => actOn(p.uuid, () => api.removeSdPlugin(p.uuid)).then(() => (confirming = null))}
+                    >{working.includes(p.uuid) ? "Removing…" : "Remove"}</button
                   >
                   <button class="btn quiet small" onclick={() => (confirming = null)}>Keep</button>
                 </div>
               {:else}
-                <button class="btn quiet small" onclick={() => act(() => api.restartSdPlugin(p.uuid))} aria-label="Restart {p.name}">Restart</button>
+                <button
+                  class="btn quiet small"
+                  disabled={working.includes(p.uuid)}
+                  onclick={() => actOn(p.uuid, () => api.restartSdPlugin(p.uuid))}
+                  aria-label="Restart {p.name}">{working.includes(p.uuid) ? "Restarting…" : "Restart"}</button
+                >
                 <button class="btn quiet small" onclick={() => (confirming = p.uuid)} aria-label="Remove {p.name}…">Remove…</button>
               {/if}
             </li>
@@ -285,7 +311,9 @@
             {#if c.installed}
               <span class="added">Added</span>
             {:else}
-              <button class="btn small" onclick={() => act(() => api.installCatalogPlugin(c.manifest.id))}>Add</button>
+              <button class="btn small" disabled={working.includes(c.manifest.id)} onclick={() => actOn(c.manifest.id, () => api.installCatalogPlugin(c.manifest.id))}
+                >{working.includes(c.manifest.id) ? "Adding…" : "Add"}</button
+              >
             {/if}
           </li>
         {/each}

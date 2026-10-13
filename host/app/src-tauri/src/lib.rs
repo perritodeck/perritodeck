@@ -36,6 +36,15 @@ impl App {
 
 type Res<T> = Result<T, String>;
 
+/// Run a host call that can take seconds (stopping a plugin waits for its process to
+/// end) on a thread meant for blocking. A plain command runs on the UI thread, so the
+/// window would freeze until it returned.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Res<T> + Send + 'static) -> Res<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn get_status(app: State<'_, App>) -> Res<HostStatus> {
     Ok(app.host()?.status())
@@ -186,9 +195,7 @@ fn set_check_updates(app: State<'_, App>, enabled: bool) -> Res<()> {
 /// `None` when this is the latest version.
 #[tauri::command]
 async fn check_for_updates() -> Res<Option<updates::Update>> {
-    tauri::async_runtime::spawn_blocking(|| updates::check(env!("CARGO_PKG_VERSION")))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(|| updates::check(env!("CARGO_PKG_VERSION"))).await
 }
 
 /// Open a release page from [`check_for_updates`]; nothing else.
@@ -287,8 +294,9 @@ fn list_plugins(app: State<'_, App>) -> Res<PluginsView> {
 }
 
 #[tauri::command]
-fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
-    app.host()?.install_from_catalog(&id)
+async fn install_catalog_plugin(app: State<'_, App>, id: String) -> Res<String> {
+    let host = app.host()?.clone();
+    blocking(move || host.install_from_catalog(&id)).await
 }
 
 #[tauri::command]
@@ -335,9 +343,7 @@ async fn install_sd_plugin(
         return Ok(None);
     };
     let path = picked.into_path().map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || host.install_sd_plugin(&path).map(Some))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || host.install_sd_plugin(&path).map(Some)).await
 }
 
 #[tauri::command]
@@ -352,31 +358,29 @@ fn sd_settings_page(
 }
 
 #[tauri::command]
-fn remove_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
-    app.host()?.remove_sd_plugin(&uuid)
+async fn remove_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
+    let host = app.host()?.clone();
+    blocking(move || host.remove_sd_plugin(&uuid)).await
 }
 
 #[tauri::command]
-fn restart_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
-    app.host()?.restart_sd_plugin(&uuid)
+async fn restart_sd_plugin(app: State<'_, App>, uuid: String) -> Res<()> {
+    let host = app.host()?.clone();
+    blocking(move || host.restart_sd_plugin(&uuid)).await
 }
 
 /// What the online plugin catalogue offers (asks the network only when called).
 #[tauri::command]
 async fn list_online_plugins(app: State<'_, App>) -> Res<Vec<OnlineEntry>> {
     let host = app.host()?.clone();
-    tauri::async_runtime::spawn_blocking(move || host.online_plugins())
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || host.online_plugins()).await
 }
 
 /// Download (hash-checked) and install or update a plugin from the online catalogue.
 #[tauri::command]
 async fn install_online_plugin(app: State<'_, App>, id: String) -> Res<String> {
     let host = app.host()?.clone();
-    tauri::async_runtime::spawn_blocking(move || host.install_online_plugin(&id))
-        .await
-        .map_err(|e| e.to_string())?
+    blocking(move || host.install_online_plugin(&id)).await
 }
 
 /// Install a plugin from a folder the person picks. `None` if they cancelled.
@@ -397,17 +401,19 @@ async fn install_plugin_folder(handle: AppHandle, app: State<'_, App>) -> Res<Op
         return Ok(None);
     };
     let path = folder.into_path().map_err(|e| e.to_string())?;
-    host.install_plugin(&path).map(Some)
+    blocking(move || host.install_plugin(&path).map(Some)).await
 }
 
 #[tauri::command]
-fn remove_plugin(app: State<'_, App>, id: String) -> Res<()> {
-    app.host()?.remove_plugin(&id)
+async fn remove_plugin(app: State<'_, App>, id: String) -> Res<()> {
+    let host = app.host()?.clone();
+    blocking(move || host.remove_plugin(&id)).await
 }
 
 #[tauri::command]
-fn restart_plugin(app: State<'_, App>, id: String) -> Res<()> {
-    app.host()?.restart_plugin(&id)
+async fn restart_plugin(app: State<'_, App>, id: String) -> Res<()> {
+    let host = app.host()?.clone();
+    blocking(move || host.restart_plugin(&id)).await
 }
 
 #[tauri::command]
