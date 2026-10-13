@@ -710,11 +710,7 @@ impl Host {
 
     /// Addresses to put in pairing links.
     fn pairing_addrs(&self) -> Vec<IpAddr> {
-        if self.addr.ip().is_loopback() {
-            vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]
-        } else {
-            self.lan_addrs()
-        }
+        pairing_addrs_for(self.addr.ip(), self.lan_addrs(), self.usb_available)
     }
 
     /// Open a pairing window. `None` in insecure mode (no pairing there).
@@ -1841,6 +1837,22 @@ fn lan_addrs_for(listen: IpAddr, all: impl FnOnce() -> Vec<IpAddr>) -> Vec<IpAdd
     } else {
         vec![listen]
     }
+}
+
+/// The pairing link's addresses. With `adb` around, 127.0.0.1 goes last: a tablet on
+/// a USB cable reaches the host there through `adb reverse` even when the network
+/// doesn't let it through (a firewall, a Public network), and without it a computer
+/// with no network at all would show a link with no address in it.
+fn pairing_addrs_for(listen: IpAddr, lan: Vec<IpAddr>, usb: bool) -> Vec<IpAddr> {
+    let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    if listen.is_loopback() {
+        return vec![localhost];
+    }
+    let mut addrs = lan;
+    if usb && !addrs.contains(&localhost) {
+        addrs.push(localhost);
+    }
+    addrs
 }
 
 fn read_text(path: &Path) -> Result<String, String> {

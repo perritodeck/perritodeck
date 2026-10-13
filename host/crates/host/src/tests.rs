@@ -1131,4 +1131,15 @@ fn network_addresses() {
         [ip("192.168.1.60")]
     );
     assert!(lan_addrs_for(localhost, || unreachable!()).is_empty());
+
+    // With adb, 127.0.0.1 comes after the network addresses, for tablets on a cable.
+    assert_eq!(
+        pairing_addrs_for(any, lan(), true),
+        [ip("192.168.1.60"), ip("172.17.0.1"), localhost]
+    );
+    assert_eq!(pairing_addrs_for(any, lan(), false), lan());
+    // No network at all: the cable still works, so the link isn't empty.
+    assert_eq!(pairing_addrs_for(any, vec![], true), [localhost]);
+    assert_eq!(pairing_addrs_for(localhost, vec![], false), [localhost]);
+    assert_eq!(pairing_addrs_for(localhost, vec![], true), [localhost]);
 }
