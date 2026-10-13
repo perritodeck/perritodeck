@@ -142,9 +142,16 @@ fn failure(stderr: &str) -> Option<String> {
 /// An `adb` command that never opens a console window. The installed app is a GUI
 /// process with no console, so without `CREATE_NO_WINDOW` Windows would open a new
 /// console (a Terminal window on Windows 11) for every poll.
+///
+/// It runs in adb's own folder: the adb server it may start inherits the working
+/// folder and keeps running after PerritoDeck quits, and on Windows a folder can't be
+/// deleted while it's some process's working folder (the uninstaller removes ours).
 fn adb_command(adb: &Path) -> Command {
     let mut c = Command::new(adb);
     c.stdin(Stdio::null()).kill_on_drop(true);
+    if let Some(dir) = adb.parent().filter(|d| !d.as_os_str().is_empty()) {
+        c.current_dir(dir);
+    }
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -525,5 +532,23 @@ mod tests {
             answer.starts_with("adb failed (") && answer.contains('3'),
             "{answer}"
         );
+    }
+
+    #[tokio::test]
+    async fn adb_runs_in_its_own_folder() {
+        let path = system_program("cmd.exe", "/bin/sh");
+        let folder = path.parent().unwrap().canonicalize().unwrap();
+        let adb = AdbExe {
+            path,
+            timeout: ADB_TIMEOUT,
+        };
+        let args: &[&str] = if cfg!(windows) {
+            &["/c", "cd"]
+        } else {
+            &["-c", "pwd"]
+        };
+        let printed = adb.run(args).await.unwrap();
+        let ran_in = PathBuf::from(printed.trim()).canonicalize().unwrap();
+        assert_eq!(ran_in, folder);
     }
 }
