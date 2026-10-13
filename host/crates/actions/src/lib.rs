@@ -334,14 +334,18 @@ impl Executor {
                 ActionSpec::Launch { program, args } => {
                     let build = |p: &std::ffi::OsStr| {
                         let mut cmd = Command::new(p);
-                        cmd.args(args)
-                            .stdin(std::process::Stdio::null())
+                        cmd.args(args);
+                        #[cfg(not(windows))]
+                        cmd.stdin(std::process::Stdio::null())
                             .stdout(std::process::Stdio::null())
                             .stderr(std::process::Stdio::null());
-                        // Start in the program's own folder, like an Explorer shortcut.
                         #[cfg(windows)]
-                        if let Some(dir) = launch::program_dir(program) {
-                            cmd.current_dir(dir);
+                        {
+                            // Start in the program's own folder, like an Explorer shortcut.
+                            if let Some(dir) = launch::program_dir(program) {
+                                cmd.current_dir(dir);
+                            }
+                            launch::set_console(&mut cmd, program, p);
                         }
                         cmd
                     };

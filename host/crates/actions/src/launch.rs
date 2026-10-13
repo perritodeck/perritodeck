@@ -40,6 +40,49 @@ pub(crate) fn program_dir(program: &str) -> Option<&Path> {
         .filter(|d| !d.as_os_str().is_empty() && d.is_dir())
 }
 
+/// Whether a Launch runs without a console window. A batch file reached by name through
+/// PATH (`code` is `code.cmd`, `npm`) is a shim that starts the real program, so its
+/// console would only flash up. A batch file given by path is the user's own script and
+/// gets a window like any other console program. `spawned` is what is actually started:
+/// `program` itself, or what [`search_path`] found for it.
+pub(crate) fn runs_hidden(program: &str, spawned: &OsStr) -> bool {
+    let lower = spawned.to_string_lossy().to_ascii_lowercase();
+    !has_path(program) && (lower.ends_with(".bat") || lower.ends_with(".cmd"))
+}
+
+/// Give a launched program the console it should have; a GUI program ignores all this.
+///
+/// A console program (cmd, PowerShell, a Python script) gets a console window of its
+/// own, as when started from Explorer, and must use it for input and output: with NUL
+/// for those, cmd and PowerShell read the end of their input and close at once. Rust's
+/// std hands the child the host's standard handles unless told otherwise. The installed
+/// app has none, so the child gets none and uses its new window. The command-line host
+/// and `tauri dev` have a console, and a host started with its output redirected has
+/// pipes or files: passing those on would have the child read and write the host's, so
+/// it gets NUL instead, and there a console program's window stays empty.
+#[cfg(windows)]
+pub(crate) fn set_console(cmd: &mut tokio::process::Command, program: &str, spawned: &OsStr) {
+    use std::{os::windows::io::AsRawHandle, process::Stdio};
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let hidden = runs_hidden(program, spawned);
+    cmd.creation_flags(if hidden {
+        CREATE_NO_WINDOW
+    } else {
+        CREATE_NEW_CONSOLE
+    });
+    // Null when the host has no such handle (std's `GetStdHandle` wrapper).
+    let host_has_handles = !std::io::stdin().as_raw_handle().is_null()
+        || !std::io::stdout().as_raw_handle().is_null()
+        || !std::io::stderr().as_raw_handle().is_null();
+    if hidden || host_has_handles {
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+    }
+}
+
 /// Find a program as `cmd.exe` would, minus the current folder: for a bare name, each
 /// PATH folder in turn with each runnable PATHEXT extension; for a path without an
 /// extension, that path with each extension. `None` when nothing matches or the name
@@ -203,6 +246,25 @@ mod tests {
         let exe = dir.path().join("obs64.exe");
         assert_eq!(program_dir(exe.to_str().unwrap()), Some(dir.path()));
         assert_eq!(program_dir("/no/such/folder/x"), None);
+    }
+
+    #[test]
+    fn only_batch_files_found_on_path_run_hidden() {
+        let hidden = |program: &str, spawned: &str| runs_hidden(program, OsStr::new(spawned));
+        // `code` is first tried as is, then as the `code.cmd` that search_path found.
+        assert!(!hidden("code", "code"));
+        assert!(hidden(
+            "code",
+            r"C:\Program Files\Microsoft VS Code\bin\code.cmd"
+        ));
+        assert!(hidden("npm.CMD", "npm.CMD"));
+        assert!(hidden("build.bat", "build.bat"));
+        // The user's own script, given by path, gets a window.
+        assert!(!hidden(r"C:\scripts\backup.bat", r"C:\scripts\backup.bat"));
+        assert!(!hidden(r"C:\scripts\backup", r"C:\scripts\backup.cmd"));
+        // Programs aren't batch files.
+        assert!(!hidden("cmd", "cmd"));
+        assert!(!hidden("python", r"C:\Python314\python.exe"));
     }
 
     #[test]
