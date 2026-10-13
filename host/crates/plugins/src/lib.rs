@@ -99,6 +99,23 @@ struct Running {
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
 impl Running {
+    fn new(manifest: Manifest, dir: PathBuf, settings: Value, data_dir: PathBuf) -> Self {
+        Self {
+            manifest,
+            dir,
+            status: Mutex::new(Status::Starting),
+            to_plugin: Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            stop: AtomicBool::new(false),
+            settings: Mutex::new(settings),
+            watching: Mutex::new(Vec::new()),
+            data_dir,
+            stop_signal: tokio::sync::Notify::new(),
+            exited: AtomicBool::new(false),
+        }
+    }
+
     /// Ask the plugin to stop: no more actions go to it, and the supervisor sends it
     /// `shutdown` (ready or not), then kills it if it doesn't exit in time.
     fn request_stop(&self) {
@@ -231,20 +248,12 @@ impl PluginHost {
                 manifest.version,
                 folder.display()
             );
-            let running = Arc::new(Running {
+            let running = Arc::new(Running::new(
                 manifest,
-                dir: folder,
-                status: Mutex::new(Status::Starting),
-                to_plugin: Mutex::new(None),
-                pending: Mutex::new(HashMap::new()),
-                next_id: AtomicU64::new(1),
-                stop: AtomicBool::new(false),
-                settings: Mutex::new(self.load_settings(&id)),
-                watching: Mutex::new(Vec::new()),
-                data_dir: self.settings_dir.with_file_name("plugin-data").join(&id),
-                stop_signal: tokio::sync::Notify::new(),
-                exited: AtomicBool::new(false),
-            });
+                folder,
+                self.load_settings(&id),
+                self.settings_dir.with_file_name("plugin-data").join(&id),
+            ));
             plugins.insert(id, running.clone());
             self.runtime.spawn(supervise(
                 running,
@@ -800,6 +809,9 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         }
         reader.abort();
         writer.abort();
+        // Wait until the reader has really stopped, so a `ready` it was still handling
+        // can't hand out this run's sender again after it's cleared here.
+        let _ = reader.await;
         *p.to_plugin.lock().expect("stdin poisoned") = None;
         p.fail_pending("it stopped");
         if p.stop.load(Ordering::Relaxed) {
@@ -833,11 +845,17 @@ fn handle(p: &Running, msg: &Value, values: &ValueSink, tx: &mpsc::UnboundedSend
     let name = &p.manifest.name;
     match msg["event"].as_str() {
         Some("ready") => {
-            if p.stop.load(Ordering::Relaxed) {
-                return; // being stopped: no more actions for it
+            {
+                // Checked and set under one lock: request_stop sets `stop` before it
+                // takes this lock to clear the sender, so a stop can't fall in between
+                // and leave a plugin that's being stopped taking actions.
+                let mut to_plugin = p.to_plugin.lock().expect("stdin poisoned");
+                if p.stop.load(Ordering::Relaxed) {
+                    return; // being stopped: no more actions for it
+                }
+                *to_plugin = Some(tx.clone());
+                p.set_status(Status::Running);
             }
-            *p.to_plugin.lock().expect("stdin poisoned") = Some(tx.clone());
-            p.set_status(Status::Running);
             // Catch it up on what profiles show (it may have restarted).
             let watching = p.watching.lock().expect("watching poisoned").clone();
             if !watching.is_empty() {

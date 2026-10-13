@@ -238,6 +238,29 @@ async fn install_and_remove() {
     assert!(!root.path().join("plugins/test.copy").exists());
 }
 
+#[test]
+fn a_plugin_being_stopped_gets_no_actions_when_it_says_ready() {
+    let manifest = Manifest::parse(
+        &json!({ "id": "test.ready", "name": "Ready", "version": "1.0.0", "runtime": "exec", "main": "x" })
+            .to_string(),
+    )
+    .unwrap();
+    let values: ValueSink = Arc::new(|_, _| {});
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let ready = json!({ "event": "ready" });
+
+    let stopping = Running::new(manifest.clone(), PathBuf::new(), json!({}), PathBuf::new());
+    stopping.request_stop();
+    handle(&stopping, &ready, &values, &tx);
+    assert!(stopping.to_plugin.lock().unwrap().is_none());
+    assert_eq!(*stopping.status.lock().unwrap(), Status::Starting);
+
+    let running = Running::new(manifest, PathBuf::new(), json!({}), PathBuf::new());
+    handle(&running, &ready, &values, &tx);
+    assert!(running.to_plugin.lock().unwrap().is_some());
+    assert_eq!(*running.status.lock().unwrap(), Status::Running);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_program_that_wont_start_is_reported_as_such_not_as_missing() {
     let root = tempfile::tempdir().unwrap();
