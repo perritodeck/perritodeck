@@ -230,7 +230,7 @@ class SpotifyTest(unittest.TestCase):
 
     def test_sign_in(self):
         opened, open_url = self.browser()
-        with mock.patch.object(spotify, "open_for_user",open_url):
+        with mock.patch.object(spotify, "open_for_user", open_url):
             self.assertEqual(spotify.sign_in({}), "finish signing in in your web browser")
             attempt = spotify._sign_in["current"]
             self.assertTrue(attempt.done.wait(5))
@@ -262,7 +262,7 @@ class SpotifyTest(unittest.TestCase):
 
     def test_sign_in_with_a_wrong_verifier_fails(self):
         opened, open_url = self.browser()
-        with mock.patch.object(spotify, "open_for_user",open_url), \
+        with mock.patch.object(spotify, "open_for_user", open_url), \
                 mock.patch.object(spotify, "challenge_for", lambda v: s256(v + "x")):
             spotify.sign_in({})
             attempt = spotify._sign_in["current"]
@@ -272,13 +272,13 @@ class SpotifyTest(unittest.TestCase):
 
     def test_sign_in_denied_or_forged(self):
         opened, open_url = self.browser(deny=True)
-        with mock.patch.object(spotify, "open_for_user",open_url):
+        with mock.patch.object(spotify, "open_for_user", open_url):
             spotify.sign_in({})
             attempt = spotify._sign_in["current"]
             self.assertTrue(attempt.done.wait(5))
         self.assertIn("access_denied", attempt.error)
         opened, open_url = self.browser(wrong_state=True)
-        with mock.patch.object(spotify, "open_for_user",open_url):
+        with mock.patch.object(spotify, "open_for_user", open_url):
             spotify.sign_in({})
             attempt = spotify._sign_in["current"]
             deadline = time.monotonic() + 3
@@ -312,12 +312,12 @@ class SpotifyTest(unittest.TestCase):
     def test_sign_in_again_on_the_same_port(self):
         # Pressed again while the first attempt still waits for the browser: the new
         # attempt needs the same port, the one registered with Spotify.
-        with mock.patch.object(spotify, "open_for_user",lambda url: True):
+        with mock.patch.object(spotify, "open_for_user", lambda url: True):
             spotify.sign_in({})
         first = spotify._sign_in["current"]
         spotify.plugin.settings["port"] = first.port
         opened, open_url = self.browser()
-        with mock.patch.object(spotify, "open_for_user",open_url):
+        with mock.patch.object(spotify, "open_for_user", open_url):
             spotify.sign_in({})
             attempt = spotify._sign_in["current"]
             self.assertTrue(attempt.done.wait(5))

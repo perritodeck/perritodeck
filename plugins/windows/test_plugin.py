@@ -227,7 +227,8 @@ class LinuxActionsTest(unittest.TestCase):
         self.backend = win.WmctrlBackend()
         self.backend.xprop = "/usr/bin/xprop"
         self.backend.xdotool = None
-        # launch() and spawn() pick their way of starting a program from sys.platform.
+        # launch() and the SDK's start_for_user pick their way of starting a program
+        # from sys.platform.
         patcher = mock.patch.object(win.sys, "platform", "linux")
         patcher.start()
         self.addCleanup(patcher.stop)
