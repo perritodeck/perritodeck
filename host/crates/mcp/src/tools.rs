@@ -129,10 +129,18 @@ toggleReplayBuffer | saveReplayBuffer}; homeAssistant {service:\"light.toggle\",
 plugin {plugin, action, settings?}; sdPlugin {plugin, action, settings?} (Stream Deck plugins); \
 none.";
 
-const HOTKEYS: &str = "Hotkeys: modifiers and one key joined by +. Modifiers: Ctrl, Alt \
-(Option), Shift, Cmd (Win, Super, Meta). Keys: a single character, F1-F24, Enter, Tab, Space, \
-Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown, Up, Down, Left, Right, CapsLock, \
-Plus, Minus.";
+const HOTKEYS: &str = "Hotkeys: modifiers and one key joined by + (spaces around it are fine; \
+\"Ctrl + +\" is Ctrl and the plus key). Modifiers: Ctrl, Alt (Option), Shift, Cmd (Win, Super, \
+Meta). Keys: a single character, F1-F24, Enter, Tab, Space, Escape, Backspace, Delete, Insert, \
+Home, End, PageUp, PageDown, Up, Down, Left, Right, CapsLock, Plus, Minus, or punctuation by \
+name: Slash, Backslash, Comma, Period, Semicolon, Quote, Backquote, BracketLeft, BracketRight, \
+Equal. A character means the key that types it on the keyboard layout in use. On Windows, a \
+symbol brings the Shift or AltGr it needs (\"ctrl+!\" sends Ctrl+Shift+1 on a US keyboard), \
+except Plus, which is the =/+ key without Shift: Ctrl+Plus is zoom in, and a lone Plus types \
+\"=\" on a US keyboard. Also on Windows, letters and digits go by Windows' own key codes, as \
+its shortcuts do, so Ctrl+C works on Cyrillic and other layouts too. On Linux and macOS, name \
+a symbol's key without Shift and add Shift yourself (Ctrl+Shift+/, not Ctrl+?), which works on \
+Windows too.";
 
 fn defs() -> Vec<ToolDef> {
     let read = json!({ "readOnlyHint": true, "openWorldHint": false });
