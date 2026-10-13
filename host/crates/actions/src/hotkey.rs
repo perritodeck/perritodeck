@@ -110,10 +110,14 @@ impl FromStr for Chord {
         let mut parts: Vec<String> = Vec::new();
         let mut rest = trimmed;
         while !rest.is_empty() {
+            // Spaces around a separator are fine ("Ctrl + +"), so skip them first: a '+'
+            // after them is then the key, not an empty part before another separator.
+            rest = rest.trim_start();
             match rest.find('+') {
                 Some(0) => {
                     parts.push("+".into());
-                    rest = rest[1..].strip_prefix('+').unwrap_or(&rest[1..]);
+                    let after = rest[1..].trim_start();
+                    rest = after.strip_prefix('+').unwrap_or(after);
                 }
                 Some(i) => {
                     parts.push(rest[..i].trim().to_owned());
@@ -219,6 +223,12 @@ mod tests {
             }
         );
         assert_eq!(p("Ctrl+Plus"), p("Ctrl++"));
+        // With spaces around the separator, as people type it.
+        assert_eq!(p("Ctrl + +"), p("Ctrl++"));
+        assert_eq!(p("Ctrl+ +"), p("Ctrl++"));
+        assert_eq!(p("Ctrl + Shift + +"), p("Ctrl+Shift++"));
+        assert_eq!(p("Ctrl + + + Shift"), p("Ctrl+Shift++"));
+        assert_eq!(p(" + "), p("Plus"));
     }
 
     #[test]
