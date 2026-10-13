@@ -18,6 +18,9 @@ class QrDecoder {
             mapOf(
                 DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
                 DecodeHintType.TRY_HARDER to true,
+                // The command-line host draws its code light on dark in a dark terminal.
+                // Only costs a second pass when the first finds nothing.
+                DecodeHintType.ALSO_INVERTED to true,
             )
         )
     }
