@@ -30,6 +30,9 @@ pub use templates::{render_title, tokens, truthy};
 /// Values for `{name}`s in titles (and toggles that follow them), kept up to date by
 /// the host: `cpu`, `mem`, `ha:<entity>`, `obs:recording`, …
 pub type LiveValues = Arc<std::sync::RwLock<HashMap<String, String>>>;
+/// Live values something declares (plugins, from their manifests), reported or not: see
+/// [`templates::is_declared`].
+pub type DeclaredValues = Arc<std::sync::RwLock<HashSet<String>>>;
 
 /// Where the runtime sends messages (the server in production, a recorder in tests).
 pub trait Outbox: Send + Sync {
@@ -144,12 +147,19 @@ struct Slot {
     /// Why the last edit to the profile file was rejected, if it was.
     reload_error: Option<String>,
     live: LiveValues,
+    declared: DeclaredValues,
 }
 
 impl Slot {
-    fn new(profile: Profile, base_dir: PathBuf, live: LiveValues) -> Self {
+    fn new(
+        profile: Profile,
+        base_dir: PathBuf,
+        live: LiveValues,
+        declared: DeclaredValues,
+    ) -> Self {
         Self {
             live,
+            declared,
             profile,
             base_dir,
             toggles: HashMap::new(),
@@ -240,6 +250,7 @@ pub struct Deck {
     paused: std::sync::atomic::AtomicBool,
     sliders: Mutex<SliderQueue>,
     live: LiveValues,
+    declared: DeclaredValues,
     started: std::time::Instant,
     remote: Mutex<Option<Arc<dyn RemoteSurfaces>>>,
     agents: Mutex<Option<Arc<dyn KeyAgents>>>,
@@ -281,10 +292,11 @@ impl Deck {
         executor: Executor,
     ) -> Arc<Self> {
         let live = LiveValues::default();
+        let declared = DeclaredValues::default();
         let mut slots = HashMap::new();
         slots.insert(
             default_id.to_owned(),
-            Slot::new(profile, base_dir.into(), live.clone()),
+            Slot::new(profile, base_dir.into(), live.clone(), declared.clone()),
         );
         Arc::new(Self {
             state: Mutex::new(State {
@@ -301,6 +313,7 @@ impl Deck {
             paused: Default::default(),
             sliders: Default::default(),
             live,
+            declared,
             started: std::time::Instant::now(),
             remote: Mutex::new(None),
             agents: Mutex::new(None),
@@ -860,7 +873,12 @@ impl Deck {
             None => {
                 st.slots.insert(
                     id.to_owned(),
-                    Slot::new(profile, base_dir.unwrap_or_default(), self.live.clone()),
+                    Slot::new(
+                        profile,
+                        base_dir.unwrap_or_default(),
+                        self.live.clone(),
+                        self.declared.clone(),
+                    ),
                 );
             }
         }
@@ -1017,6 +1035,15 @@ impl Deck {
         let mut live = self.live.write().expect("live values poisoned");
         for (k, v) in values {
             live.insert(k, v);
+        }
+    }
+
+    /// The live values plugins declare (`plugin:<id>:<value>`, with a trailing `:` for
+    /// values that take an argument). Titles show "–" for those until they're reported.
+    pub fn set_declared(&self, names: HashSet<String>) {
+        let mut declared = self.declared.write().expect("declared values poisoned");
+        if *declared != names {
+            *declared = names;
         }
     }
 
@@ -2029,6 +2056,7 @@ fn key_spec(st: &Slot, page: usize, grid: Grid, index: u32, sliders: bool) -> Ke
                         &look.title,
                         chrono::Local::now(),
                         &st.live.read().expect("live values poisoned"),
+                        &st.declared.read().expect("declared values poisoned"),
                     )
                 }),
                 bg_color: look.bg,
@@ -2124,6 +2152,7 @@ fn key_image(
                 &look.title,
                 chrono::Local::now(),
                 &st.live.read().expect("live values poisoned"),
+                &st.declared.read().expect("declared values poisoned"),
             )
         }),
         background: perritodeck_render::parse_hex(&look.bg).unwrap_or([0x1E, 0x1E, 0x2E]),

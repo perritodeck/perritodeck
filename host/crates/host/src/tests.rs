@@ -1258,6 +1258,31 @@ async fn the_bridge_keeps_working_after_a_new_token_or_port() {
 }
 
 #[test]
+fn plugins_declare_their_values() {
+    let manifest = perritodeck_plugins::Manifest::parse(
+        &serde_json::json!({
+            "id": "dev.example.mon", "name": "Mon", "version": "1.0.0", "runtime": "exec", "main": "x",
+            "values": [{ "id": "disk", "name": "Disk" }, { "id": "up", "name": "Up", "arg": "Host" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let info = perritodeck_plugins::PluginInfo {
+        manifest,
+        status: perritodeck_plugins::Status::Starting,
+        folder: String::new(),
+    };
+    let declared = crate::declared_plugin_values(&[info]);
+    assert_eq!(
+        declared,
+        HashSet::from([
+            "plugin:dev.example.mon:disk".to_owned(),
+            "plugin:dev.example.mon:up:".to_owned()
+        ])
+    );
+}
+
+#[test]
 fn real_paths() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("app-settings.json");

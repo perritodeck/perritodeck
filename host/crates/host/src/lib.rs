@@ -120,6 +120,20 @@ pub fn default_data_dir() -> Result<PathBuf> {
         .context("could not find a settings folder for this user")
 }
 
+/// The live values installed plugins declare, as the deck matches them:
+/// `plugin:<id>:<value>`, with a trailing `:` for values that take an argument.
+pub fn declared_plugin_values(plugins: &[PluginInfo]) -> HashSet<String> {
+    plugins
+        .iter()
+        .flat_map(|p| {
+            p.manifest.values.iter().map(move |v| {
+                let tail = if v.arg.is_some() { ":" } else { "" };
+                format!("plugin:{}:{}{tail}", p.manifest.id, v.id)
+            })
+        })
+        .collect()
+}
+
 /// Where a file or folder really is, or `path` itself if that can't be found out.
 ///
 /// A program started from inside a packaged Windows app (MSIX, such as Claude's desktop
@@ -743,6 +757,8 @@ impl Host {
                 loop {
                     every.tick().await;
                     plugins.watch(&deck.live_tokens());
+                    // Titles show "–" for these until the plugin reports them.
+                    deck.set_declared(declared_plugin_values(&plugins.list()));
                 }
             });
         }

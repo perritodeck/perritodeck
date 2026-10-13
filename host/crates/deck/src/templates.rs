@@ -1,15 +1,33 @@
 //! Live values in key titles: `{time}`, `{time_s}`, `{date}`, and values the host
 //! keeps up to date such as `{cpu}`, `{mem}`, `{ha:sensor.outside}` or
-//! `{obs:recording}`. Unknown names are left as written.
+//! `{obs:recording}`. A value that something declares but hasn't reported yet shows as
+//! "–"; unknown names are left as written, so a typo stays visible.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, TimeZone};
+
+/// What stands for a declared value that hasn't been reported yet.
+pub const PENDING: &str = "–";
+
+/// Whether `name` is one of the `declared` live values: `plugin:<id>:<value>`, or for a
+/// value that takes an argument, `plugin:<id>:<value>:<anything>` when `declared` holds
+/// `plugin:<id>:<value>:`.
+pub fn is_declared(declared: &HashSet<String>, name: &str) -> bool {
+    if declared.contains(name) {
+        return true;
+    }
+    // The prefix up to the third `:` (`plugin`, the plugin id and the value id).
+    name.match_indices(':')
+        .nth(2)
+        .is_some_and(|(i, _)| declared.contains(&name[..=i]))
+}
 
 pub fn render_title<Tz: TimeZone>(
     title: &str,
     now: DateTime<Tz>,
     live: &HashMap<String, String>,
+    declared: &HashSet<String>,
 ) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -33,6 +51,7 @@ where
             "date" => out.push_str(&now.format("%a %-d %b").to_string()),
             _ => match live.get(name) {
                 Some(v) => out.push_str(v),
+                None if is_declared(declared, name) => out.push_str(PENDING),
                 None => {
                     out.push('{');
                     out.push_str(name);
@@ -81,24 +100,57 @@ mod tests {
     fn replaces_known_tokens_only() {
         let now = Utc.with_ymd_and_hms(2026, 10, 11, 21, 7, 45).unwrap();
         let none = HashMap::new();
-        assert_eq!(render_title("{time}", now, &none), "21:07");
-        assert_eq!(render_title("{time_s}", now, &none), "21:07:45");
-        assert_eq!(render_title("{date}", now, &none), "Sun 11 Oct");
+        let nothing = HashSet::new();
+        let render = |t: &str, live: &HashMap<String, String>| render_title(t, now, live, &nothing);
+        assert_eq!(render("{time}", &none), "21:07");
+        assert_eq!(render("{time_s}", &none), "21:07:45");
+        assert_eq!(render("{date}", &none), "Sun 11 Oct");
         assert_eq!(
-            render_title("It's {time}\n{weather}", now, &none),
+            render("It's {time}\n{weather}", &none),
             "It's 21:07\n{weather}"
         );
-        assert_eq!(render_title("plain", now, &none), "plain");
-        assert_eq!(render_title("open { brace", now, &none), "open { brace");
+        assert_eq!(render("plain", &none), "plain");
+        assert_eq!(render("open { brace", &none), "open { brace");
 
         let live = HashMap::from([
             ("cpu".to_string(), "12%".to_string()),
             ("ha:sensor.out".into(), "4 °C".into()),
         ]);
+        assert_eq!(render("CPU {cpu}\n{ha:sensor.out}", &live), "CPU 12%\n4 °C");
+    }
+
+    #[test]
+    fn declared_values_wait_with_a_dash() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 11, 21, 7, 45).unwrap();
+        let declared = HashSet::from([
+            "plugin:dev.perritodeck.sysmon:disk".to_string(),
+            "plugin:dev.perritodeck.uptime:up:".to_string(),
+        ]);
+        let live = HashMap::from([(
+            "plugin:dev.perritodeck.uptime:up:nas".to_string(),
+            "up".to_string(),
+        )]);
+        let render = |t: &str| render_title(t, now, &live, &declared);
+        // Declared but not reported yet: a dash, not the raw token.
         assert_eq!(
-            render_title("CPU {cpu}\n{ha:sensor.out}", now, &live),
-            "CPU 12%\n4 °C"
+            render("Disk {plugin:dev.perritodeck.sysmon:disk}"),
+            "Disk –"
         );
+        assert_eq!(
+            render("{plugin:dev.perritodeck.uptime:up:10.0.0.1:443}"),
+            "–"
+        );
+        assert_eq!(render("{plugin:dev.perritodeck.uptime:up:nas}"), "up");
+        // Typos and unknown names stay as written.
+        assert_eq!(
+            render("{plugin:dev.perritodeck.sysmon:dsik}"),
+            "{plugin:dev.perritodeck.sysmon:dsik}"
+        );
+        assert_eq!(
+            render("{plugin:dev.perritodeck.sysmon:disk:x}"),
+            "{plugin:dev.perritodeck.sysmon:disk:x}"
+        );
+        assert_eq!(render("{weather}"), "{weather}");
     }
 
     #[test]
