@@ -446,7 +446,7 @@ Results of the 2026-10-12 run are marked **[done]** / **[not done]** under each 
    - "Restart now" after changing the port: does single-instance let the new process start?
    - "Open data folder": does it open *inside* the folder, or the parent with the folder selected?
    - "Open profile file" when `.toml` has no associated app.
-   **[done]** with `tauri build --no-bundle` (no installer): no console windows; "Run a command" quiet; tray Quit leaves no plugin process (7 Python + 2 Stream Deck plugins, a sound playing). **[not done]** NSIS install, autostart, "Restart now" after a port change, Open data folder/profile file.
+   **[done]** with `tauri build --no-bundle` (no installer): no console windows; "Run a command" quiet; tray Quit leaves no plugin process (7 Python + 2 Stream Deck plugins, a sound playing). **[done 2026-10-13]** NSIS install, first run, autostart (entry and hidden start), upgrade over the running app, uninstall (next-steps item 5; an update removing "Start at login" was fixed). **[not done]** "Restart now" after a port change, Open data folder/profile file.
 5. **Auto-switch:** add a rule for an app.
    - Click the taskbar, press Win, Alt+Tab, and trigger a UAC prompt (for example, open an admin terminal). Watch the tablet for flicker to the default profile (finding 8).
    - Try Calculator (ApplicationFrameHost).

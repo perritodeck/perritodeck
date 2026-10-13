@@ -117,7 +117,10 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   default answer lets nothing in. Detection is done (next-steps item 2): the Tablets and Pair
   pages say when a tablet fell back to the cable or Windows Firewall has no rule for
   PerritoDeck. Installers add no rule (maintainer's decision).
-- **Installers** (NSIS/MSI), autostart at login, uninstall: not built or tried this session.
+- ~~Installers, autostart at login, uninstall~~: the NSIS installer was tested on
+  2026-10-13 (next-steps item 5), including an upgrade with an assistant connected. A bug
+  was fixed (an update turned "Start at login" off), and the release notes are in
+  `docs/launch-checklist.md` §7. MSI not built.
 - A live value with no data yet shows its raw token in small type on the key
   (e.g. `(plugin:dev.perritodeck.sysmon:disk)`). Deliberate ("unknown names are left as
   written", so typos show), but a declared value that hasn't reported yet could show "–".
@@ -168,6 +171,18 @@ What worked in this session (none of it is committed; recreate as needed):
 
 ## 6. Gotchas learned
 
+- **Running from the Claude desktop app (Code tab) on Windows:** everything it starts runs
+  inside its MSIX package. AppData and HKCU writes go to
+  `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache`, and inside the package that copy hides
+  the real one. A PerritoDeck started there keeps its data where a normal start won't
+  look; diagnostics now say "really at …" and the log warns. An installer started there
+  installs into that folder too, and Windows Firewall then names the redirected path. To
+  test for real, start programs through Explorer with a `.cmd` launcher in
+  `C:\Users\Public`. To read the real AppData or registry, run a `.cmd` through WMI
+  (`Win32_Process.Create`), which starts outside the package.
+- NSIS wizards can't be read by .NET UI Automation. Use Win32 child windows, and click by
+  posting WM_COMMAND with the button's id to the dialog (a posted BM_CLICK is ignored on
+  the Finish page).
 - Some shells set `NoDefaultCurrentDirectoryInExePath=1`: run `.\gradlew.bat`, not `gradlew.bat`.
 - Windows PowerShell 5.1 strips inner double quotes from native programs' arguments, so
   `perritodeck-host action '{"type":...}'` needs cmd, PowerShell 7.3+ or bash.

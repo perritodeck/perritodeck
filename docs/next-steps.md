@@ -143,7 +143,39 @@ With an auto-switch rule active, trigger a UAC prompt (e.g. open an admin termin
 profile should stay put, and should switch correctly after the prompt is answered. Record the
 result in `docs/windows-review-2026-10.md`.
 
-## 5. Installers on Windows 🖥 (no signing yet; signing is on hold)
+## 5. Installers on Windows 🖥 (no signing yet; signing is on hold) — ✅ done (2026-10-13)
+
+**Result.** `npx tauri build --bundles nsis` gives a 7.8 MB per-user installer (no admin) that
+carries both `perritodeck-app.exe` and `perritodeck-mcp.exe`. The NSIS tools were already in
+`%LOCALAPPDATA%\tauri`, so nothing was downloaded. Tested on this PC, outside Claude's package:
+
+- **Install:** goes into `%LOCALAPPDATA%\PerritoDeck` with a Start menu shortcut, an
+  optional desktop shortcut and an uninstall entry. WebView2 was already there.
+- **First run** (the installer's "Run PerritoDeck"): Windows Firewall asked, and its
+  temporary Block rules were in place until it was answered. With "Allow", the Fire 7
+  connected over USB and Wi-Fi with the existing pairing.
+- **Autostart:** "Start at login" writes `HKCU\…\Run\PerritoDeck` = `<exe> --hidden`, and
+  that command starts the app in the tray only.
+- **Upgrade** 0.1.0 → 0.1.1 over the running app, with an assistant connected through the
+  bridge:
+  - The installer closed the app properly ("stopping plugins before exit") and left none
+    of its plugin processes.
+  - The running bridge was renamed aside and replaced, and the assistant's next call
+    worked through the same bridge process.
+  - **Bug, fixed:** the old version's uninstaller, which the upgrade runs, removed the
+    login entry, so "Start at login" was silently off after every update. The app now
+    remembers the choice (`startAtLogin`) and puts the entry back at start, unless it was
+    turned off in Task Manager.
+- **Uninstall:** with the app running it asks "PerritoDeck is running! Click OK to kill
+  it". It removes the files, shortcuts, uninstall entry and login entry, leaves no
+  processes, and keeps the data folder.
+- Findings for the release (SmartScreen, the upgrade's uninstall wizard, wording, a
+  leftover registry key) are in `docs/launch-checklist.md` §7.
+- **Caveat from testing:** everything started from the Claude desktop app's Code tab runs
+  inside its MSIX package, where AppData is redirected. Both sessions' PerritoDeck data had
+  been living in `…\Packages\Claude_…\LocalCache` (now copied to the real folder), and the
+  first install went there too. Diagnostics now show "really at …" and the log warns when
+  that happens. The firewall check resolves the real exe path.
 
 Build the NSIS installer (`npx tauri build`; download the NSIS/WiX tools when asked), then
 check:

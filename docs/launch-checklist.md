@@ -140,6 +140,17 @@ Follow [docs/releasing.md](releasing.md). In short:
 - [ ] Note: a local `v0.1.0` tag already exists (on `9f47509`, before most features). Decide
   whether the first public release is `v0.1.0` re-tagged on current `main` (delete the old
   tag first, only if it was never pushed) or `v0.2.0`.
+- [ ] Windows installer, from the NSIS test on 2026-10-13 (`docs/next-steps.md` item 5):
+  - Unsigned, a downloaded installer will get SmartScreen's "Windows protected your PC" with
+    "Unknown publisher" (More info → Run anyway). This wasn't seen in testing, because a file
+    built locally has no download mark. Sign it, or say so on the download page.
+  - An upgrade runs the old version's uninstall wizard, which has a "Delete the application
+    data" checkbox (unticked). Consider a custom NSIS template, or making that page skip
+    data deletion during upgrades.
+  - The running-app message reads "PerritoDeck is running! Click OK to kill it"; friendlier
+    wording would need custom NSIS language strings.
+  - Uninstall leaves `HKCU\Software\PerritoDeck` (install path and language) behind.
+  - The login entry's path isn't quoted (upstream `auto-launch`); it still works.
 - [ ] Tag, let the Release workflow build the draft, test installers on every OS and the
   APK on the Fire 7, publish.
 
