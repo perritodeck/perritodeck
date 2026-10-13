@@ -238,6 +238,26 @@ async fn install_and_remove() {
     assert!(!root.path().join("plugins/test.copy").exists());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_program_that_wont_start_is_reported_as_such_not_as_missing() {
+    let root = tempfile::tempdir().unwrap();
+    // A text file is no program: Windows says it isn't a valid application, and
+    // elsewhere it isn't executable.
+    let dir = write_plugin(root.path(), "test.notes", "exec", "notes.txt", None);
+    std::fs::write(dir.join("notes.txt"), "just some notes\n").unwrap();
+    let host = PluginHost::start(root.path().to_owned(), "1", Arc::new(|_, _| {}));
+    wait_for("it to fail", || {
+        host.list()
+            .first()
+            .is_some_and(|p| p.status != Status::Starting)
+    })
+    .await;
+    match &host.list()[0].status {
+        Status::Crashed { reason } => assert!(reason.contains("couldn't start"), "{reason}"),
+        other => panic!("expected a start failure, got {other:?}"),
+    }
+}
+
 const WATCH_PLUGIN: &str = r#"
 import json, sys
 def send(m):

@@ -679,6 +679,7 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
         }
         let started = Instant::now();
         let mut spawned = None;
+        let mut failed = None;
         for (program, args) in command_for(&p.manifest, &p.dir).await {
             let mut cmd = Command::new(&program);
             cmd.args(&args)
@@ -701,11 +702,20 @@ async fn supervise(p: Arc<Running>, host_version: String, values: ValueSink) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => {
                     warn!("plugin {} couldn't start: {e}", p.manifest.id);
+                    failed = Some(e);
                     break;
                 }
             }
         }
         let Some((mut child, tree)) = spawned else {
+            if let Some(e) = failed {
+                // Its program is there but didn't start (not a program, not allowed,
+                // or Windows couldn't let it run): say why, not that it's missing.
+                p.set_status(Status::Crashed {
+                    reason: format!("it couldn't start: {e}"),
+                });
+                return;
+            }
             let runtime = match p.manifest.runtime {
                 Runtime::Node => "Node.js",
                 Runtime::Python => "Python 3",
