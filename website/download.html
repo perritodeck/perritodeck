@@ -39,6 +39,11 @@
     .os-card .more { list-style: none; margin: 0; padding: 0; font-size: 0.95rem; }
     .os-card .more li { margin: 0 0 4px; }
     .os-card .needs { font-size: 0.85rem; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
+    .os-card .state { font-size: 0.85rem; font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
+    .os-card .state::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 2px var(--line); }
+    .os-card .state.ok::before { background: #A6E3A1; box-shadow: none; }
+    .steps-list { max-width: 46em; padding-left: 1.4em; }
+    .steps-list li { margin-bottom: 0.6em; }
 
     .store-list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; max-width: 46em; }
     .store-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 14px 18px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
@@ -96,7 +101,7 @@
         <p class="updated">Version 0.1.0 · free and open source · no account needed</p>
         <p class="lede">You need two things: <strong>PerritoDeck Host</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The host does what your buttons ask, and the tablet shows them.</p>
       </div>
-      <p class="notice"><strong>Not released yet.</strong> PerritoDeck is in early development, and the download links below start working on launch day. Until then, you can build it from the source code.</p>
+      <p class="notice"><strong>Not released yet.</strong> PerritoDeck is in early development, and the download links below start working on launch day. Until then, you can <a href="#source">build it from the source code</a>.</p>
 
       <h2 id="computer">1. Install the host on your computer</h2>
       <p class="lead-in">The desktop app sits in your tray, pairs tablets, and lets you lay out your buttons.</p>
@@ -104,6 +109,7 @@
       <div class="os-grid">
         <article class="os-card" data-os="windows">
           <h3>Windows <span class="yours">Your system</span></h3>
+          <p class="state ok">Tested on Windows 11 with a real tablet</p>
           <p>Windows 10 or 11, 64-bit. Installs just for you, no administrator needed.</p>
           <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64-setup.exe">Download installer (.exe)</a>
           <ul class="more">
@@ -115,6 +121,7 @@
 
         <article class="os-card" data-os="mac">
           <h3>macOS <span class="yours">Your system</span></h3>
+          <p class="state">Not built yet: the Mac version is written but untested</p>
           <p>macOS 10.15 Catalina or newer. One app for Apple silicon and Intel Macs.</p>
           <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-macos-universal.dmg">Download for Mac (.dmg)</a>
           <ul class="more">
@@ -125,6 +132,7 @@
 
         <article class="os-card" data-os="linux">
           <h3>Linux <span class="yours">Your system</span></h3>
+          <p class="state ok">Tested in automated and cloud test runs</p>
           <p>64-bit (x86_64), X11 or Wayland. The AppImage runs on most distributions.</p>
           <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-x86_64.AppImage">Download AppImage</a>
           <ul class="more">
@@ -189,7 +197,18 @@
       <p>For servers, kiosks and scripting: the same host without a window, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. It's in the release as <code>perritodeck-host-0.1.0-linux-x86_64.tar.gz</code>, <code>-windows-x86_64.zip</code> and <code>-macos-universal.tar.gz</code>. Run <code>perritodeck-host --pair</code> to pair a tablet.</p>
 
       <h2 id="source">Build it yourself</h2>
-      <p>Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). The README explains how to build the host, the desktop app and the Android app. Older versions and release notes are on the <a href="https://github.com/perritodeck/perritodeck/releases">releases page</a>.</p>
+      <p>Until the first release, this is the way to try PerritoDeck. Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). You need:</p>
+      <ul>
+        <li><strong>Rust</strong> (<a href="https://rustup.rs/">rustup</a>; the right version installs itself) and <strong>Node.js 22 or newer</strong>, for the desktop app.</li>
+        <li><strong>JDK 17</strong> and the Android SDK, for Perrito. Android Studio brings both.</li>
+        <li>On Linux, the WebKitGTK development packages Tauri asks for.</li>
+      </ul>
+      <ol class="steps-list">
+        <li>Desktop app: <code>cd host/app</code>, <code>npm ci</code>, then <code>npx tauri dev</code> to run it, or <code>npx tauri build</code> for an installer.</li>
+        <li>Tablet app: <code>cd android</code>, then <code>./gradlew assembleDebug</code> (<code>.\gradlew.bat</code> on Windows), and install <code>android/app/build/outputs/apk/debug/app-debug.apk</code> on the tablet.</li>
+        <li>No tablet handy? In <code>host/</code>, <code>cargo run -p perritodeck-fakedeck -- pair &lt;code&gt;</code> pairs a test client the way a tablet would, and <code>-- watch</code> shows its keys.</li>
+      </ol>
+      <p><a href="https://github.com/perritodeck/perritodeck/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> has every build and test command, and how to send changes. Release notes will be on the <a href="https://github.com/perritodeck/perritodeck/releases">releases page</a>.</p>
     </div>
   </main>
 
