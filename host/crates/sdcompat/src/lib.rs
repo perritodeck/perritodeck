@@ -46,6 +46,8 @@ pub use manifest::{Code, Manifest};
 /// Where installed plugins' saved settings live, inside the plugins folder.
 const STORE_FILE: &str = "settings.json";
 const MAX_CRASHES: u32 = 5;
+/// Windows process creation flag: no console window for the process.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -117,7 +119,8 @@ struct Plugin {
     /// Wakes the plugin's supervisor to stop it. Also tells a supervisor whether this
     /// entry is still its own (after a restart there's a new one).
     stop: Arc<Notify>,
-    /// Set when the supervisor is done (no process left), so the folder can be deleted.
+    /// Set when the supervisor is done and the plugin's processes, and any they
+    /// started, are gone, so the folder can be deleted.
     exited: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -398,8 +401,7 @@ impl SdHost {
             wait_exited(&old);
         }
         if dest.exists() {
-            std::fs::remove_dir_all(&dest)
-                .map_err(|e| format!("Couldn't replace the old version: {e}"))?;
+            remove_folder(&dest).map_err(|e| format!("Couldn't replace the old version: {e}"))?;
         }
         copy_dir(&folder, &dest).map_err(|e| format!("Couldn't copy the plugin: {e}"))?;
         self.scan();
@@ -418,9 +420,7 @@ impl SdHost {
         };
         wait_exited(&folder);
         let folder = folder.folder;
-        std::fs::remove_dir_all(&folder)
-            .map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
-        Ok(())
+        remove_folder(&folder).map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))
     }
 
     pub fn restart(&self, uuid: &str) -> Result<(), String> {
@@ -466,6 +466,28 @@ fn wait_exited(p: &Plugin) {
     while !p.exited.load(Ordering::Relaxed) && std::time::Instant::now() < until {
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Delete a plugin's folder. On Windows a process that was just ended can keep a file
+/// in it busy for a moment longer (its program, or its working folder), so retry for
+/// up to a second before giving up.
+fn remove_folder(dir: &Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::remove_dir_all(dir) {
+            Err(e) if tries < 20 && still_in_use(&e) => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            done => return done,
+        }
+    }
+}
+
+/// Whether deleting failed because a file is still in use (Windows: access denied,
+/// sharing violation, or a folder whose files are still being deleted).
+fn still_in_use(e: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 145))
 }
 
 /// Settings plugins save are kept per plugin action and key, so a different action put
@@ -760,9 +782,10 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
-        #[cfg(windows)]
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-        let mut child = match cmd.spawn() {
+        // On Windows the plugin and everything it starts end together (a job object it
+        // is in before it runs), and no console window pops up for it.
+        let spawned = perritodeck_actions::job::ProcessTree::spawn(&mut cmd, CREATE_NO_WINDOW);
+        let (mut child, tree) = match spawned {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && matches!(code, Code::Node(_)) => {
                 set_status(Status::NeedsNode);
@@ -775,9 +798,6 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
                 return;
             }
         };
-        // On Windows the plugin and everything it starts end together (job object);
-        // dropped when this attempt ends, below or by returning.
-        let tree = perritodeck_actions::job::ProcessTree::adopt(&child);
         set_status(Status::Starting);
         for (pipe, is_err) in [
             (
@@ -813,10 +833,11 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
             status = child.wait() => status,
             _ = stop.notified() => {
                 let _ = child.kill().await;
+                end(tree).await;
                 return;
             }
         };
-        drop(tree);
+        end(tree).await;
         // A plugin that ran for a while before stopping starts its count again.
         if started.elapsed() > Duration::from_secs(60) {
             crashes = 0;
@@ -836,6 +857,14 @@ async fn supervise(inner: Arc<Inner>, uuid: String) {
             _ = tokio::time::sleep(Duration::from_secs(2u64.pow(crashes))) => {}
             _ = stop.notified() => return,
         }
+    }
+}
+
+/// End whatever a plugin left running, and wait until it's gone, so that `exited`
+/// means its folder can be deleted.
+async fn end(tree: Option<perritodeck_actions::job::ProcessTree>) {
+    if let Some(tree) = tree {
+        tree.end().await;
     }
 }
 

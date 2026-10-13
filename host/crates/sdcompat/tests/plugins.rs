@@ -199,6 +199,78 @@ async fn restarts_from_a_thread_outside_the_runtime() {
     assert!(host.list().is_empty());
 }
 
+/// Starts a program of its own as soon as it runs, as a plugin's helper would, notes
+/// both process ids in its folder, then stays running.
+#[cfg(windows)]
+const PARENT_PLUGIN: &str = r#"
+const fs = require("fs");
+const child = require("child_process").spawn(
+  process.execPath, ["-e", "setTimeout(() => {}, 120000)"], { stdio: "ignore" });
+fs.writeFileSync("pids.tmp", `${process.pid} ${child.pid}`);
+fs.renameSync("pids.tmp", "pids");
+setInterval(() => {}, 1000);
+"#;
+
+/// Install [`PARENT_PLUGIN`]; returns its folder and the two process ids once it has
+/// started its program.
+#[cfg(windows)]
+async fn install_parent(host: &SdHost, root: &std::path::Path) -> (PathBuf, String, String) {
+    let src = root.join("com.perritodeck.test-parent.sdPlugin");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("manifest.json"),
+        r#"{ "Name": "Parent", "UUID": "com.perritodeck.test-parent", "CodePath": "plugin.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(src.join("plugin.js"), PARENT_PLUGIN).unwrap();
+    let uuid = host.install(&src).unwrap();
+    let folder = host.folder().join(format!("{uuid}.sdPlugin"));
+    for _ in 0..400 {
+        if let Some((pid, child)) = std::fs::read_to_string(folder.join("pids"))
+            .ok()
+            .and_then(|s| s.split_once(' ').map(|(a, b)| (a.to_owned(), b.to_owned())))
+        {
+            return (folder, pid, child);
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the plugin never started its program");
+}
+
+/// Whether process `pid` is still running.
+#[cfg(windows)]
+fn process_alive(pid: &str) -> bool {
+    let out = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+}
+
+/// Removing a plugin ends the programs it started too, and waits until they're gone:
+/// one working in the plugin's folder would keep the folder from being deleted.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_a_plugin_ends_the_programs_it_started() {
+    if !node_available() {
+        eprintln!("skipped: needs Node.js 22 or newer");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let host = SdHost::start(dir.path().join("sdplugins")).await.unwrap();
+    let (folder, pid, child) = install_parent(&host, dir.path()).await;
+    assert!(process_alive(&child), "the plugin's own program is running");
+
+    let sd = host.clone();
+    let removed = tokio::task::spawn_blocking(move || sd.remove("com.perritodeck.test-parent"))
+        .await
+        .unwrap();
+    assert!(removed.is_ok(), "remove: {removed:?}");
+    assert!(!folder.exists());
+    assert!(!process_alive(&pid), "the plugin was ended");
+    assert!(!process_alive(&child), "the plugin's own program was ended");
+}
+
 #[tokio::test]
 async fn refuses_things_that_arent_plugins() {
     let dir = tempfile::tempdir().unwrap();
