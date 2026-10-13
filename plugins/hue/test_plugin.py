@@ -2,6 +2,7 @@ import copy
 import http.server
 import json
 import os
+import stat
 import sys
 import tempfile
 import threading
@@ -187,6 +188,16 @@ class HueTest(unittest.TestCase):
         with open(os.path.join(self.dir.name, "hue.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["username"], USER)
         self.assertNotIn(USER, json.dumps(self.sent))  # never logged
+
+    @unittest.skipUnless(os.name == "posix", "file modes are a Unix thing")
+    def test_the_key_file_is_owner_only(self):
+        # Even a .tmp left behind with a wide mode ends up owner-only.
+        tmp = os.path.join(self.dir.name, "hue.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("{}")
+        os.chmod(tmp, 0o644)
+        self.paired()
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dir.name, "hue.json")).st_mode), 0o600)
 
     def test_not_paired(self):
         with self.assertRaisesRegex(hue.HueError, "not paired"):

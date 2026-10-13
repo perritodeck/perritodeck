@@ -75,10 +75,12 @@ def save_store(**changes):
     data.update(changes)
     path = store_path()
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
+    # Owner-only from the start: the bridge key gives full control of the lights.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f)
     try:
-        os.chmod(tmp, 0o600)
+        os.chmod(tmp, 0o600)  # a .tmp left over from before keeps its old mode
     except OSError:
         pass
     os.replace(tmp, path)

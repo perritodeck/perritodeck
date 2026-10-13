@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.hue",
   "name": "Philips Hue",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Turn Hue lights and rooms on and off, dim them, change their colour and start scenes, through the Hue Bridge on your network.",
   "author": "PerritoDeck contributors",
   "runtime": "python",
@@ -84,7 +84,7 @@
   ],
   "values": [
     { "id": "on", "name": "On or off", "arg": "Light or room (or all)" },
-    { "id": "brightness", "name": "Brightness (0–100)", "arg": "Light or room (or all)" }
+    { "id": "brightness", "name": "Brightness (0â€“100)", "arg": "Light or room (or all)" }
   ],
   "settings": [
     { "id": "bridge", "label": "Bridge address (blank to find it)", "type": "text", "placeholder": "192.168.1.20" },
