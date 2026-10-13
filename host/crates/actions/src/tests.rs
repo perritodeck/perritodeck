@@ -295,6 +295,26 @@ async fn pasted_paths_lose_their_quotes() {
 }
 
 #[tokio::test]
+async fn a_missing_file_is_an_error_not_a_dialog() {
+    let (ex, r) = setup();
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("no such file.txt");
+    let open = ActionSpec::OpenPath {
+        path: missing.clone(),
+    };
+    let err = ex.run(&open).await.unwrap_err().to_string();
+    assert_eq!(
+        err,
+        format!("could not open \"{}\": it doesn't exist", missing.display())
+    );
+    assert!(r.take().is_empty());
+    // Links and shell folders aren't files, so they go to the system as they are.
+    let link = spec(r#"{"type":"openPath","path":"shell:Downloads"}"#);
+    ex.run(&link).await.unwrap();
+    assert_eq!(r.take(), vec!["open shell:Downloads"]);
+}
+
+#[tokio::test]
 async fn launch_errors_show_the_path_as_typed() {
     let (ex, _) = setup();
     let missing = if cfg!(windows) {

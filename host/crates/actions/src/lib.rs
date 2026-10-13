@@ -329,7 +329,8 @@ impl Executor {
                     Ok(Outcome::Ok)
                 }
                 ActionSpec::OpenPath { path } => {
-                    self.system.open(launch::unquote(&path.to_string_lossy()))?;
+                    let target = launch::unquote(&path.to_string_lossy()).to_owned();
+                    open_path(self.system.clone(), target).await?;
                     Ok(Outcome::Ok)
                 }
                 ActionSpec::Launch { program, args } => {
@@ -513,6 +514,34 @@ fn check_url(url: &str) -> Result<(), ActionError> {
     } else {
         Err(ActionError::UrlScheme(url.to_owned()))
     }
+}
+
+/// Open a file or folder with its app. A missing one is an error on the key: Windows
+/// would show a "cannot find" box and wait for someone to click OK. Only absolute paths
+/// are checked, so links and `shell:` folders still reach the shell. It runs on a thread
+/// of its own: the shell can be slow (a network folder), and opening a folder leaves
+/// COM set up on the thread that did it.
+async fn open_path(system: Arc<dyn SystemBackend>, target: String) -> Result<(), ActionError> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let shown = target.clone();
+    std::thread::spawn(move || {
+        let path = std::path::Path::new(&target);
+        let missing = path.is_absolute() && matches!(path.try_exists(), Ok(false));
+        let _ = tx.send(if missing {
+            Err(ActionError::Open {
+                target,
+                reason: "it doesn't exist".into(),
+            })
+        } else {
+            system.open(&target)
+        });
+    });
+    rx.await.unwrap_or_else(|_| {
+        Err(ActionError::Open {
+            target: shown,
+            reason: "the system's opener crashed".into(),
+        })
+    })
 }
 
 /// Spawn `program`; on Windows, when it isn't found as given, retry with the PATHEXT
