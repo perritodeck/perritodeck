@@ -2,6 +2,7 @@ import base64
 import os
 import subprocess
 import sys
+import threading
 import unittest
 from unittest import mock
 
@@ -86,6 +87,35 @@ class DispatchTest(unittest.TestCase):
             media.play_pause({})
             media.current_state()
         self.assertEqual(state.call_count, 2)
+
+    def test_a_press_doesnt_wait_for_a_status_query(self):
+        # A Windows status query takes about 2 s; a key press during one used to wait
+        # for it to finish before the key got its answer.
+        started, release = threading.Event(), threading.Event()
+        answers = iter([("paused", "before the press"), ("playing", "after the press")])
+
+        def slow_state():
+            started.set()
+            release.wait(5)
+            return next(answers)
+
+        control = mock.Mock()
+        polled = []
+        with mock.patch.object(media, "backend", return_value=(slow_state, control)):
+            poller = threading.Thread(target=lambda: polled.append(media.current_state()))
+            poller.start()
+            self.assertTrue(started.wait(5))
+            pressed = threading.Thread(target=media.play_pause, args=({},))
+            pressed.start()
+            pressed.join(2)
+            self.assertFalse(pressed.is_alive(), "the press waited for the status query")
+            control.assert_called_once_with("play-pause")
+            release.set()
+            poller.join(5)
+            self.assertEqual(polled, [("paused", "before the press")])
+            # That answer may predate the press, so it isn't cached: the next poll asks again.
+            self.assertEqual(media.current_state(), ("playing", "after the press"))
+            self.assertEqual(media.current_state(), ("playing", "after the press"))  # cached now
 
 
 class WindowsTest(unittest.TestCase):

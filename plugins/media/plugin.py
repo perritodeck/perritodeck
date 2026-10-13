@@ -370,23 +370,30 @@ def backend(platform=None):
 
 
 _cache_lock = threading.Lock()
-_cache = {"at": None, "state": None}
+# "forgotten" counts forget_state() calls. A backend call that one happened during may
+# have read the state from before a key press, so its answer isn't cached.
+_cache = {"at": None, "state": None, "forgotten": 0}
 
 
 def current_state():
-    """(status, title), at most CACHE_SECONDS old."""
+    """(status, title), at most CACHE_SECONDS old. The backend runs without the lock
+    held: a status query on Windows takes about 2 s, and a key press (forget_state)
+    mustn't wait for one."""
     with _cache_lock:
-        now = time.monotonic()
-        if _cache["at"] is not None and now - _cache["at"] < CACHE_SECONDS:
+        if _cache["at"] is not None and time.monotonic() - _cache["at"] < CACHE_SECONDS:
             return _cache["state"]
-        state = backend()[0]()
-        _cache["at"], _cache["state"] = time.monotonic(), state
-        return state
+        forgotten = _cache["forgotten"]
+    state = backend()[0]()
+    with _cache_lock:
+        if _cache["forgotten"] == forgotten:
+            _cache["at"], _cache["state"] = time.monotonic(), state
+    return state
 
 
 def forget_state():
     with _cache_lock:
         _cache["at"] = None
+        _cache["forgotten"] += 1
 
 
 _last_action = time.monotonic()
