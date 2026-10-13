@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -36,12 +37,14 @@ class FakeClipboard:
     def __init__(self, text=None):
         self.text = text
         self.pasted = []
+        self.history = []  # (text, whether clipboard history may keep it) per set()
 
     def get(self):
         return self.text
 
-    def set(self, text):
+    def set(self, text, history=True):
         self.text = text
+        self.history.append((text, history))
 
     def paste(self, combo):
         self.pasted.append((combo, self.text))
@@ -69,6 +72,12 @@ class Base(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.finish_restores)
+        # Tests run on real Windows: never let one reach this computer's clipboard or
+        # press keys. (WindowsTest replaces get_text/set_text where it needs them.)
+        for name in ("dlls", "press"):
+            patcher = mock.patch.object(clip.winapi, name, side_effect=AssertionError("a test reached the real " + name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def finish_restores(self):
         timer = clip._restore["timer"]
@@ -130,6 +139,19 @@ class PasteTest(Base):
         self.cb.text = None
         clip.paste_text({"text": "x"})
         self.assertIsNone(clip._restore["timer"])
+        self.assertEqual(self.cb.history, [("x", True)])  # it stays, so history may keep it
+
+    def test_passing_snippets_stay_out_of_clipboard_history(self):
+        # Pasted and then replaced by the old text: neither should become a new entry
+        # in Win+V (the old text is there already, from when it was copied).
+        clip.paste_text({"text": "snippet"})
+        self.wait_restore()
+        self.assertEqual(self.cb.history, [("snippet", False), ("old stuff", False)])
+        # Kept on the clipboard, it counts as copied.
+        self.cb.history.clear()
+        clip.paste_text({"text": "kept", "restore": False})
+        clip.copy_text({"text": "copied"})
+        self.assertEqual(self.cb.history, [("kept", True), ("copied", True)])
 
     def test_bad_shortcut(self):
         with self.assertRaisesRegex(ValueError, "shortcut"):
@@ -185,7 +207,81 @@ class SlotTest(Base):
         self.assertEqual(clip.load_slots(), {})
 
 
-class WindowsTest(Base):
+class WindowsNativeTest(Base):
+    def setUp(self):
+        super().setUp()
+        for name in ("get_text", "set_text"):
+            patcher = mock.patch.object(clip.winapi, name)
+            setattr(self, name, patcher.start())
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(clip.subprocess, "run", side_effect=AssertionError("PowerShell ran"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_in_process_without_powershell(self):
+        self.get_text.return_value = "ünïcode ✓"
+        cb = clip.WindowsClipboard()
+        self.assertEqual(cb.get(), "ünïcode ✓")
+        cb.set("snippet", history=False)
+        cb.set("copied")
+        self.assertEqual(
+            self.set_text.call_args_list, [mock.call("snippet", history=False), mock.call("copied", history=True)]
+        )
+
+    def test_busy_clipboard_is_an_error_not_a_fallback(self):
+        self.get_text.side_effect = clip.winapi.ClipboardBusy("another program is using the clipboard; try again")
+        with self.assertRaisesRegex(RuntimeError, "another program is using the clipboard"):
+            clip.WindowsClipboard().get()
+        self.log.assert_not_called()
+
+    def test_a_clipboard_owner_that_never_answers_times_out(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+        self.get_text.side_effect = lambda: release.wait(5)
+        with mock.patch.object(clip, "TIMEOUT", 0.2):
+            with self.assertRaisesRegex(RuntimeError, "didn't answer in 0.2 s"):
+                clip.WindowsClipboard().get()
+
+    def test_key_plan(self):
+        self.assertEqual(
+            winapi.plan("ctrl+shift+v"),
+            [(0x11, False, False), (0x10, False, False), (0x56, False, False), (0x56, False, True), (0x10, False, True), (0x11, False, True)],
+        )
+        self.assertEqual(winapi.plan("shift+insert")[1], (0x2D, True, False))
+        with self.assertRaises(ValueError):
+            winapi.plan("ctrl+q")
+
+    def test_open_retries_then_gives_up(self):
+        user32 = mock.Mock()
+        user32.OpenClipboard.side_effect = [0, 0, 1]
+        sleep = mock.Mock()
+        winapi.open_clipboard(user32, None, tries=5, wait=0.01, sleep=sleep)
+        self.assertEqual(sleep.call_count, 2)
+        user32.OpenClipboard.side_effect = None
+        user32.OpenClipboard.return_value = 0
+        with self.assertRaises(winapi.ClipboardBusy):
+            winapi.open_clipboard(user32, None, tries=3, wait=0.01, sleep=sleep)
+
+
+class WindowsPowerShellTest(Base):
+    """The fallback, when the user32 functions fail."""
+
+    def setUp(self):
+        super().setUp()
+        for name in ("get_text", "set_text"):
+            patcher = mock.patch.object(clip.winapi, name, side_effect=OSError("CreateWindowEx failed (Windows error 5)"))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_falls_back_and_says_so_once(self):
+        cb = clip.WindowsClipboard()
+        with mock.patch.object(clip.subprocess, "run", return_value=done(b"")) as run:
+            cb.get()
+            cb.set("x")
+        self.assertEqual(run.call_count, 2)
+        self.log.assert_called_once()
+        self.assertIn("CreateWindowEx failed", self.log.call_args.args[0])
+
     def test_get_decodes_base64(self):
         payload = base64.b64encode("ünïcode ✓".encode("utf-8"))
         with mock.patch.object(clip.subprocess, "run", return_value=done(payload)) as run:
@@ -242,14 +338,111 @@ class WindowsTest(Base):
         self.assertIn("Set-Clipboard", seen["script"])
         self.assertEqual([f for f in os.listdir(data) if f.startswith("clip-")], [])  # cleaned up
 
-    def test_key_plan(self):
+
+# Runs in a child process that first moves to a window station of its own (each has
+# its own clipboard), so the real clipboard functions are exercised without touching
+# the clipboard of the person running the tests. Exit code 3: no such window station.
+ISOLATED_CHILD = r"""
+import ctypes, json, sys, threading
+sys.path.insert(0, sys.argv[1])
+u = ctypes.WinDLL("user32", use_last_error=True)
+p, s = ctypes.c_void_p, ctypes.c_wchar_p
+u.CreateWindowStationW.argtypes = [s, ctypes.c_uint32, ctypes.c_uint32, p]
+u.CreateWindowStationW.restype = p
+u.SetProcessWindowStation.argtypes = [p]
+u.CreateDesktopW.argtypes = [s, p, p, ctypes.c_uint32, ctypes.c_uint32, p]
+u.CreateDesktopW.restype = p
+u.SetThreadDesktop.argtypes = [p]
+u.GetProcessWindowStation.restype = p
+u.GetUserObjectInformationW.argtypes = [p, ctypes.c_int, p, ctypes.c_uint32, p]
+u.IsClipboardFormatAvailable.argtypes = [ctypes.c_uint]
+
+# No name: the window station of this logon session, which a normal user may create
+# (a named one needs more rights). WINSTA_ALL_ACCESS, then GENERIC_ALL for the desktop.
+station = u.CreateWindowStationW(None, 0, 0x37F, None)
+if not station or not u.SetProcessWindowStation(station):
+    print("CreateWindowStation failed", ctypes.get_last_error()); sys.exit(3)
+desk = u.CreateDesktopW("perritodeck-test", None, None, 0, 0x10000000, None)
+if not desk or not u.SetThreadDesktop(desk):
+    print("CreateDesktop failed", ctypes.get_last_error()); sys.exit(3)
+name = ctypes.create_unicode_buffer(256)
+u.GetUserObjectInformationW(u.GetProcessWindowStation(), 2, name, ctypes.sizeof(name), None)  # UOI_NAME
+if name.value.lower() == "winsta0" or not name.value.startswith("Service-0x"):
+    print("not a private window station:", name.value); sys.exit(3)
+
+import winapi
+user32, kernel32 = winapi.dlls()
+private = [user32.RegisterClipboardFormatW(n) for n in winapi.PRIVATE_FORMATS]
+out = {}
+try:
+    winapi.set_text("")
+    out["empty"] = winapi.get_text()
+    text = "héllo ✓ \U0001F44B\r\nline two\ttab"
+    winapi.set_text(text)
+    out["round_trip"] = winapi.get_text() == text
+    out["private_after_copy"] = [bool(u.IsClipboardFormatAvailable(f)) for f in private]
+    winapi.set_text("passing through", history=False)
+    out["private_values"] = []
+    winapi.open_clipboard(user32, None)
+    try:
+        for f in private:
+            data = user32.GetClipboardData(f)
+            out["private_values"].append(ctypes.c_uint32.from_address(kernel32.GlobalLock(data)).value)
+            kernel32.GlobalUnlock(data)
+    finally:
+        user32.CloseClipboard()
+    out["private_text"] = winapi.get_text()
+
+    held, release = threading.Event(), threading.Event()
+
+    def hold():  # another window keeps the clipboard open
+        u.SetThreadDesktop(desk)
+        window = user32.CreateWindowExW(0, "STATIC", None, 0, 0, 0, 0, 0, winapi.HWND_MESSAGE, None, None, None)
+        user32.OpenClipboard(window)
+        held.set()
+        release.wait(5)
+        user32.CloseClipboard()
+        user32.DestroyWindow(window)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    held.wait(5)
+    try:
+        winapi.get_text()
+        out["busy"] = "no error"
+    except winapi.ClipboardBusy as e:
+        out["busy"] = str(e)
+    release.set()
+    holder.join()
+    winapi.set_text("")
+    out["emptied"] = winapi.get_text()
+finally:
+    winapi.set_text("")  # leave nothing on that window station's clipboard
+print(json.dumps(out))
+"""
+
+
+@unittest.skipUnless(sys.platform == "win32", "uses the Windows clipboard functions")
+class WindowsClipboardFunctionsTest(unittest.TestCase):
+    def test_on_a_private_window_station(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        r = subprocess.run([sys.executable, "-c", ISOLATED_CHILD, here], capture_output=True, text=True, timeout=60)
+        if r.returncode == 3:
+            self.skipTest("no private window station here, and the real clipboard is off limits: " + r.stdout.strip())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertEqual(
-            winapi.plan("ctrl+shift+v"),
-            [(0x11, False, False), (0x10, False, False), (0x56, False, False), (0x56, False, True), (0x10, False, True), (0x11, False, True)],
+            out,
+            {
+                "empty": None,
+                "round_trip": True,
+                "private_after_copy": [False, False],
+                "private_values": [0, 0],
+                "private_text": "passing through",
+                "busy": "another program is using the clipboard; try again",
+                "emptied": None,
+            },
         )
-        self.assertEqual(winapi.plan("shift+insert")[1], (0x2D, True, False))
-        with self.assertRaises(ValueError):
-            winapi.plan("ctrl+q")
 
 
 class MacTest(Base):

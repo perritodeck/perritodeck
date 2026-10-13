@@ -22,7 +22,9 @@ clipboard instead of the snippet (slow apps, remote desktops).
 
 Per system:
 
-- **Windows**: nothing to install (Windows PowerShell 5.1 for the clipboard).
+- **Windows**: nothing to install. The clipboard is used in-process through Windows'
+  own functions (a few milliseconds); Windows PowerShell 5.1 is the fallback if they
+  fail.
 - **macOS**: pasting presses ⌘V for you, which needs **System Settings → Privacy &
   Security → Accessibility** for PerritoDeck (or the app that started the host).
 - **Linux**: `wl-clipboard` on Wayland, else `xclip` or `xsel`; to press the paste
@@ -43,8 +45,10 @@ paste the slot. Slots are kept in the plugin's own data folder (`slots.json`).
 
 Only text is handled: if the clipboard held a picture or files when you pasted, they
 can't be put back. If you copy something new before the old clipboard is put back,
-your new copy is kept. On Windows, pasted snippets also show up in clipboard history
-(Win+V) if that's turned on.
+your new copy is kept. On Windows, a snippet that's pasted and then replaced by your old
+clipboard is kept out of clipboard history (Win+V) and the cloud clipboard, and so is
+the old text when it's put back (it's in the history already). Copy text, and pasting
+with "put back" off, count as copying: those show up in the history as usual.
 
 ## Values
 
@@ -58,6 +62,11 @@ your new copy is kept. On Windows, pasted snippets also show up in clipboard his
   save to a slot, paste a slot and put the old clipboard back, over the real plugin
   protocol. That the paste shortcut landed in an app was not checked (only that
   `xdotool` accepted it).
-- **Unit-tested only**: Windows (PowerShell scripts and the key presses are checked, not
-  run), macOS (`pbcopy`/`pbpaste`/`osascript` arguments), Wayland (`wl-copy`,
-  `wl-paste`, `wtype`, `ydotool` arguments) and `xsel`.
+- **Tested on Windows 11** without touching your clipboard: the test suite runs the
+  clipboard functions in a process moved to a window station of its own, which has a
+  separate clipboard (text with emoji and line breaks, emptying, the clipboard-history
+  formats, another program holding the clipboard open). Copy and paste in the app and
+  the Win+V history were not checked by hand yet, and the key presses aren't run.
+- **Unit-tested only**: the Windows PowerShell fallback, macOS
+  (`pbcopy`/`pbpaste`/`osascript` arguments), Wayland (`wl-copy`, `wl-paste`, `wtype`,
+  `ydotool` arguments) and `xsel`.

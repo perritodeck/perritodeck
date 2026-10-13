@@ -2,12 +2,14 @@
 save the clipboard into and paste back later.
 
 Pasting puts the text on the clipboard, presses the paste shortcut in the app in
-front, and (if the key says so) puts the old clipboard back a moment later.
+front, and (if the key says so) puts the old clipboard back a moment later. On
+Windows, the snippet and the old text put back are kept out of clipboard history
+(Win+V) and the cloud clipboard.
 
 Backends, picked by sys.platform:
 
-- Windows: PowerShell Get-Clipboard/Set-Clipboard; the shortcut through keybd_event
-  (winapi.py).
+- Windows: user32's clipboard functions in-process (winapi.py), or PowerShell
+  Get-Clipboard/Set-Clipboard if those fail; the shortcut through keybd_event.
 - macOS: pbpaste/pbcopy; the shortcut through osascript and System Events (needs
   Accessibility).
 - Linux: wl-paste/wl-copy on Wayland, else xclip or xsel; the shortcut through wtype,
@@ -30,10 +32,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from perritodeck_plugin import Plugin  # noqa: E402
+import winapi  # noqa: E402  (imports everywhere; loads user32 only when used)
 
 plugin = Plugin()
 NOTHING = "–"
-TIMEOUT = 5  # seconds for any one helper program
+TIMEOUT = 5  # seconds for any one helper program or clipboard call
 PREVIEW = 20  # characters a slot shows
 MAX_ERROR = 80  # characters of an error message shown on a key
 COMBOS = ("ctrl+v", "ctrl+shift+v", "shift+insert")
@@ -103,10 +106,10 @@ def feed(args, text):
 
 # --- Windows ---------------------------------------------------------------------
 
-# Windows PowerShell 5.1. Text goes through a UTF-8 file and comes back as base64,
-# so no console code page can garble it and no command line gets too long. The
-# file's path comes in an environment variable, so it never has to be quoted into
-# the script: PowerShell ends a '…' string at ‘ ’ ‚ ‛ as well as at '.
+# The fallback: Windows PowerShell 5.1. Text goes through a UTF-8 file and comes
+# back as base64, so no console code page can garble it and no command line gets too
+# long. The file's path comes in an environment variable, so it never has to be
+# quoted into the script: PowerShell ends a '…' string at ‘ ’ ‚ ‛ as well as at '.
 # A failure is one line of UTF-8 on stderr; uncaught, PowerShell would write it as
 # CLIXML in the console's code page. Without $ProgressPreference, the first
 # Get-Clipboard also writes a "Preparing modules" progress record there.
@@ -149,14 +152,62 @@ def powershell(script, env=None):
     return run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded], env=full_env)
 
 
+def bounded(fn, *args, **kwargs):
+    """fn(*args, **kwargs) on a worker thread, given TIMEOUT seconds. A clipboard call
+    can wait on another program: one that only renders its text when asked (Excel,
+    Remote Desktop), or a hung one. A helper program could be killed after TIMEOUT;
+    a call in this process can't, so the key gets an error and the worker is left to
+    finish on its own."""
+    result = {}
+
+    def work():
+        try:
+            result["value"] = fn(*args, **kwargs)
+        except BaseException as e:  # raised again in the caller
+            result["error"] = e
+
+    worker = threading.Thread(target=work, name="clipboard", daemon=True)
+    worker.start()
+    worker.join(TIMEOUT)
+    if worker.is_alive():
+        raise RuntimeError(f"the program that has the clipboard didn't answer in {TIMEOUT} s")
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 class WindowsClipboard:
+    """user32 in-process (winapi.py): a few milliseconds a call, where each PowerShell
+    took 0.3–2 s and opened a console host. PowerShell is the fallback if user32 fails
+    for any reason but another program holding the clipboard."""
+
+    def __init__(self):
+        self.warned = False
+
+    def fall_back(self, error):
+        if not self.warned:
+            self.warned = True
+            plugin.log(f"the Windows clipboard functions failed, so PowerShell is used: {error}", "warn")
+
     def get(self):
+        try:
+            return bounded(winapi.get_text)
+        except winapi.ClipboardBusy as e:
+            raise RuntimeError(str(e)) from None
+        except OSError as e:
+            self.fall_back(e)
         out = powershell(WINDOWS_GET).stdout.decode("ascii", "replace").strip()
         if not out:
             return None
         return base64.b64decode(out).decode("utf-8", "replace")
 
-    def set(self, text):
+    def set(self, text, history=True):
+        try:
+            return bounded(winapi.set_text, text, history=history)
+        except winapi.ClipboardBusy as e:
+            raise RuntimeError(str(e)) from None
+        except OSError as e:
+            self.fall_back(e)
         fd, path = tempfile.mkstemp(prefix="clip-", suffix=".txt", dir=plugin.data_dir)
         try:
             with os.fdopen(fd, "wb") as f:
@@ -169,8 +220,6 @@ class WindowsClipboard:
                 pass
 
     def paste(self, combo):
-        import winapi  # ctypes.WinDLL: Windows only
-
         winapi.press(combo)
 
 
@@ -192,7 +241,7 @@ class MacClipboard:
         out = run(["pbpaste"], env=self.env()).stdout.decode("utf-8", "replace")
         return out or None
 
-    def set(self, text):
+    def set(self, text, history=True):  # history: Windows only
         run(["pbcopy"], data=text, env=self.env())
 
     def paste(self, combo):
@@ -259,7 +308,7 @@ class LinuxClipboard:
             return None  # empty, or nothing that's text
         return out.stdout.decode("utf-8", "replace") or None
 
-    def set(self, text):
+    def set(self, text, history=True):  # history: Windows only
         self.need()
         if self.tool == "wl":
             if not text:
@@ -384,7 +433,7 @@ def put_back(timer):
         try:
             cb = clipboard()
             if cb.get() == ours:
-                cb.set(old)
+                cb.set(old, history=False)  # it's in the history from when it was copied
         except Exception as e:
             plugin.log(f"couldn't put the clipboard back: {e}", "warn")
 
@@ -406,7 +455,9 @@ def paste(text, settings):
         elif restore:
             old = cb.get()
         _restore.update(timer=None, old=None, ours=None)
-        cb.set(text)
+        # When the old text comes back, the snippet was only passing through: keep it
+        # out of clipboard history. Without restoring, it stays, as if copied.
+        cb.set(text, history=not (restore and old is not None))
         time.sleep(0.05)  # let the clipboard owner settle before the app asks for it
         cb.paste(combo)
         if restore and old is not None and old != text:
