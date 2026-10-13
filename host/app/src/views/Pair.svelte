@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import type { HostStatus, PairingOffer } from "../lib/types";
+  import FirewallHint from "../components/FirewallHint.svelte";
 
   let { status, ondone }: { status: HostStatus; ondone: () => void } = $props();
 
@@ -40,6 +41,8 @@
 </script>
 
 <h1>Pair a tablet</h1>
+
+<FirewallHint />
 
 {#if error}
   <p class="note" role="alert">{error}</p>

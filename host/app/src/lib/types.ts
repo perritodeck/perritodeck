@@ -24,6 +24,20 @@ export interface HostStatus {
   companion: string | null;
 }
 
+/** Why tablets may not get through over Wi-Fi (most often the firewall). */
+export interface NetworkHint {
+  /** Tablets that tried the network, got no answer and came over the USB cable instead. */
+  fellBack: string[];
+  /** Windows Firewall blocks PerritoDeck on this network, or has no rule letting it in. */
+  firewallBlocks: boolean;
+  /** A network in use is one Windows calls Public. */
+  publicNetwork: boolean;
+  /** The port tablets connect to. */
+  port: number;
+  /** Whose firewall to explain. */
+  os: "windows" | "macos" | "linux" | string;
+}
+
 export interface DeviceInfo {
   id: string;
   name: string;

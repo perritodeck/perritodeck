@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, McpSettings, McpView, Network, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -20,6 +20,7 @@ async function on<T>(event: string, cb: (payload: T) => void): Promise<() => voi
 
 export const api = {
   status: () => call<HostStatus>("get_status"),
+  networkHint: () => call<NetworkHint | null>("network_hint"),
   devices: () => call<DeviceInfo[]>("list_devices"),
   revoke: (deviceId: string) => call<boolean>("revoke_device", { deviceId }),
   renameDevice: (deviceId: string, name: string) => call<void>("rename_device", { deviceId, name }),

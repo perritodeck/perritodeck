@@ -60,6 +60,45 @@ test("lists and unpairs tablets", async ({ page }) => {
   await expect(page.getByText("Pixel Tablet")).toHaveCount(0);
 });
 
+test("says when the firewall may keep tablets on Wi-Fi out", async ({ page }) => {
+  const banner = page.getByRole("region", { name: /Wi-Fi/ });
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Tablets/ }).click();
+  await expect(page.getByText("Fire HD 10")).toBeVisible();
+  await expect(banner).toHaveCount(0);
+
+  const show = async (networkHint: object) => {
+    await page.addInitScript((h) => {
+      (window as any).__perritoMockInit = { networkHint: h };
+    }, networkHint);
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Tablets/ }).click();
+  };
+
+  // A tablet fell back to the cable, and the firewall has no rule for PerritoDeck.
+  await show({ fellBack: ["Fire HD 10"], firewallBlocks: true, publicNetwork: true, port: 46710, os: "windows" });
+  await expect(banner).toHaveAccessibleName("Tablets can’t reach this computer over Wi-Fi");
+  await expect(banner).toContainText("Fire HD 10 couldn’t connect over Wi-Fi, so it’s using the USB cable.");
+  await expect(banner).toContainText("doesn’t let PerritoDeck take connections on this public network.");
+  await expect(banner).toContainText("Allow an app through firewall");
+  await expect(banner).toContainText("make it private");
+  await page.getByRole("button", { name: "Pair a tablet" }).first().click();
+  await expect(banner).toBeVisible();
+
+  // Nobody tried yet, on a private network.
+  await show({ fellBack: [], firewallBlocks: true, publicNetwork: false, port: 46710, os: "windows" });
+  await expect(banner).toHaveAccessibleName("Windows Firewall keeps tablets on Wi-Fi out");
+  await expect(banner).toContainText("so only tablets on a USB cable can connect.");
+  await expect(banner).toContainText("tick Private");
+  await expect(banner).not.toContainText("make it private");
+
+  // Elsewhere it's a port to open.
+  await show({ fellBack: ["Fire HD 10", "Pixel Tablet"], firewallBlocks: false, publicNetwork: false, port: 46710, os: "linux" });
+  await expect(banner).toContainText("Fire HD 10 and Pixel Tablet couldn’t connect over Wi-Fi, so they’re using the USB cable.");
+  await expect(banner).toContainText("on the same network as this computer");
+  await expect(banner).toContainText("sudo ufw allow 46710/tcp");
+});
+
 test("the tray's Pair item opens the pairing view", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Buttons" })).toBeVisible();

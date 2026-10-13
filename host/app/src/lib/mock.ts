@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { McpSettings, McpView, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { McpSettings, McpView, NetworkHint, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -387,6 +387,8 @@ export const mock = {
     switch (cmd) {
       case "get_status":
         return out(status);
+      case "network_hint":
+        return out(this.networkHint);
       case "list_devices":
         return out(devices);
       case "revoke_device": {
@@ -663,6 +665,8 @@ export const mock = {
   busyPort: 46799,
   /** An assistant connected through `perritodeck-app mcp`, the setup from before the bridge. */
   appBridgeUsed: !!init().appBridgeUsed,
+  /** What network_hint answers: why tablets may not get through over Wi-Fi. */
+  networkHint: (init().networkHint ?? null) as NetworkHint | null,
   pluginSettings: {} as Record<string, Record<string, unknown>>,
   /** Removing or restarting a plugin waits for this, like a plugin slow to stop. */
   stopping: null as Promise<unknown> | null,
@@ -721,7 +725,12 @@ function mcpView(m: { mcpSettings: McpSettings; mcpToken: string; busyPort: numb
   };
 }
 
-function init(): { checkUpdates?: boolean; latest?: { version: string; url: string } | string | null; appBridgeUsed?: boolean } {
+function init(): {
+  checkUpdates?: boolean;
+  latest?: { version: string; url: string } | string | null;
+  appBridgeUsed?: boolean;
+  networkHint?: NetworkHint;
+} {
   return typeof window !== "undefined" ? ((window as unknown as { __perritoMockInit?: object }).__perritoMockInit ?? {}) : {};
 }
 

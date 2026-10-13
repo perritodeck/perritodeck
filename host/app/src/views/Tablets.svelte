@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import type { DeviceInfo, ProfileSummary } from "../lib/types";
+  import FirewallHint from "../components/FirewallHint.svelte";
 
   let { devices, onchange, onpair }: { devices: DeviceInfo[]; onchange: () => void; onpair: () => void } = $props();
 
@@ -61,6 +62,8 @@
   <h1>Tablets</h1>
   <button class="btn primary" onclick={onpair}>Pair a tablet</button>
 </header>
+
+<FirewallHint />
 
 {#if error}
   <p class="err" role="alert">{error}</p>
