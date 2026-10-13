@@ -4,11 +4,30 @@
 //! window. Linux: the active window's `WM_CLASS` on X11. Wayland has no general way to
 //! ask, so auto-switching is unavailable there for now.
 
-/// A short, stable name for an app: `obs64`, `OBS`, `firefox`. Compared case-insensitively.
-pub fn foreground_app() -> Option<String> {
-    imp::foreground_app()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
+/// The app in front.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Foreground {
+    /// A short, stable name for it: `obs64`, `OBS`, `firefox`. Compared case-insensitively.
+    pub app: String,
+    /// Its process, where the OS says (Windows), to notice the app quitting.
+    pid: Option<u32>,
+}
+
+impl Foreground {
+    /// Whether the app has quit since it was in front. False where we can't tell.
+    pub fn has_quit(&self) -> bool {
+        self.pid.is_some_and(|pid| imp::has_quit(pid, &self.app))
+    }
+}
+
+/// The app in front, if there's one to name.
+pub fn foreground() -> Option<Foreground> {
+    let (app, pid) = imp::foreground()?;
+    let app = app.trim();
+    (!app.is_empty()).then(|| Foreground {
+        app: app.to_owned(),
+        pid,
+    })
 }
 
 /// False where the desktop doesn't let us see the focused app (Wayland).
@@ -16,10 +35,12 @@ pub fn supported() -> bool {
     imp::supported()
 }
 
-/// Whether "no app" from [`foreground_app`] means "nothing worth switching for; keep
-/// the last app". On Windows it does: the foreground window is NULL while focus moves
-/// and while the UAC or lock screen is up, and the shell's own windows (taskbar, Start,
-/// Search, Alt+Tab) are reported as no app too.
+/// Whether "no app" from [`foreground`] means "nothing worth switching for; keep the
+/// last app". On Windows it does: the foreground window is NULL while focus moves and
+/// while the UAC or lock screen is up, and the shell's own windows (taskbar, Start,
+/// Search, Alt+Tab) are reported as no app too. Once the last app has quit
+/// ([`Foreground::has_quit`]), as when it's closed with only the desktop behind it, no
+/// app means no app again.
 pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Windows processes whose windows are the shell rather than an app. Their windows
@@ -64,9 +85,9 @@ mod imp {
     use windows_sys::{
         core::BOOL,
         Win32::{
-            Foundation::{CloseHandle, HANDLE, HWND, LPARAM},
+            Foundation::{CloseHandle, HANDLE, HWND, LPARAM, STILL_ACTIVE},
             System::Threading::{
-                OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+                GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
                 PROCESS_QUERY_LIMITED_INFORMATION,
             },
             UI::WindowsAndMessaging::{
@@ -79,7 +100,7 @@ mod imp {
         true
     }
 
-    pub fn foreground_app() -> Option<String> {
+    pub fn foreground() -> Option<(String, Option<u32>)> {
         // SAFETY: plain Win32 calls on a window handle Windows just gave us; a window
         // that has gone away since only makes the calls fail.
         let hwnd = unsafe { GetForegroundWindow() };
@@ -99,7 +120,28 @@ mod imp {
         if super::is_windows_shell(&name, &class) {
             return None;
         }
-        Some(name)
+        Some((name, Some(pid)))
+    }
+
+    /// Whether process `pid`, last seen as `app`, has exited, or its id now belongs to
+    /// another program.
+    pub fn has_quit(pid: u32, app: &str) -> bool {
+        // An exited process lingers while anything holds a handle to it (whatever
+        // launched it, say), so ask for its exit code.
+        // SAFETY: the handle is closed before returning, and `code` outlives the call
+        // that fills it.
+        let exited = unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if process.is_null() {
+                false
+            } else {
+                let mut code = 0;
+                let ok = GetExitCodeProcess(process, &mut code);
+                CloseHandle(process);
+                ok != 0 && code != STILL_ACTIVE as u32
+            }
+        };
+        exited || !process_name(pid).is_some_and(|name| name.eq_ignore_ascii_case(app))
     }
 
     fn window_pid(hwnd: HWND) -> Option<u32> {
@@ -217,7 +259,7 @@ mod imp {
 
     /// The window list is ordered front to back; the first normal-layer window belongs
     /// to the frontmost app. Owner names don't need the screen recording permission.
-    pub fn foreground_app() -> Option<String> {
+    pub fn foreground() -> Option<(String, Option<u32>)> {
         let list: CFArray = copy_window_info(
             kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
             kCGNullWindowID,
@@ -244,10 +286,15 @@ mod imp {
                 continue;
             }
             if let Some(name) = dict.find(&owner_key).and_then(|v| v.downcast::<CFString>()) {
-                return Some(name.to_string());
+                return Some((name.to_string(), None));
             }
         }
         None
+    }
+
+    /// No process ids are reported here, so this is never asked.
+    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+        false
     }
 }
 
@@ -262,7 +309,7 @@ mod imp {
         std::env::var_os("WAYLAND_DISPLAY").is_none() && std::env::var_os("DISPLAY").is_some()
     }
 
-    pub fn foreground_app() -> Option<String> {
+    pub fn foreground() -> Option<(String, Option<u32>)> {
         if !supported() {
             return None;
         }
@@ -294,7 +341,12 @@ mod imp {
         let mut parts = class.split(|b| *b == 0).filter(|p| !p.is_empty());
         let instance = parts.next();
         let class = parts.next().or(instance)?;
-        Some(String::from_utf8_lossy(class).into_owned())
+        Some((String::from_utf8_lossy(class).into_owned(), None))
+    }
+
+    /// No process ids are reported here, so this is never asked.
+    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+        false
     }
 }
 
@@ -303,8 +355,11 @@ mod imp {
     pub fn supported() -> bool {
         false
     }
-    pub fn foreground_app() -> Option<String> {
+    pub fn foreground() -> Option<(String, Option<u32>)> {
         None
+    }
+    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+        false
     }
 }
 
@@ -351,5 +406,70 @@ mod tests {
         assert_eq!(imp::process_name(4).as_deref(), Some("System"));
         // Process ids are multiples of 4, so there's never a 4001.
         assert_eq!(imp::listed_name(4001), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_app_has_quit_once_its_process_has_ended() {
+        use std::{io::Write, process::Stdio};
+
+        let me = std::env::current_exe().unwrap();
+        let me = Foreground {
+            app: me.file_stem().unwrap().to_string_lossy().into_owned(),
+            pid: Some(std::process::id()),
+        };
+        assert!(!me.has_quit());
+        // The same process id, now another program's.
+        let reused = Foreground {
+            app: "obs64".into(),
+            ..me.clone()
+        };
+        assert!(reused.has_quit());
+
+        // `set /p` waits for a line on stdin.
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "set /p line="])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let cmd = Foreground {
+            app: "cmd".into(),
+            pid: Some(child.id()),
+        };
+        assert!(!cmd.has_quit());
+        child.stdin.take().unwrap().write_all(b"bye\n").unwrap();
+        child.wait().unwrap();
+        // Ended, though `child` still holds a handle that keeps the process around.
+        assert!(cmd.has_quit());
+        drop(child);
+        assert!(cmd.has_quit());
+
+        // Without a process id there's no telling.
+        let unknown = Foreground {
+            app: "obs64".into(),
+            pid: None,
+        };
+        assert!(!unknown.has_quit());
+    }
+
+    /// What auto-switch sees in front, printed as it changes for a minute, to check
+    /// shell windows by hand:
+    /// `cargo test -p perritodeck-host --lib focus::tests::watch -- --ignored --nocapture`
+    #[test]
+    #[ignore = "watches the desktop for a minute"]
+    fn watch() {
+        use std::time::{Duration, Instant};
+
+        let start = Instant::now();
+        let mut last = None;
+        while start.elapsed() < Duration::from_secs(60) {
+            let now = foreground();
+            if now != last {
+                println!("{:6.1}s {now:?}", start.elapsed().as_secs_f32());
+                last = now;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 }

@@ -2044,17 +2044,32 @@ fn spawn_focus_watch(shared: Arc<Shared>) {
     tokio::spawn(async move {
         let mut every = poll_timer(Duration::from_millis(700));
         let mut last: Option<String> = None;
+        // The last app's newest window seen in front, to notice the app quitting while
+        // no app is (closed with only the desktop or the taskbar behind it).
+        let mut last_seen: Option<focus::Foreground> = None;
         loop {
             every.tick().await;
-            let Ok(app) = tokio::task::spawn_blocking(focus::foreground_app).await else {
+            let seen = last_seen.clone();
+            let Ok((front, quit)) = tokio::task::spawn_blocking(move || {
+                let front = focus::foreground();
+                let quit = front.is_none() && seen.is_some_and(|s| s.has_quit());
+                (front, quit)
+            })
+            .await
+            else {
                 continue;
             };
+            let app = front.as_ref().map(|f| f.app.clone());
             // Clicking over to PerritoDeck itself shouldn't switch the tablets away, and
-            // on Windows neither should a moment with no window in front, or the shell.
+            // on Windows neither should a moment with no window in front, or the shell,
+            // unless the last app has quit.
             if app.as_deref().is_some_and(is_us)
-                || (app.is_none() && focus::NONE_KEEPS_LAST)
-                || app == last
+                || (app.is_none() && focus::NONE_KEEPS_LAST && !quit)
             {
+                continue;
+            }
+            last_seen = front;
+            if app == last {
                 continue;
             }
             last.clone_from(&app);
