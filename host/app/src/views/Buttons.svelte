@@ -264,6 +264,56 @@
       .replaceAll("{date}", now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }));
   }
 
+  /** The title the tablet shows: one a Stream Deck plugin set, else the key's own. */
+  function shownTitle(k: KeyView): string {
+    return k.liveTitle ?? live(k.title);
+  }
+
+  function keyLabel(k: KeyView): string {
+    const title = (k.liveTitle || live(k.title)).replaceAll("\n", " ");
+    return `${title || "Untitled"}: ${k.detail}`;
+  }
+
+  function keyStyle(k: KeyView): string {
+    if (k.kind === "slider") return `color: ${k.fg}`;
+    // A plugin's image covers the key; the tablet draws it on black.
+    return `background: ${k.liveImage ? "#000" : k.bg}; color: ${k.fg}`;
+  }
+
+  // A Stream Deck plugin drew keys. Only the drawings are taken from the answer, so one that
+  // crosses an edit on its way can't put a key's old settings back. One refresh at a time;
+  // events meanwhile make one more.
+  let looksBusy = false;
+  let looksAgain = false;
+  async function refreshLooks() {
+    if (looksBusy) {
+      looksAgain = true;
+      return;
+    }
+    looksBusy = true;
+    try {
+      do {
+        looksAgain = false;
+        const id = profile?.id;
+        if (!id) return;
+        const fresh = await api.profile(id);
+        if (profile?.id !== id) return;
+        for (const p of profile.pages) {
+          const drawn = fresh.pages.find((f) => f.name === p.name)?.keys ?? [];
+          for (const k of p.keys) {
+            const d = drawn.find((f) => f.row === k.row && f.col === k.col);
+            k.liveImage = d?.liveImage ?? null;
+            k.liveTitle = d?.liveTitle ?? null;
+          }
+        }
+      } while (looksAgain);
+    } catch {
+      // The next drawing or profile change tries again.
+    } finally {
+      looksBusy = false;
+    }
+  }
+
   function follow(k: KeyView) {
     if (!profile) return;
     const nav = k.fields.nav;
@@ -384,6 +434,7 @@
       .catch(() => {});
     const off = api.onHostEvent((e) => {
       if (e.kind === "profileChanged") load();
+      else if (e.kind === "keyLooksChanged" && e.profile === profile?.id) refreshLooks();
     });
     const t = setInterval(() => (now = new Date()), 1000);
     return () => {
@@ -570,8 +621,9 @@ port = 16622         # Companion's Satellite port</pre>
           class:drop={dragOver === `${at[0]}-${at[1]}`}
           data-cell="{at[0]}-{at[1]}"
           class:slider={k?.kind === "slider"}
-          style={k ? (k.kind === "slider" ? `color: ${k.fg}` : `background: ${k.bg}; color: ${k.fg}`) : ""}
-          aria-label={k ? `${live(k.title).replaceAll("\n", " ") || "Untitled"}: ${k.detail}` : `Empty, row ${at[0] + 1} column ${at[1] + 1}`}
+          class:drawn={!!k?.liveImage && k.kind !== "slider"}
+          style={k ? keyStyle(k) : ""}
+          aria-label={k ? keyLabel(k) : `Empty, row ${at[0] + 1} column ${at[1] + 1}`}
           aria-pressed={isSel}
           draggable={!!k}
           onclick={() => select(at)}
@@ -596,9 +648,13 @@ port = 16622         # Companion's Satellite port</pre>
           {#if k?.kind === "slider"}
             <span class="slider-fill" style="background: {k.bg}"></span>
             <span class="slider-title">{live(k.title)}</span>
+          {:else if k?.liveImage}
+            <!-- What its Stream Deck plugin drew, filling the key with the title over it, as on the tablet. -->
+            <img class="live" src={k.liveImage} alt="" />
+            {#if shownTitle(k)}<span class="live-title">{shownTitle(k)}</span>{/if}
           {:else if k}
-            {#if k.iconData}<img class="icon" class:with-title={!!k.title} src={k.iconData} alt="" />{/if}
-            {#if k.title}<span>{live(k.title)}</span>{/if}
+            {#if k.iconData}<img class="icon" class:with-title={!!shownTitle(k)} src={k.iconData} alt="" />{/if}
+            {#if shownTitle(k)}<span>{shownTitle(k)}</span>{/if}
           {:else}<span class="plus" aria-hidden="true">+</span>{/if}
         </button>
       {/each}
@@ -816,6 +872,24 @@ port = 16622         # Companion's Satellite port</pre>
   .key:has(.icon) { place-items: center; align-content: center; gap: 4%; }
   .icon { width: 62%; height: 62%; object-fit: contain; pointer-events: none; }
   .icon.with-title { width: 48%; height: 48%; }
+  /* A plugin's drawing: the image fills the key and the title sits on its lower part,
+     outlined so it reads over any picture. */
+  .key.drawn { position: relative; }
+  .live {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+  .live-title {
+    position: absolute;
+    inset: 55% 6% 6%;
+    display: grid;
+    place-items: center;
+    text-shadow: -1px 0 #000, 1px 0 #000, 0 -1px #000, 0 1px #000;
+  }
 
   .side { display: grid; gap: 10px; }
   .hint { color: var(--ink-soft); font-size: 0.92rem; }

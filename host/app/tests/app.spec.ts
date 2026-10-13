@@ -365,6 +365,31 @@ test.describe("editing", () => {
     await key(page, /‹ Home: switches to default/).dblclick();
     await expect(key(page, /^Copy:/)).toBeVisible();
   });
+
+  test("shows what a Stream Deck plugin draws on its key", async ({ page }) => {
+    await page.getByRole("tab", { name: "More" }).click();
+    // The plugin's image and title, as the tablet shows them, rather than the key's own "Count".
+    const counter = key(page, /^3: Stream Deck plugin: com\.example\.counter\.up/);
+    await expect(counter.locator("img.live")).toHaveAttribute("src", /^data:image\/svg\+xml/);
+    await expect(counter.locator(".live-title")).toHaveText("3");
+    await expect(counter).toHaveCSS("background-color", "rgb(0, 0, 0)");
+
+    // It draws again: the preview follows by itself.
+    await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { title: "4" })`);
+    const four = key(page, /^4: Stream Deck plugin/);
+    await expect(four.locator(".live-title")).toHaveText("4");
+
+    // The key's own settings stay editable, and the inspector says where the look comes from.
+    await four.click();
+    await expect(page.getByLabel("Title")).toHaveValue("Count");
+    await expect(page.getByText("The preview shows what its Stream Deck plugin draws")).toBeVisible();
+
+    // Nothing drawn (no tablet shows the page): the key's own look.
+    await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { image: null, title: null })`);
+    const own = key(page, /^Count: Stream Deck plugin/);
+    await expect(own).toHaveText("Count");
+    await expect(own.locator("img.live")).toHaveCount(0);
+  });
 });
 
 test.describe("profiles, tablets and switching", () => {

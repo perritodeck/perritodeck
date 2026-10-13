@@ -160,6 +160,14 @@
     {/if}
   </header>
 
+  {#if key?.fields.action?.type === "sdPlugin"}
+    <!-- Plugins draw only keys a tablet shows; the preview has the key's own look until then. -->
+    <p class="note">
+      The preview shows what its Stream Deck plugin draws while a tablet shows this page. A title or image the plugin
+      draws takes the place of the one set here.
+    </p>
+  {/if}
+
   <div class="kind" role="radiogroup" aria-label="Kind of key">
     <label><input type="radio" name="kind" value="key" bind:group={kind} onchange={() => changed(0)} /> Key</label>
     <label

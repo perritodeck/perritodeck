@@ -164,6 +164,14 @@ export interface KeyView {
   hasIcon: boolean;
   /** PNG data URL of the key's image, for the preview. */
   iconData: string | null;
+  /**
+   * What a Stream Deck plugin drew on the key (PNG data URL, filling the key), shown
+   * instead of the background and image. Display only. Plugins draw only keys a tablet
+   * shows, so it's null for the others.
+   */
+  liveImage: string | null;
+  /** The title a Stream Deck plugin gave the key, shown instead of `title`. */
+  liveTitle: string | null;
 }
 
 export interface PageView {
@@ -191,6 +199,8 @@ export type HostEvent =
   | { kind: "paired"; deviceId: string; deviceName: string }
   | { kind: "keyPressed"; deviceId: string; keyIndex: number }
   | { kind: "profileChanged" }
+  /** A Stream Deck plugin drew keys of the profile differently. */
+  | { kind: "keyLooksChanged"; profile: string }
   | { kind: "foregroundApp"; app: string | null };
 
 export type View = "buttons" | "tablets" | "pair" | "switching" | "plugins" | "settings";

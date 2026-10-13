@@ -61,6 +61,8 @@ function key(row: number, col: number, f: Partial<KeyFields>, states = 0, shown?
     states,
     hasIcon: !!fields.icon,
     iconData: fields.icon ? MOCK_ICON : null,
+    liveImage: null,
+    liveTitle: null,
     ...shown,
   };
 }
@@ -70,6 +72,12 @@ const dark = "#11111B";
 const MOCK_ICON =
   "data:image/svg+xml;utf8," +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="%23FAB387"/></svg>').replace("%2523", "%23");
+// What a Stream Deck plugin might draw: a grey card on a dark key.
+const MOCK_DRAWING =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><rect width="72" height="72" fill="#313244"/><rect x="14" y="10" width="44" height="34" rx="5" fill="#9399B2"/></svg>',
+  );
 
 const starter: ProfileView = {
   id: "default",
@@ -116,6 +124,14 @@ const starter: ProfileView = {
         key(0, 0, { title: "‹ Back", bg: "#CBA6F7", fg: dark, nav: "back" }),
         key(0, 1, { title: "Run a\ncommand", action: { type: "command", program: "hostname" } }),
         key(0, 4, { title: "Volume", bg: "#89B4FA", fg: dark, slider: { type: "volume" } }),
+        // A Stream Deck plugin's key, drawn by the plugin as a tablet shows it.
+        key(
+          1,
+          0,
+          { title: "Count", action: { type: "sdPlugin", plugin: "com.example.counter", action: "com.example.counter.up" } },
+          0,
+          { liveImage: MOCK_DRAWING, liveTitle: "3" },
+        ),
         key(0, 2, {
           title: "Select all\n+ copy",
           action: {
@@ -659,6 +675,14 @@ export const mock = {
   setReloadError(msg: string | null) {
     profiles.default.reloadError = msg;
     this.emit("host-event", { kind: "profileChanged" });
+  },
+  /** A Stream Deck plugin draws a key, as on a tablet; null puts the key's own look back. */
+  drawKey(profileId: string, pageName: string, at: [number, number], look: { image?: string | null; title?: string | null }) {
+    const k = page(profiles[profileId], pageName).keys.find((x) => same(x, at));
+    if (!k) throw "there's no key there";
+    if (look.image !== undefined) k.liveImage = look.image;
+    if (look.title !== undefined) k.liveTitle = look.title;
+    this.emit("host-event", { kind: "keyLooksChanged", profile: profileId });
   },
   failToStart(msg: string) {
     failStart = msg;
