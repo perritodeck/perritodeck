@@ -467,9 +467,9 @@ mod windows_commands {
     }
 
     /// A folder with `start.cmd`, which starts `slow.cmd` and returns, and `slow.cmd`,
-    /// which writes `marker.txt` after about 2 s. `start.cmd` waits `wait` seconds
-    /// after starting it (ping's `-n` counts from 1).
-    fn scripts(wait: u32) -> tempfile::TempDir {
+    /// which writes `marker.txt` after about `slow` seconds. `start.cmd` waits `wait`
+    /// seconds after starting it (ping's `-n` counts from 1).
+    fn scripts(wait: u32, slow: u32) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("start.cmd"),
@@ -481,7 +481,10 @@ mod windows_commands {
         .unwrap();
         std::fs::write(
             dir.path().join("slow.cmd"),
-            "@ping -n 3 127.0.0.1 >nul\r\n@echo done>\"%~dp0marker.txt\"\r\n",
+            format!(
+                "@ping -n {} 127.0.0.1 >nul\r\n@echo done>\"%~dp0marker.txt\"\r\n",
+                slow + 1
+            ),
         )
         .unwrap();
         dir
@@ -501,21 +504,23 @@ mod windows_commands {
     #[tokio::test]
     async fn a_command_that_starts_a_program_finishes_when_it_exits() {
         let (ex, _) = setup();
-        let dir = scripts(0);
+        let dir = scripts(0, 6);
         let start = dir.path().join("start.cmd");
-        // slow.cmd inherits the error pipe and holds it for 2 s; the key mustn't wait.
+        // slow.cmd inherits the error pipe and holds it for 6 s; the key mustn't wait. The
+        // limits leave a loaded machine room: waiting for the pipe would take 6 s, or hit
+        // the 4.5 s timeout and come back as an alert.
         let began = std::time::Instant::now();
-        let run = command(start.to_str().unwrap(), &[], Some(1500));
+        let run = command(start.to_str().unwrap(), &[], Some(4500));
         assert_eq!(ex.run(&run).await.unwrap(), Outcome::Ok);
-        assert!(began.elapsed().as_millis() < 1500, "{:?}", began.elapsed());
+        assert!(began.elapsed().as_millis() < 4000, "{:?}", began.elapsed());
         // And what it started keeps running.
-        assert!(marker_after(dir.path(), 6).await);
+        assert!(marker_after(dir.path(), 10).await);
     }
 
     #[tokio::test]
     async fn a_timeout_ends_what_the_command_started() {
         let (ex, _) = setup();
-        let dir = scripts(5);
+        let dir = scripts(5, 2);
         let start = dir.path().join("start.cmd");
         let run = command(start.to_str().unwrap(), &[], Some(500));
         assert!(
