@@ -215,6 +215,14 @@ def access_token(force_refresh=False):
 # --- sign-in -------------------------------------------------------------------------
 
 
+class SignInServer(http.server.HTTPServer):
+    # HTTPServer sets SO_REUSEADDR. On Windows that lets this server bind a port another
+    # socket is still listening on, and which of the two gets the browser is then anyone's
+    # guess. Windows doesn't need it to reuse a port in TIME_WAIT either; the standard
+    # library's socket.create_server leaves it off there for the same reasons.
+    allow_reuse_address = os.name != "nt"
+
+
 class SignIn:
     """One sign-in attempt: a one-shot web server on 127.0.0.1 waiting for Spotify to
     send the browser back with a code, then the code exchange."""
@@ -235,7 +243,7 @@ class SignIn:
                 pass
 
         try:
-            self.server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+            self.server = SignInServer(("127.0.0.1", port), Handler)
         except OSError as e:
             raise SpotifyError(
                 f"couldn't listen on 127.0.0.1:{port} for the sign-in ({e.strerror or e}); "
@@ -321,17 +329,23 @@ class SignIn:
 
 
 _sign_in = {"current": None}
+# Actions run on threads of their own: two quick presses mustn't both replace the attempt.
+_sign_in_lock = threading.Lock()
 
 
 @plugin.action("sign-in")
 def sign_in(settings):
     cid = client_id()
-    old = _sign_in["current"]
-    if old is not None and not old.done.is_set():
-        old.finish("replaced by a new sign-in")
-    attempt = SignIn(cid, sign_in_port())
-    _sign_in["current"] = attempt
-    attempt.start()
+    with _sign_in_lock:
+        old = _sign_in["current"]
+        if old is not None:
+            if not old.done.is_set():
+                old.finish("replaced by a new sign-in")
+            # It stops listening within a second (server.timeout); the new attempt needs the port.
+            old.thread.join(2)
+        attempt = SignIn(cid, sign_in_port())
+        attempt.start()
+        _sign_in["current"] = attempt
     url = attempt.authorize_url()
     if not webbrowser.open(url):
         plugin.log(f"open this address to sign in to Spotify: {url}", "warn")

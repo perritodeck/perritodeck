@@ -301,6 +301,23 @@ class SpotifyTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another sign-in port"):
             spotify.sign_in({})
 
+    def test_sign_in_again_on_the_same_port(self):
+        # Pressed again while the first attempt still waits for the browser: the new
+        # attempt needs the same port, the one registered with Spotify.
+        with mock.patch.object(spotify.webbrowser, "open", lambda url: True):
+            spotify.sign_in({})
+        first = spotify._sign_in["current"]
+        spotify.plugin.settings["port"] = first.port
+        opened, open_url = self.browser()
+        with mock.patch.object(spotify.webbrowser, "open", open_url):
+            spotify.sign_in({})
+            attempt = spotify._sign_in["current"]
+            self.assertTrue(attempt.done.wait(5))
+        self.assertEqual(first.error, "replaced by a new sign-in")
+        self.assertEqual(attempt.port, first.port)
+        self.assertIsNone(attempt.error)
+        self.assertEqual(spotify.load_tokens()["access_token"], "access-1")
+
     # --- tokens ----------------------------------------------------------------------
 
     def test_refresh_on_401(self):
