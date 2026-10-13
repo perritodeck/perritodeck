@@ -1,0 +1,18 @@
+# Keeps the actions in .github/workflows/ current. Every action is pinned to a commit SHA
+# with its version in a comment after it; Dependabot moves both to the newest release.
+# Each pull request runs CI, which costs minutes, so updates come in at most two a week:
+# one for minor and patch releases, and one for new major versions, which can change how
+# an action behaves and need reading before merging.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      actions-major:
+        patterns: ["*"]
+        update-types: [major]

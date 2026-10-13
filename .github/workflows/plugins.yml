@@ -3,9 +3,9 @@ name: Plugins
 on:
   push:
     branches: [main]
-    paths: ["plugins/**", ".github/workflows/plugins.yml"]
+    paths: ["plugins/**", "website/**", ".github/workflows/plugins.yml"]
   pull_request:
-    paths: ["plugins/**", ".github/workflows/plugins.yml"]
+    paths: ["plugins/**", "website/**", ".github/workflows/plugins.yml"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,12 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      # SDKs, first-party plugins, and the bundled SDK copies matching the SDK.
+      # SDKs, first-party plugins, and the bundled SDK copies matching the SDK. It also
+      # runs test_build_catalog.py, which checks website/ for anything the site's
+      # Content-Security-Policy would block; hence website/** above.
       - run: python3 plugins/test_all.py
