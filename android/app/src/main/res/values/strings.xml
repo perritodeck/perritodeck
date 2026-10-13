@@ -20,7 +20,7 @@
     <string name="pair_button">Pair</string>
     <string name="pair_with_code">Pair with a code</string>
     <string name="pair_title">Pair with your computer</string>
-    <string name="pair_subtitle">On the computer, PerritoDeck Host shows a 6-digit code. Type `pair` in its window if it isn\'t showing one.</string>
+    <string name="pair_subtitle">On the computer, open PerritoDeck and choose Pair a tablet: it shows a 6-digit code. (The command-line host prints one when started with --pair.)</string>
     <string name="code_label">6-digit code</string>
     <string name="continue_button">Continue</string>
     <string name="cancel">Cancel</string>

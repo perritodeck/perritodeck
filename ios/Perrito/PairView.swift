@@ -88,7 +88,7 @@ private struct PairForm: View {
             Text("Pair with your computer")
                 .font(.title.weight(.semibold))
             Spacer().frame(height: 8)
-            Text("On the computer, PerritoDeck Host shows a 6-digit code. Type `pair` in its window if it isn't showing one.")
+            Text("On the computer, open PerritoDeck and choose Pair a tablet: it shows a 6-digit code. (The command-line host prints one when started with --pair.)")
                 .foregroundColor(Theme.muted)
             Spacer().frame(height: 24)
 

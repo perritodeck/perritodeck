@@ -771,7 +771,7 @@
     {#if choice === "command"}
       <div class="field narrow">
         <label for="{uid}-f10">Time limit (seconds)</label>
-        <input id="{uid}-f10" inputmode="decimal" bind:value={timeoutS} oninput={() => changed()} placeholder="30" />
+        <input id="{uid}-f10" inputmode="decimal" bind:value={timeoutS} oninput={() => changed()} placeholder="10" />
       </div>
     {/if}
   {:else if choice === "obs"}
