@@ -238,6 +238,27 @@ async fn install_and_remove() {
     assert!(!root.path().join("plugins/test.copy").exists());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plugin_being_removed_or_updated_isnt_started_again_by_a_scan() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "test.busy", "exec", "missing", None);
+    let host = PluginHost::start(root.path().to_owned(), "1", Arc::new(|_, _| {}));
+    assert_eq!(host.list().len(), 1);
+    let (taken, busy) = host.take_busy("test.busy").unwrap();
+    assert!(taken.is_some());
+    // Another command scans while it's stopping, with its folder still there.
+    host.scan();
+    assert!(host.list().is_empty(), "the scan left it alone");
+    // A second removal or update of it at the same time is turned away.
+    assert!(host.take_busy("test.busy").is_err());
+    let err = host.remove("test.busy").unwrap_err();
+    assert!(err.contains("still being removed"), "{err}");
+    // Once that's over (here the folder stayed), scans see it again.
+    drop(busy);
+    host.scan();
+    assert_eq!(host.list().len(), 1);
+}
+
 #[test]
 fn a_plugin_being_stopped_gets_no_actions_when_it_says_ready() {
     let manifest = Manifest::parse(
@@ -437,6 +458,41 @@ async fn plugins_that_ignore_shutdown_are_ended_before_removal() {
         .unwrap();
     assert!(!plugins.join("test.stubborn").exists());
     assert!(!process_alive(pid), "the old process was ended");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scans_while_a_plugin_is_being_removed_dont_bring_it_back() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    write_plugin(
+        &plugins,
+        "test.stubborn",
+        "python",
+        "plugin.py",
+        Some(STUBBORN_PLUGIN),
+    );
+    let host = PluginHost::start(plugins.clone(), "1", Arc::new(|_, _| {}));
+    wait_for("running", || {
+        host.list()
+            .first()
+            .is_some_and(|p| p.status == Status::Running)
+    })
+    .await;
+    // It ignores `shutdown`, so removing it takes the whole grace period, while other
+    // commands (installing or restarting another plugin) scan the folder.
+    let h = host.clone();
+    let removing = tokio::task::spawn_blocking(move || h.remove("test.stubborn"));
+    while !removing.is_finished() {
+        host.scan();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    removing.await.unwrap().unwrap();
+    assert!(!plugins.join("test.stubborn").exists());
+    assert!(host.list().is_empty(), "{:?}", host.list());
 }
 
 /// Answers nothing, not even `ready`, but exits on `shutdown`.

@@ -8,7 +8,7 @@
 pub mod manifest;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -181,6 +181,9 @@ pub struct PluginHost {
     settings_dir: PathBuf,
     /// The live value names last passed to [`PluginHost::watch`], for plugins that start later.
     last_watch: Mutex<Vec<String>>,
+    /// Plugins being removed or replaced. Their folders are still on disk while they
+    /// stop, so [`PluginHost::scan`] leaves them alone instead of starting them again.
+    busy: Mutex<HashSet<String>>,
 }
 
 impl PluginHost {
@@ -194,6 +197,7 @@ impl PluginHost {
             runtime: tokio::runtime::Handle::current(),
             settings_dir,
             last_watch: Mutex::new(Vec::new()),
+            busy: Mutex::new(HashSet::new()),
             dir,
             host_version: host_version.to_owned(),
             values,
@@ -231,6 +235,7 @@ impl PluginHost {
         }
         *self.broken.lock().expect("broken poisoned") = broken;
         let mut plugins = self.plugins.lock().expect("plugins poisoned");
+        let busy = self.busy.lock().expect("busy poisoned");
         plugins.retain(|id, p| {
             let keep = found.get(id).is_some_and(|(m, _)| *m == p.manifest);
             if !keep {
@@ -239,7 +244,7 @@ impl PluginHost {
             keep
         });
         for (id, (manifest, folder)) in found {
-            if plugins.contains_key(&id) {
+            if plugins.contains_key(&id) || busy.contains(&id) {
                 continue;
             }
             info!(
@@ -261,6 +266,7 @@ impl PluginHost {
                 self.values.clone(),
             ));
         }
+        drop(busy);
         drop(plugins);
         // New and restarted plugins learn what profiles show (sent once they're ready).
         let last = self.last_watch.lock().expect("watch poisoned").clone();
@@ -307,11 +313,7 @@ impl PluginHost {
         let manifest = Manifest::parse(&text)?;
         let dest = self.dir.join(&manifest.id);
         // Stop the old version first: a running program can't be deleted on Windows.
-        let old = self
-            .plugins
-            .lock()
-            .expect("plugins poisoned")
-            .remove(&manifest.id);
+        let (old, busy) = self.take_busy(&manifest.id)?;
         if let Some(old) = old {
             old.request_stop();
             old.wait_exited(STOP_GRACE * 2);
@@ -321,24 +323,42 @@ impl PluginHost {
         }
         copy_dir(src, &dest).map_err(|e| format!("Couldn't copy the plugin: {e}"))?;
         // An updated plugin is a new manifest, so scan restarts it.
+        drop(busy);
         self.scan();
         Ok(manifest.id)
     }
 
     /// Stop a plugin and delete its folder.
     pub fn remove(self: &Arc<Self>, id: &str) -> Result<(), String> {
-        let p = self
-            .plugins
-            .lock()
-            .expect("plugins poisoned")
-            .remove(id)
-            .ok_or_else(|| format!("There's no plugin called {id}."))?;
+        let (p, busy) = self.take_busy(id)?;
+        let p = p.ok_or_else(|| format!("There's no plugin called {id}."))?;
         p.request_stop();
         p.wait_exited(STOP_GRACE * 2);
         let folder = p.dir.clone();
         remove_folder(&folder).map_err(|e| format!("Couldn't remove {}: {e}", folder.display()))?;
+        drop(busy);
         self.scan();
         Ok(())
+    }
+
+    /// Take plugin `id` out of the running ones (if it's there) and mark it busy until
+    /// the returned guard is dropped, because its folder is about to be deleted or
+    /// replaced: stopping it takes a few seconds, and a scan meanwhile (another
+    /// plugin's install or restart) would start it again from the folder still there.
+    fn take_busy(&self, id: &str) -> Result<(Option<Arc<Running>>, Busy<'_>), String> {
+        let mut plugins = self.plugins.lock().expect("plugins poisoned");
+        let mut busy = self.busy.lock().expect("busy poisoned");
+        if !busy.insert(id.to_owned()) {
+            return Err(format!(
+                "{id} is still being removed or updated. Try again in a moment."
+            ));
+        }
+        drop(busy);
+        let guard = Busy {
+            host: self,
+            id: id.to_owned(),
+        };
+        Ok((plugins.remove(id), guard))
     }
 
     /// Restart a plugin (after it crashed, or after editing it).
@@ -666,6 +686,24 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut f = opts.open(path)?;
     f.write_all(bytes)?;
     f.sync_all()
+}
+
+/// Keeps a plugin marked busy (see [`PluginHost::take_busy`]) until dropped, however
+/// the removal or update ends.
+struct Busy<'a> {
+    host: &'a PluginHost,
+    id: String,
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        // Not `expect`: a panic here while unwinding from another would abort.
+        self.host
+            .busy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.id);
+    }
 }
 
 /// Marks a plugin's process as gone when its supervisor returns, however it returns.
