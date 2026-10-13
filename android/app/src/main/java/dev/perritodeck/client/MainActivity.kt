@@ -2,6 +2,7 @@ package dev.perritodeck.client
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -10,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +26,7 @@ import dev.perritodeck.client.ui.DeckScreen
 import dev.perritodeck.client.ui.HomeScreen
 import dev.perritodeck.client.ui.PairScreen
 import dev.perritodeck.client.ui.PerritoTheme
+import dev.perritodeck.client.ui.orientationFor
 
 class MainActivity : ComponentActivity() {
     private val vm: DeckViewModel by viewModels()
@@ -96,6 +99,7 @@ private fun PerritoApp(vm: DeckViewModel) {
             val flash by vm.connection.flash.collectAsStateWithLifecycle()
             val rtt by vm.connection.rttMs.collectAsStateWithLifecycle()
             DeckMode()
+            DeckOrientation(layout?.cols, layout?.rows)
             BackHandler { vm.disconnect() }
             DeckScreen(
                 layout = layout,
@@ -109,6 +113,22 @@ private fun PerritoApp(vm: DeckViewModel) {
                 onSlider = vm.connection::sliderChange,
             )
         }
+    }
+}
+
+/**
+ * While the deck is showing, the screen turns to the grid's shape (landscape for 5×3), as
+ * the computer's editor draws it. Leaving the deck gives rotation back to the tablet.
+ */
+@Composable
+private fun DeckOrientation(cols: Int?, rows: Int?) {
+    val activity = LocalView.current.context as Activity
+    val wanted = if (cols != null && rows != null) orientationFor(cols, rows) else null
+    LaunchedEffect(wanted) {
+        if (wanted != null) activity.requestedOrientation = wanted
+    }
+    DisposableEffect(activity) {
+        onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 }
 
