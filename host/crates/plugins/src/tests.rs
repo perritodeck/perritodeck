@@ -329,10 +329,29 @@ for line in sys.stdin:
     # ignores shutdown on purpose
 "#;
 
+/// Whether process `pid` is still running. On Windows, the PID file holds
+/// `python.exe`'s PID, not that of the `py.exe` launcher the host started, so this also
+/// checks that the job object ended the launcher's child.
+fn process_alive(pid: &str) -> bool {
+    if cfg!(windows) {
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+    } else {
+        std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn plugins_that_ignore_shutdown_are_ended_before_removal() {
-    if !has_python() || cfg!(windows) {
-        eprintln!("skipping: needs Python on Unix");
+    if !has_python() {
+        eprintln!("skipping: no Python");
         return;
     }
     let root = tempfile::tempdir().unwrap();
@@ -354,12 +373,63 @@ async fn plugins_that_ignore_shutdown_are_ended_before_removal() {
     let pid_file = root.path().join("plugin-data/test.stubborn/pid");
     wait_for("pid", || pid_file.is_file()).await;
     let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let pid = pid.trim();
+    assert!(process_alive(pid), "the plugin is running");
     let h = host.clone();
     tokio::task::spawn_blocking(move || h.remove("test.stubborn"))
         .await
         .unwrap()
         .unwrap();
     assert!(!plugins.join("test.stubborn").exists());
-    let alive = std::path::Path::new("/proc").join(pid.trim()).exists();
-    assert!(!alive, "the old process was ended");
+    assert!(!process_alive(pid), "the old process was ended");
+}
+
+/// Starts a program of its own as soon as it runs, like the soundboard's players.
+/// `py.exe`'s job lets Python's children break away from it, so only the host's job
+/// object ends this one.
+#[cfg(windows)]
+const PARENT_PLUGIN: &str = r#"
+import json, os, subprocess, sys
+data = os.environ["PERRITODECK_PLUGIN_DATA"]
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+open(os.path.join(data, "child"), "w").write(str(child.pid))
+open(os.path.join(data, "pid"), "w").write(str(os.getpid()))
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["event"] == "hello":
+        sys.stdout.write(json.dumps({"event": "ready"}) + "\n"); sys.stdout.flush()
+    elif m["event"] == "shutdown":
+        break
+"#;
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn programs_a_plugin_started_end_with_it() {
+    if !has_python() {
+        eprintln!("skipping: no Python");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let plugins = root.path().join("plugins");
+    write_plugin(
+        &plugins,
+        "test.parent",
+        "python",
+        "plugin.py",
+        Some(PARENT_PLUGIN),
+    );
+    let host = PluginHost::start(plugins.clone(), "1", Arc::new(|_, _| {}));
+    let data = root.path().join("plugin-data/test.parent");
+    wait_for("pids", || data.join("pid").is_file()).await;
+    let read = |f: &str| std::fs::read_to_string(data.join(f)).unwrap();
+    let (pid, child) = (read("pid"), read("child"));
+    assert!(process_alive(&child), "the plugin's own program is running");
+    let h = host.clone();
+    tokio::task::spawn_blocking(move || h.remove("test.parent"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!process_alive(&pid), "the plugin was ended");
+    // Ending a job is asynchronous; give Windows a moment.
+    wait_for("child ended", || !process_alive(&child)).await;
 }
