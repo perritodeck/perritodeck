@@ -204,6 +204,23 @@ class WinapiTest(unittest.TestCase):
         b.quit("spotify", b.find("spotify"))
         api.close.assert_called_once_with(100)
 
+    def test_store_apps_are_named_after_the_app_not_the_frame_host(self):
+        names = {900: "CalculatorApp.exe"}.get
+        hosted = mock.Mock(return_value=900)
+        self.assertEqual(winapi.app_of(1, 40, "ApplicationFrameHost.exe", hosted, names), (900, "CalculatorApp.exe"))
+        hosted.assert_called_once_with(1, 40)
+        # A suspended app has no window of its own inside the frame: keep the host.
+        self.assertEqual(winapi.app_of(1, 40, "ApplicationFrameHost.exe", lambda h, p: None, names), (40, "ApplicationFrameHost.exe"))
+        self.assertEqual(winapi.app_of(2, 7, "notepad.exe", hosted, names), (7, "notepad.exe"))
+        hosted.assert_called_once()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows only")
+    def test_lists_this_desktops_windows(self):
+        for hwnd, pid, exe, title in winapi.list_windows():  # read-only
+            self.assertTrue(hwnd and title)
+            self.assertIsInstance(pid, int)
+            self.assertIsInstance(exe, str)
+
 
 class LinuxActionsTest(unittest.TestCase):
     def setUp(self):
@@ -440,6 +457,36 @@ class LaunchWindowsTest(unittest.TestCase):
                 mock.patch.object(win.shutil, "which", return_value=found):
             self.assertIsNone(win.focus({"app": "charmap"}))
         self.start_for_user.assert_called_once_with([found])
+
+
+class QuitWindowsTest(unittest.TestCase):
+    """One process can hold many apps' or folders' windows."""
+
+    WINDOWS = [
+        (1, 50, "CalculatorApp.exe", "Calculator"),
+        # Two suspended Store apps: Windows doesn't say which app is in the frame.
+        (2, 40, "ApplicationFrameHost.exe", "Settings"),
+        (3, 40, "ApplicationFrameHost.exe", "Microsoft Store"),
+        (4, 60, "explorer.exe", "Desktop - File Explorer"),
+        (5, 60, "explorer.exe", "perritodeck - File Explorer"),
+        (6, 70, "vmconnect.exe", "dev on DESKTOP-1 - Virtual Machine Connection"),
+    ]
+
+    def closed(self, query):
+        b = win.WindowsBackend.__new__(win.WindowsBackend)
+        b.api = mock.Mock()
+        b.api.list_windows.return_value = self.WINDOWS
+        b.quit(query, b.find(query))
+        return [c.args[0] for c in b.api.close.call_args_list]
+
+    def test_a_title_match_closes_only_the_windows_it_names(self):
+        self.assertEqual(self.closed("Settings"), [2])
+        self.assertEqual(self.closed("Desktop"), [4, 6])
+        self.assertEqual(self.closed("Calculator"), [1])
+
+    def test_a_process_match_closes_the_whole_app(self):
+        self.assertEqual(self.closed("explorer"), [4, 5])
+        self.assertEqual(self.closed("CalculatorApp"), [1])
 
 
 if __name__ == "__main__":

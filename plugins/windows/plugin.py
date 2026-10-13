@@ -50,8 +50,12 @@ def norm(name):
     return name
 
 
+TITLE_MATCH = 2  # the weakest match: only the window's title contains the query
+
+
 def rank(window, query):
-    """How well a window matches what a key asks for: 0 best, None no match."""
+    """How well a window matches what a key asks for: 0 best (the process name), 1
+    (the window class), TITLE_MATCH, or None for no match."""
     q = norm(query)
     if not q:
         return None
@@ -60,7 +64,7 @@ def rank(window, query):
     if window.cls and q in window.cls.lower():
         return 1
     if q in (window.title or "").lower():
-        return 2
+        return TITLE_MATCH
     return None
 
 
@@ -270,9 +274,19 @@ class Backend:
         raise Unsupported(self.why())
 
     def quit(self, query, matches):
-        """Close every window of the apps that match, as their X buttons would."""
-        pids = {w.pid for w in matches if rank(w, query) == rank(matches[0], query)}
-        targets = [w for w in self.windows() if w.pid in pids] or matches
+        """Close every window of the apps that match, as their X buttons would.
+
+        Only a match by process name or window class means the whole app. A title
+        match closes just the windows whose titles match: one process can hold many
+        unrelated windows (File Explorer's folders, or every Store app's frame while
+        Windows doesn't say which app is inside)."""
+        best = rank(matches[0], query)
+        same = [w for w in matches if rank(w, query) == best]
+        if best == TITLE_MATCH:
+            targets = same
+        else:
+            pids = {w.pid for w in same}
+            targets = [w for w in self.windows() if w.pid in pids] or same
         for w in targets:
             self.close(w)
 

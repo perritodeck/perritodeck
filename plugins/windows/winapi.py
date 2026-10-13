@@ -22,6 +22,8 @@ WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_CLOAKED = 14
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 TH32CS_SNAPPROCESS = 0x00000002
+# Draws the frame of every Store (UWP) app's window: Calculator, Settings, Store, ...
+FRAME_HOST = "applicationframehost.exe"
 KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
 VK_MENU = 0x12  # Alt
@@ -141,10 +143,45 @@ def _cloaked(hwnd):
     return value.value != 0
 
 
+def _hosted_pid(frame, host_pid):
+    """The process of the first child window of `frame` that isn't the frame host's:
+    the Store app itself (its CoreWindow). None if there's none, as for a suspended
+    (minimized) app."""
+    user32, _, _ = _libs()
+    found = []
+    callback_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+
+    def visit(child, _lparam):
+        pid = _pid(child)
+        if pid and pid != host_pid:
+            found.append(pid)
+            return 0  # stop
+        return 1
+
+    user32.EnumChildWindows.argtypes = [ctypes.c_void_p, callback_type, ctypes.c_void_p]
+    user32.EnumChildWindows.restype = ctypes.c_int
+    user32.EnumChildWindows(frame, callback_type(visit), None)
+    return found[0] if found else None
+
+
+def app_of(hwnd, pid, exe, hosted_pid=None, exe_name=None):
+    """(pid, exe) of the app a window belongs to. A Store app's window belongs to
+    ApplicationFrameHost, which frames every Store app, so look inside it for the app
+    (CalculatorApp.exe) as the host's auto-switch does; otherwise quitting one would
+    close them all."""
+    if exe.lower() != FRAME_HOST:
+        return pid, exe
+    app = (hosted_pid or _hosted_pid)(hwnd, pid)
+    if not app:
+        return pid, exe
+    return app, (exe_name or _exe_name)(app) or exe
+
+
 def info(hwnd):
     """(hwnd, pid, exe name, title) for one window."""
     pid = _pid(hwnd)
-    return hwnd, pid, _exe_name(pid), _title(hwnd)
+    pid, exe = app_of(hwnd, pid, _exe_name(pid))
+    return hwnd, pid, exe, _title(hwnd)
 
 
 def list_windows():
@@ -174,7 +211,8 @@ def list_windows():
         pid = _pid(hwnd)
         if pid not in names:
             names[pid] = _exe_name(pid)
-        out.append((hwnd, pid, names[pid], _title(hwnd)))
+        pid, exe = app_of(hwnd, pid, names[pid])
+        out.append((hwnd, pid, exe, _title(hwnd)))
     return out
 
 
