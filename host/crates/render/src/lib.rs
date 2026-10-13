@@ -36,14 +36,25 @@ pub fn parse_hex(color: &str) -> Option<[u8; 3]> {
 }
 
 /// Pixel size of one key on a device, mirroring the Android client's layout
-/// (8dp outer padding, 8dp gaps, square keys fitted to the screen).
+/// (8dp outer padding, 8dp gaps, square keys fitted to the screen). Perrito turns its
+/// screen to the grid's shape (landscape for a wider grid, portrait for a taller one), so
+/// the size is worked out for that orientation, whichever way the tablet said hello.
 pub fn key_pixel_size(screen: &Screen, grid: Grid) -> u32 {
     let density = screen.density_dpi.max(1) as f32 / 160.0;
     let pad = 8.0 * density;
     let gap = 8.0 * density;
+    let (long, short) = (
+        screen.width_px.max(screen.height_px),
+        screen.width_px.min(screen.height_px),
+    );
+    let (width, height) = match grid.cols.cmp(&grid.rows) {
+        std::cmp::Ordering::Greater => (long, short),
+        std::cmp::Ordering::Less => (short, long),
+        std::cmp::Ordering::Equal => (screen.width_px, screen.height_px),
+    };
     let (cols, rows) = (grid.cols.max(1) as f32, grid.rows.max(1) as f32);
-    let w = (screen.width_px as f32 - 2.0 * pad - gap * (cols - 1.0)) / cols;
-    let h = (screen.height_px as f32 - 2.0 * pad - gap * (rows - 1.0)) / rows;
+    let w = (width as f32 - 2.0 * pad - gap * (cols - 1.0)) / cols;
+    let h = (height as f32 - 2.0 * pad - gap * (rows - 1.0)) / rows;
     (w.min(h).floor() as u32).clamp(MIN_KEY_PX, MAX_KEY_PX)
 }
 
@@ -491,6 +502,24 @@ mod tests {
         };
         let px = key_pixel_size(&s, Grid { cols: 8, rows: 5 });
         assert_eq!(px, 226);
+        // Perrito turns to the grid's shape, so a tablet that said hello upright gets keys
+        // sized for landscape: Fire 7, 600×1024 @ 160 dpi, 5×3 → (600 − 16 − 16) ÷ 3 ≈ 189 px.
+        let fire7 = Screen {
+            width_px: 600,
+            height_px: 1024,
+            density_dpi: 160,
+        };
+        assert_eq!(key_pixel_size(&fire7, Grid { cols: 5, rows: 3 }), 189);
+        let sideways = Screen {
+            width_px: 1024,
+            height_px: 600,
+            ..fire7
+        };
+        assert_eq!(key_pixel_size(&sideways, Grid { cols: 5, rows: 3 }), 189);
+        // A taller grid is laid out portrait: (600 − 16 − 16) ÷ 3 again, now across.
+        assert_eq!(key_pixel_size(&sideways, Grid { cols: 3, rows: 5 }), 189);
+        // Square grids use the screen as it was reported: (600 − 16 − 3 × 8) ÷ 4 = 140 px.
+        assert_eq!(key_pixel_size(&fire7, Grid { cols: 4, rows: 4 }), 140);
         assert_eq!(
             key_pixel_size(
                 &Screen {
