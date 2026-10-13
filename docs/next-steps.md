@@ -249,7 +249,32 @@ The original list:
 - Wi-Fi round trip on the Fire 7 is ~105 ms against 6–18 ms on USB. Profile one key press
   end to end (tablet logcat timestamps against host logs) before guessing at a cause.
 
-## 7. The website (perritodeck.dev) — any session
+## 7. The website (perritodeck.dev) — any session — ✅ done (2026-10-13), deploy left to the maintainer
+
+**Landed.**
+- **Fonts self-hosted** (`website/fonts/`, Fontsource latin subsets, OFL; the maintainer
+  chose the variable Bricolage cut, which keeps the optical-size axis). No page, the plugin
+  catalogue included, makes a third-party request; checked in a browser.
+- **One menu on every page** (Features, Plugins, Guide, FAQ, Download, GitHub) and footer.
+  On phones it wraps under the name instead of disappearing, as it used to.
+- **Home** rebuilt around `devices-hero` and the three use-case mockups, with how it works,
+  the demo deck and an honest status. The paw-of-keys icon is the site icon.
+- **New pages:** Features, Stream Deck and Companion compatibility (from `phase-7.md`;
+  names only to describe compatibility), and FAQ.
+- **Download:** a tested/not-built status per platform, and a real "Build it yourself"
+  section linking CONTRIBUTING.
+- **Plugins catalogue:** a search box (shown by script, so the list still works without
+  JavaScript) and optional plugin icons (`icon` in the manifest, documented in
+  `plugins/PROTOCOL.md`; no plugin has one yet). `plugins/test_build_catalog.py` covers it.
+- **Guide:** app screenshots (light and dark), and the fixes from a check of every page
+  against the app.
+- **Privacy:** covers the website and the iOS app, and matches what Perrito stores and sends.
+- Images are WebP from PNG masters, which moved to `docs/assets/site/`; `website/README.md`
+  says how. Every page was checked at 375 px and 1440 px in light and dark: no sideways
+  scrolling, and about 155 KB at most before images.
+
+**Left for the maintainer:** the Cloudflare Pages setup below. `website/README.md` has the
+steps and the build command.
 
 **Decision: keep it in this repo, in `website/`.**
 - The guide describes the app's features and changes in the same commits as the code.
