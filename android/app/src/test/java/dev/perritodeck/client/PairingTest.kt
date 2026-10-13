@@ -6,6 +6,8 @@ import dev.perritodeck.client.data.PairingLink
 import dev.perritodeck.client.net.Base64Url
 import dev.perritodeck.client.net.Fingerprint
 import dev.perritodeck.client.net.Pairing
+import dev.perritodeck.client.net.PairingException
+import dev.perritodeck.client.net.Reached
 import dev.perritodeck.client.net.usableAddress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -129,6 +131,52 @@ class PairingTest {
 
         assertNull(Pairing.firstReachable(listOf(usb, lan), fp) { throw ConnectException("refused") })
         assertNull(Pairing.firstReachable(listOf(impostor), fp) { "another computer's fingerprint" })
+    }
+
+    @Test
+    fun pairingWithACodeAlsoTriesTheCable() = runBlocking {
+        val usb = HostPort("127.0.0.1", 46710)
+        val lan = HostPort("192.168.1.60", 46710)
+        val other = "another computer's fingerprint"
+        val blocked = PairingException("Couldn't reach 192.168.1.60:46710")
+        suspend fun failure(block: suspend () -> Reached): Throwable? = runCatching { block() }.exceptionOrNull()
+
+        // The network drops packets, and the cable answers as the computer discovery saw at
+        // the address: that's taken at once, and the network probe is stopped.
+        val stopped = CompletableDeferred<Unit>()
+        val overCable = withTimeout(2_000) {
+            Pairing.probeWithCable(lan, expected = fp) { addr ->
+                if (addr == usb) { delay(50); fp } else try { awaitCancellation() } finally { stopped.complete(Unit) }
+            }
+        }
+        assertEquals(Reached(usb, fp), overCable)
+        assertTrue("the probe that hung was stopped", stopped.isCompleted)
+
+        // An address discovery didn't see: the cable's answer once the network address fails.
+        assertEquals(Reached(usb, fp), Pairing.probeWithCable(lan) { addr -> if (addr == usb) fp else throw blocked })
+
+        // Both answer: the typed address wins, as the cable can lead to a different computer.
+        assertEquals(
+            Reached(lan, fp),
+            Pairing.probeWithCable(lan) { addr -> if (addr == usb) other else { delay(50); fp } },
+        )
+
+        // The cable leads to a different computer than discovery saw at the address, and the
+        // address can't be reached: what went wrong there is what's shown.
+        val elsewhere = failure { Pairing.probeWithCable(lan, fp) { addr -> if (addr == usb) other else throw blocked } }
+        assertTrue(elsewhere is PairingException)
+        assertEquals(blocked.message, elsewhere?.message)
+
+        // Nothing answers anywhere.
+        val nothing = failure {
+            Pairing.probeWithCable(lan) { addr -> if (addr == usb) throw ConnectException("refused") else throw blocked }
+        }
+        assertEquals(blocked.message, nothing?.message)
+
+        // 127.0.0.1 typed in (the USB button) is probed once.
+        val probed = mutableListOf<HostPort>()
+        assertEquals(Reached(usb, fp), Pairing.probeWithCable(usb) { probed += it; fp })
+        assertEquals(listOf(usb), probed)
     }
 
     @Test

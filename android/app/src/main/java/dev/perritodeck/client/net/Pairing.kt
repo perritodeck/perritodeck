@@ -1,7 +1,9 @@
 package dev.perritodeck.client.net
 
 import dev.perritodeck.client.data.HostPort
+import dev.perritodeck.client.data.LOCALHOST
 import dev.perritodeck.client.data.PairedHost
+import dev.perritodeck.client.data.isLoopback
 import dev.perritodeck.client.protocol.Codec
 import dev.perritodeck.client.protocol.Decoded
 import dev.perritodeck.client.protocol.Envelope
@@ -12,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
@@ -31,6 +34,9 @@ import java.net.Socket
 import kotlin.coroutines.resume
 
 class PairingException(message: String) : Exception(message)
+
+/** The address that answered a probe and the certificate fingerprint it showed. */
+data class Reached(val address: HostPort, val fingerprint: String)
 
 object Pairing {
     /** Reach the host and learn its certificate fingerprint (for the user to compare). */
@@ -86,6 +92,56 @@ object Pairing {
             found.complete(null)
         }
         found.await().also { coroutineContext.cancelChildren() }
+    }
+
+    /**
+     * Manual pairing: reach the computer at [address], or at 127.0.0.1, which a USB cable
+     * forwards to the computer (adb reverse) even when the network doesn't let the tablet
+     * through. Both are probed at once. The cable can lead to a different computer, so the
+     * typed address's answer wins whenever it gives one, and the cable's counts when the
+     * typed address can't be reached. When discovery said which computer is at [address]
+     * ([expected]), the cable's counts only if it answers as that one, and then at once,
+     * without waiting out a network that drops packets. The person still compares the
+     * fingerprint with the computer's screen before pairing. When neither will do, throws
+     * what went wrong at the typed address.
+     */
+    suspend fun probeWithCable(
+        address: HostPort,
+        expected: String? = null,
+        probe: suspend (HostPort) -> String = { Pairing.probe(it.host, it.port) },
+    ): Reached {
+        if (isLoopback(address.host)) return Reached(address, probe(address))
+        val cable = HostPort(LOCALHOST, address.port)
+        return coroutineScope {
+            val found = CompletableDeferred<Reached>()
+            val overCable = async {
+                try {
+                    probe(cable)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null // no cable, or nothing listening on the computer's end
+                }
+            }
+            if (expected != null) {
+                launch { if (overCable.await() == expected) found.complete(Reached(cable, expected)) }
+            }
+            launch {
+                try {
+                    found.complete(Reached(address, probe(address)))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val fp = overCable.await()
+                    if (fp != null && (expected == null || fp == expected)) {
+                        found.complete(Reached(cable, fp))
+                    } else {
+                        found.completeExceptionally(e)
+                    }
+                }
+            }
+            found.await().also { coroutineContext.cancelChildren() }
+        }
     }
 
     /**

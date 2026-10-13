@@ -39,8 +39,18 @@ sealed interface Route {
 sealed interface PairState {
     data class Form(val address: String, val error: String? = null) : PairState
     data class Working(val message: String) : PairState
-    /** Manual pairing: the user compares this fingerprint with the one the computer shows. */
-    data class Confirm(val host: String, val port: Int, val code: String, val fingerprint: String) : PairState
+    /**
+     * Manual pairing: the user compares this fingerprint with the one the computer shows.
+     * [host] and [port] answered (127.0.0.1 over a USB cable); [save] is the address to
+     * reconnect to later.
+     */
+    data class Confirm(
+        val host: String,
+        val port: Int,
+        val code: String,
+        val fingerprint: String,
+        val save: HostPort,
+    ) : PairState
 }
 
 class DeckViewModel(app: Application) : AndroidViewModel(app) {
@@ -149,11 +159,19 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
             digits.length != 6 -> _pairState.value = PairState.Form(address, "The code has 6 digits")
             else -> {
                 settings.lastManualAddress = address.trim()
+                // When discovery saw which computer is at this address, an answer from it
+                // over the USB cable needn't wait for a network that drops packets.
+                val expected = discovery.hosts.value.firstOrNull { HostPort(it.address, it.port) == hp }?.hostId
                 pairJob?.cancel()
                 pairJob = viewModelScope.launch {
                     _pairState.value = PairState.Working("Reaching ${hp.host}…")
                     _pairState.value = try {
-                        PairState.Confirm(hp.host, hp.port, digits, Pairing.probe(hp.host, hp.port))
+                        // 127.0.0.1 is tried too, as with a QR code: a USB cable reaches the
+                        // computer even when the network doesn't let the tablet through.
+                        // The typed address is the one saved: every connect tries the cable
+                        // by itself, and unplugged the tablet should still find the computer.
+                        val (at, fingerprint) = Pairing.probeWithCable(hp, expected)
+                        PairState.Confirm(at.host, at.port, digits, fingerprint, save = hp)
                     } catch (e: PairingException) {
                         PairState.Form(address, e.message)
                     }
@@ -166,7 +184,9 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmPairing() {
         val c = _pairState.value as? PairState.Confirm ?: return
         pairJob?.cancel()
-        pairJob = viewModelScope.launch { finishPairing(c.host, c.port, c.fingerprint, c.code, "${c.host}:${c.port}") }
+        pairJob = viewModelScope.launch {
+            finishPairing(c.host, c.port, c.fingerprint, c.code, "${c.save.host}:${c.save.port}", c.save)
+        }
     }
 
     /** A scanned QR link carries the fingerprint, so no comparison step is needed. */
