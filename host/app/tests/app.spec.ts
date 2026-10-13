@@ -406,12 +406,26 @@ test.describe("editing", () => {
   });
 
   test("shows what a Stream Deck plugin draws on its key", async ({ page }) => {
+    // The plugin is installed, so the page knows its action names.
+    await page.evaluate(() => (window as any).__perritoMock.invoke("install_sd_plugin", {}));
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Buttons" }).click();
     await page.getByRole("tab", { name: "More" }).click();
     // The plugin's image and title, as the tablet shows them, rather than the key's own "Count".
     const counter = key(page, /^3: Stream Deck plugin: com\.example\.counter\.up/);
     await expect(counter.locator("img.live")).toHaveAttribute("src", /^data:image\/svg\+xml/);
     await expect(counter.locator(".live-title")).toHaveText("3");
     await expect(counter).toHaveCSS("background-color", "rgb(0, 0, 0)");
+
+    // A two-line title stays inside the key, as the tablet shrinks it to fit.
+    await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { title: "Hello\\nDynamic" })`);
+    const twoLines = key(page, /^Hello Dynamic: Stream Deck plugin/);
+    const fits = await twoLines.evaluate((k) => {
+      const t = k.querySelector(".live-title") as HTMLElement;
+      const [kb, tb] = [k.getBoundingClientRect(), t.getBoundingClientRect()];
+      return tb.top >= kb.top && tb.bottom <= kb.bottom && t.scrollHeight <= t.clientHeight + 1;
+    });
+    expect(fits).toBe(true);
 
     // It draws again: the preview follows by itself.
     await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { title: "4" })`);
@@ -422,6 +436,13 @@ test.describe("editing", () => {
     await four.click();
     await expect(page.getByLabel("Title")).toHaveValue("Count");
     await expect(page.getByText("The preview shows what its Stream Deck plugin draws")).toBeVisible();
+
+    // Only an image and no title anywhere: screen readers hear the action's name, not
+    // "Untitled".
+    await page.getByLabel("Title").fill("");
+    await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { title: "" })`);
+    await expect(key(page, /^Count up: Stream Deck plugin/)).toBeVisible();
+    await page.getByLabel("Title").fill("Count");
 
     // Nothing drawn (no tablet shows the page): the key's own look.
     await mock(page, `__perritoMock.drawKey("default", "More", [1, 0], { image: null, title: null })`);

@@ -269,9 +269,14 @@
     return k.liveTitle ?? live(k.title);
   }
 
+  /** Stream Deck plugin action id → its name, for keys whose plugin draws no title. */
+  let sdActionNames = $state(new Map<string, string>());
+
   function keyLabel(k: KeyView): string {
     const title = (k.liveTitle || live(k.title)).replaceAll("\n", " ");
-    return `${title || "Untitled"}: ${k.detail}`;
+    const action = k.fields.action;
+    const named = action?.type === "sdPlugin" ? sdActionNames.get(action.action) : undefined;
+    return `${title || named || "Untitled"}: ${k.detail}`;
   }
 
   function keyStyle(k: KeyView): string {
@@ -431,6 +436,10 @@
     api
       .plugins()
       .then((v) => (plugins = v.installed.map((p) => p.manifest)))
+      .catch(() => {});
+    api
+      .sdPlugins()
+      .then((v) => (sdActionNames = new Map(v.installed.flatMap((p) => p.actions.map((a) => [a.uuid, a.name] as const)))))
       .catch(() => {});
     const off = api.onHostEvent((e) => {
       if (e.kind === "profileChanged") load();
@@ -883,11 +892,20 @@ port = 16622         # Companion's Satellite port</pre>
     object-fit: cover;
     pointer-events: none;
   }
+  /* At the bottom, as on the tablet, which shrinks a title until it fits there: a longer
+     one grows upward here instead of being cut off at the key's edge. */
   .live-title {
     position: absolute;
-    inset: 55% 6% 6%;
+    left: 6%;
+    right: 6%;
+    bottom: 6%;
+    min-height: 39%;
+    max-height: 88%;
     display: grid;
     place-items: center;
+    font-size: 0.85em;
+    line-height: 1.1;
+    overflow: hidden;
     text-shadow: -1px 0 #000, 1px 0 #000, 0 -1px #000, 0 1px #000;
   }
 
