@@ -1,5 +1,7 @@
 # Handoff: Windows bring-up on real hardware (local session, 2026-10-12)
 
+> **Next:** the prioritised task list is in [`next-steps.md`](next-steps.md).
+
 Everything is on `main`. This session took the ~40 commits that had never been compiled for
 Windows (CI is paused by billing) and ran them on a Windows 11 Pro PC (build 26200) with an
 Amazon Fire 7 (2019, KFMUWI, Fire OS 7.3.1.7 = Android 9 / API 28) on USB and Wi-Fi.
