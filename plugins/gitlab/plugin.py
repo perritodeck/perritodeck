@@ -15,10 +15,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from perritodeck_plugin import Plugin  # noqa: E402
+from perritodeck_plugin import Plugin, open_for_user  # noqa: E402
 
 plugin = Plugin()
 NOTHING = "–"
@@ -308,8 +307,10 @@ def open_pipeline(settings):
         page = latest["web_url"]
     else:
         page = f"{config()[0]}/{project}/-/pipelines"
-    if not webbrowser.open(page):
-        raise GitLabError("couldn't open a web browser")
+    try:
+        open_for_user(page)  # a browser it starts must outlive a plugin restart
+    except OSError as e:
+        raise GitLabError(f"couldn't open a web browser: {e}")
     return None
 
 

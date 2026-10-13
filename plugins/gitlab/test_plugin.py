@@ -205,12 +205,16 @@ class GitLabTest(unittest.TestCase):
         self.assertIn("nobody/nothing", logs[0]["message"])
 
     def test_open_pipeline(self):
-        with mock.patch.object(gitlab.webbrowser, "open", return_value=True) as browser:
+        # open_for_user, so the browser outlives a plugin restart.
+        with mock.patch.object(gitlab, "open_for_user") as browser:
             self.assertIsNone(gitlab.open_pipeline({"project": "homelab/infra", "ref": "dev"}))
             browser.assert_called_with("https://git.example/homelab/infra/-/pipelines/9")
             Fake.state["pipelines"] = []
             gitlab.open_pipeline({"project": "homelab/infra"})
             browser.assert_called_with(self.base + "/homelab/infra/-/pipelines")
+        with mock.patch.object(gitlab, "open_for_user", side_effect=OSError("no browser")):
+            with self.assertRaisesRegex(RuntimeError, "couldn't open a web browser: no browser"):
+                gitlab.open_pipeline({"project": "homelab/infra"})
 
     def test_errors(self):
         with self.assertRaisesRegex(RuntimeError, "project path"):

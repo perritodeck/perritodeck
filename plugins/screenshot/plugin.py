@@ -26,7 +26,7 @@ import sys
 import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from perritodeck_plugin import Plugin  # noqa: E402
+from perritodeck_plugin import Plugin, open_for_user  # noqa: E402
 
 plugin = Plugin()
 NOTHING = "–"
@@ -553,13 +553,8 @@ def capture(settings):
 
 @plugin.action("open-folder")
 def open_folder(settings):
-    directory = folder()
-    if sys.platform == "win32":
-        os.startfile(directory)  # noqa: S606
-    elif sys.platform == "darwin":
-        run(["open", directory])
-    else:
-        spawn(["xdg-open", directory])
+    # The file manager stays open when the plugin restarts or PerritoDeck quits.
+    open_for_user(folder())
 
 
 @plugin.on_start

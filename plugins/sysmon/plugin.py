@@ -26,7 +26,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from perritodeck_plugin import Plugin  # noqa: E402
+from perritodeck_plugin import Plugin, open_for_user, start_for_user  # noqa: E402
 
 plugin = Plugin()
 NOTHING = "–"
@@ -634,14 +634,13 @@ def open_monitor(settings):
     command = monitor_command()
     if not command:
         raise RuntimeError("no system monitor app found (e.g. install gnome-system-monitor)")
-    kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    # Opened for the user, so it stays open when the plugin restarts or PerritoDeck quits.
     if sys.platform == "win32":
-        # Task Manager asks to run as administrator; ShellExecute shows that prompt,
-        # CreateProcess would just fail.
-        os.startfile(command[0])  # noqa: S606
+        # Task Manager asks to run as administrator; ShellExecute (open_for_user) shows
+        # that prompt, CreateProcess would just fail.
+        open_for_user(command[0])
         return
-    kwargs["start_new_session"] = True
-    subprocess.Popen(command, **kwargs)
+    start_for_user(command)
 
 
 if __name__ == "__main__":

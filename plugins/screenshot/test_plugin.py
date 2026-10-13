@@ -111,6 +111,13 @@ class FolderTest(Base):
         with self.assertRaisesRegex(ValueError, "unknown"):
             shot.capture({"what": "everything"})
 
+    def test_open_folder_outlives_the_plugin(self):
+        # open_for_user, so the file manager stays open when the plugin restarts.
+        with mock.patch.object(shot, "open_for_user") as opened:
+            shot.open_folder({})
+        opened.assert_called_once_with(self.out)
+        self.assertTrue(os.path.isdir(self.out))
+
     def test_winapi_guid(self):
         self.assertEqual(winapi.FOLDERID_PICTURES.Data1, 0x33E28130)
         self.assertEqual(bytes(winapi.FOLDERID_PICTURES.Data4), bytes.fromhex("835A98395C3BC3BB"))

@@ -448,12 +448,16 @@ class ActionTest(unittest.TestCase):
         self.assertIsNone(sysmon.monitor_command("linux", lambda n: None))
 
     def test_open(self):
+        # Started for the user, so the monitor stays open when the plugin restarts.
         with mock.patch.object(sysmon.sys, "platform", "linux"), mock.patch.object(
             sysmon, "monitor_command", return_value=["/usr/bin/gnome-system-monitor"]
-        ), mock.patch.object(sysmon.subprocess, "Popen") as popen:
+        ), mock.patch.object(sysmon, "start_for_user") as start:
             sysmon.open_monitor({})
-        self.assertEqual(popen.call_args.args[0], ["/usr/bin/gnome-system-monitor"])
-        self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        start.assert_called_once_with(["/usr/bin/gnome-system-monitor"])
+        # Task Manager through ShellExecute, which can ask to run it as administrator.
+        with mock.patch.object(sysmon.sys, "platform", "win32"), mock.patch.object(sysmon, "open_for_user") as opened:
+            sysmon.open_monitor({})
+        opened.assert_called_once_with("taskmgr.exe")
         with mock.patch.object(sysmon, "monitor_command", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "no system monitor"):
                 sysmon.open_monitor({})
