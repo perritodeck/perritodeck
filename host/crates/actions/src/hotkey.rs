@@ -84,6 +84,18 @@ fn key(name: &str) -> Option<Key> {
         "capslock" => Key::CapsLock,
         "plus" => Key::Char('+'),
         "minus" => Key::Char('-'),
+        // Punctuation by name, as browsers name the keys (KeyboardEvent.code) and people
+        // write them in shortcut lists.
+        "equal" | "equals" => Key::Char('='),
+        "comma" => Key::Char(','),
+        "period" | "dot" => Key::Char('.'),
+        "slash" => Key::Char('/'),
+        "backslash" => Key::Char('\\'),
+        "semicolon" => Key::Char(';'),
+        "quote" | "apostrophe" => Key::Char('\''),
+        "backquote" | "backtick" | "grave" => Key::Char('`'),
+        "bracketleft" => Key::Char('['),
+        "bracketright" => Key::Char(']'),
         _ => {
             if let Some(n) = name.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
                 return (1..=24).contains(&n).then_some(Key::F(n));
@@ -232,6 +244,30 @@ mod tests {
     }
 
     #[test]
+    fn punctuation_by_name() {
+        for (name, c) in [
+            ("slash", '/'),
+            ("Backslash", '\\'),
+            ("comma", ','),
+            ("period", '.'),
+            ("dot", '.'),
+            ("semicolon", ';'),
+            ("quote", '\''),
+            ("apostrophe", '\''),
+            ("backquote", '`'),
+            ("grave", '`'),
+            ("backtick", '`'),
+            ("BracketLeft", '['),
+            ("bracketright", ']'),
+            ("equal", '='),
+            ("equals", '='),
+        ] {
+            assert_eq!(p(&format!("Shift+{name}")).key, Key::Char(c), "{name}");
+        }
+        assert_eq!(p("Shift+slash"), p("Shift+/"));
+    }
+
+    #[test]
     fn errors() {
         assert_eq!("".parse::<Chord>(), Err(HotkeyParseError::Empty));
         assert!(matches!(
@@ -254,7 +290,14 @@ mod tests {
 
     #[test]
     fn display_round_trips() {
-        for s in ["Ctrl+Shift+M", "Meta+Space", "Alt+F4", "Ctrl++"] {
+        for s in [
+            "Ctrl+Shift+M",
+            "Meta+Space",
+            "Alt+F4",
+            "Ctrl++",
+            "Ctrl+/",
+            "Ctrl+Alt+@",
+        ] {
             let c = p(s);
             assert_eq!(c.to_string().parse::<Chord>().unwrap(), c, "{s}");
         }
