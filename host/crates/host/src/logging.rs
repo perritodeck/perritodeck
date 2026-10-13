@@ -14,6 +14,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 
 use tracing_subscriber::{
@@ -360,11 +361,16 @@ impl<W: Write> Write for RedactWriter<W> {
 
 // ---- Rotating files ----
 
+/// How long to wait after a failed rotation before trying again.
+const ROTATE_RETRY: Duration = Duration::from_secs(60);
+
 struct Current {
     file: File,
     size: u64,
     /// The local date (YYYY-MM-DD) the file is for.
     day: String,
+    /// When a rotation failed, the earliest time to try again.
+    retry_rotation: Option<Instant>,
 }
 
 /// Log files that start afresh each day or when too big, keeping [`KEEP_FILES`].
@@ -406,11 +412,9 @@ impl RotatingFile {
             max_bytes,
             current: Arc::new(Mutex::new(None)),
         };
-        let path = numbered(dir, 0);
-        if path.exists() && file_day(&path).is_some_and(|d| d != today()) {
-            me.rotate()?;
-        }
-        *me.current.lock().expect("log poisoned") = Some(me.open_current(today())?);
+        // A file from an earlier day is moved aside by the first line written.
+        let day = file_day(&numbered(dir, 0)).unwrap_or_else(today);
+        *me.current.lock().expect("log poisoned") = Some(me.open_current(day)?);
         Ok(me)
     }
 
@@ -429,13 +433,28 @@ impl RotatingFile {
         }
         let file = opts.open(&path)?;
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-        Ok(Current { file, size, day })
+        Ok(Current {
+            file,
+            size,
+            day,
+            retry_rotation: None,
+        })
     }
 
     /// Shift every file up one number, dropping the oldest.
+    ///
+    /// Files only ever move into a free number, from the first gap down. A rename can
+    /// fail when another program holds the file open without allowing that (some log
+    /// viewers and virus scanners do, on Windows); stopping there loses nothing, and the
+    /// next try carries on from the gap it left instead of dropping another old file.
     fn rotate(&self) -> io::Result<()> {
-        let _ = fs::remove_file(numbered(&self.dir, KEEP_FILES - 1));
-        for n in (0..KEEP_FILES - 1).rev() {
+        let gap = (1..KEEP_FILES)
+            .find(|&n| !numbered(&self.dir, n).exists())
+            .unwrap_or_else(|| {
+                let _ = fs::remove_file(numbered(&self.dir, KEEP_FILES - 1));
+                KEEP_FILES - 1
+            });
+        for n in (0..gap).rev() {
             let from = numbered(&self.dir, n);
             if from.exists() {
                 fs::rename(&from, numbered(&self.dir, n + 1))?;
@@ -447,15 +466,27 @@ impl RotatingFile {
     fn write_bytes(&self, buf: &[u8]) -> io::Result<()> {
         let mut guard = self.current.lock().unwrap_or_else(|p| p.into_inner());
         let day = today();
+        let now = Instant::now();
         let full = guard.as_ref().is_some_and(|c| {
-            c.day != day || (c.size > 0 && c.size + buf.len() as u64 > self.max_bytes)
+            (c.day != day || (c.size > 0 && c.size + buf.len() as u64 > self.max_bytes))
+                && c.retry_rotation.map_or(true, |at| now >= at)
         });
         if full || guard.is_none() {
-            *guard = None; // close it before renaming (Windows)
-            if full {
-                self.rotate()?;
-            }
-            *guard = Some(self.open_current(day)?);
+            // Close it before renaming (Windows).
+            let was = guard.take().map(|c| c.day);
+            let next = match was {
+                Some(was) if full => match self.rotate() {
+                    Ok(()) => self.open_current(day)?,
+                    // Keep adding to the same file, and try again in a while.
+                    Err(_) => {
+                        let mut c = self.open_current(was)?;
+                        c.retry_rotation = Some(now + ROTATE_RETRY);
+                        c
+                    }
+                },
+                _ => self.open_current(day)?,
+            };
+            *guard = Some(next);
         }
         let current = guard.as_mut().expect("just opened");
         current.file.write_all(buf)?;
@@ -594,6 +625,73 @@ mod tests {
         assert!(!super::tail(dir.path(), 1000)
             .iter()
             .any(|l| l.starts_with("line 00")));
+    }
+
+    #[test]
+    fn rotation_fills_a_gap_before_dropping_the_oldest() {
+        let dir = tempfile::tempdir().unwrap();
+        // As a rotation that stopped part way leaves them: no perritodeck.2.log.
+        for n in [0, 1, 3, 4, 5, 6] {
+            fs::write(numbered(dir.path(), n), format!("file {n}\n")).unwrap();
+        }
+        let logs = RotatingFile {
+            dir: dir.path().to_owned(),
+            max_bytes: 100,
+            current: Arc::new(Mutex::new(None)),
+        };
+        logs.rotate().unwrap();
+        let read = |n| fs::read_to_string(numbered(dir.path(), n)).ok();
+        assert_eq!(read(0), None);
+        assert_eq!(read(1).as_deref(), Some("file 0\n"));
+        assert_eq!(read(2).as_deref(), Some("file 1\n"));
+        assert_eq!(read(3).as_deref(), Some("file 3\n"));
+        assert_eq!(read(6).as_deref(), Some("file 6\n"), "the oldest is kept");
+        // With no gap left, the oldest goes.
+        fs::write(numbered(dir.path(), 0), "file 7\n").unwrap();
+        logs.rotate().unwrap();
+        assert_eq!(read(1).as_deref(), Some("file 7\n"));
+        assert_eq!(read(6).as_deref(), Some("file 5\n"));
+    }
+
+    /// Some log viewers and virus scanners open a file without letting it be renamed or
+    /// deleted (no `FILE_SHARE_DELETE`), so the current file can't be moved aside.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_held_open_by_another_program_loses_no_lines() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        let dir = tempfile::tempdir().unwrap();
+        let logs = RotatingFile::with_limit(dir.path(), 100).unwrap();
+        let mut w = logs.make_writer();
+        let line = |i: usize| format!("line {i:02} {}", "x".repeat(40));
+        for i in 0..5 {
+            writeln!(w, "{}", line(i)).unwrap();
+        }
+        let viewer = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(dir.path().join(LOG_FILE))
+            .unwrap();
+        for i in 5..45 {
+            writeln!(w, "{}", line(i)).unwrap();
+            // Try again on every line rather than after a minute.
+            if let Some(c) = logs.current.lock().unwrap().as_mut() {
+                c.retry_rotation = None;
+            }
+        }
+        let held = fs::metadata(dir.path().join(LOG_FILE)).unwrap().len();
+        assert!(held > 100, "the viewer kept it from being moved aside");
+        let all: Vec<String> = (0..45).map(line).collect();
+        assert_eq!(tail(dir.path(), 1000), all, "every line, in order");
+
+        // Once it's let go, the file is moved aside as usual.
+        drop(viewer);
+        writeln!(w, "{}", line(45)).unwrap();
+        let current = fs::read_to_string(dir.path().join(LOG_FILE)).unwrap();
+        assert_eq!(current.trim_end(), line(45));
+        let all: Vec<String> = (0..46).map(line).collect();
+        assert_eq!(tail(dir.path(), 1000), all);
     }
 
     #[test]
