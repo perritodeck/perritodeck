@@ -24,7 +24,7 @@ pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Windows processes whose windows are the shell rather than an app. Their windows
 /// being in front shouldn't switch profiles.
-const SHELL_PROCESSES: [&str; 13] = [
+const SHELL_PROCESSES: [&str; 14] = [
     "ShellExperienceHost", // notifications and calendar; Windows 10's Action Center too
     "ShellHost",           // Windows 11 24H2+: Quick Settings, the volume mixer, Cast
     "StartMenuExperienceHost",
@@ -37,7 +37,8 @@ const SHELL_PROCESSES: [&str; 13] = [
     "TextInputHost",      // emoji panel, clipboard history, touch keyboard
     "ClickToDo",          // Copilot+ PCs' Click to Do overlay
     "LockApp",
-    "consent", // UAC prompt
+    "consent",              // UAC prompt
+    "ApplicationFrameHost", // Store apps' frames; the app in one is looked up
 ];
 
 /// `explorer.exe` window classes that are File Explorer (Control Panel too), an app
@@ -85,19 +86,17 @@ mod imp {
         if hwnd.is_null() {
             return None;
         }
-        let pid = window_pid(hwnd)?;
-        let name = process_name(pid)?;
-        if name.eq_ignore_ascii_case("ApplicationFrameHost") {
-            // A Store app: the frame is ApplicationFrameHost's, and the app's own
-            // CoreWindow is a child window owned by the app's process. A suspended
-            // (minimised) app may have none; keep the frame host's name then.
-            return Some(
-                hosted_app_pid(hwnd, pid)
-                    .and_then(process_name)
-                    .unwrap_or(name),
-            );
+        let mut pid = window_pid(hwnd)?;
+        let class = class_name(hwnd);
+        if class == "ApplicationFrameWindow" {
+            // A Store app: the frame is ApplicationFrameHost's (explorer has frames too
+            // on Windows 11), and the app's own CoreWindow is a child window owned by
+            // the app's process. While the app starts or closes there is none: that's
+            // no app, like the shell, rather than the frame's owner.
+            pid = hosted_app_pid(hwnd, pid)?;
         }
-        if super::is_windows_shell(&name, &class_name(hwnd)) {
+        let name = process_name(pid)?;
+        if super::is_windows_shell(&name, &class) {
             return None;
         }
         Some(name)
@@ -297,6 +296,8 @@ mod tests {
         assert!(is_windows_shell("Widgets", ""));
         assert!(is_windows_shell("ScreenClippingHost", ""));
         assert!(is_windows_shell("TextInputHost", ""));
+        // The Store apps' frame host is never the app itself.
+        assert!(is_windows_shell("ApplicationFrameHost", ""));
         // Explorer's hidden window while an app starts, its XAML surfaces and the Run box.
         assert!(is_windows_shell("explorer", "ForegroundStaging"));
         assert!(is_windows_shell("explorer", "Windows.UI.Core.CoreWindow"));
