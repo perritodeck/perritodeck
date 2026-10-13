@@ -60,8 +60,10 @@ def main():
         build_zip(folder, os.path.join(out, zip_name))
         with open(os.path.join(out, zip_name), "rb") as f:
             digest = hashlib.sha256(f.read()).hexdigest()
+        icon = copy_icon(folder, m, out)
         entries.append(
             {
+                **({"icon": icon} if icon else {}),
                 "id": m["id"],
                 "name": m["name"],
                 "version": m["version"],
@@ -87,6 +89,24 @@ def main():
     print(f"{len(entries)} plugin(s) in {os.path.normpath(out)}/index.json and index.html")
 
 
+ICON_TYPES = (".svg", ".png", ".webp")
+
+
+def copy_icon(folder, manifest, out):
+    """Copies the manifest's optional `icon` next to the zip; returns its file name."""
+    rel = manifest.get("icon")
+    if not rel:
+        return None
+    path = os.path.normpath(os.path.join(folder, rel))
+    ext = os.path.splitext(path)[1].lower()
+    if not path.startswith(os.path.normpath(folder) + os.sep) or ext not in ICON_TYPES or not os.path.isfile(path):
+        sys.exit(f"{manifest['id']}: icon must be an .svg, .png or .webp file inside the plugin folder: {rel}")
+    name = f"{manifest['id']}-{manifest['version']}{ext}"
+    with open(path, "rb") as src, open(os.path.join(out, name), "wb") as dest:
+        dest.write(src.read())
+    return name
+
+
 RUNTIMES = {"python": "Python 3", "node": "Node.js", "exec": "nothing extra"}
 
 
@@ -109,10 +129,16 @@ def page(entries):
             columns += f"<div><h3>Keys can</h3><ul>{actions}</ul></div>"
         if values:
             columns += f"<div><h3>Titles can show</h3><ul>{values}</ul></div>"
+        if p.get("icon"):
+            badge = f'<img class="icon" src="{e(p["icon"])}" alt="" width="64" height="64">'
+        else:
+            badge = f'<span class="key" data-tone="{i % 7 + 1}" aria-hidden="true">{e(initials)}</span>'
+        # What the search box matches against: everything the entry says.
+        words = " ".join([p["name"], p["description"], *p["actions"], *p["values"]]).lower()
         items.append(
             f"""
-      <article class="plugin" id="{e(p['id'])}">
-        <span class="key" data-tone="{i % 7 + 1}" aria-hidden="true">{e(initials)}</span>
+      <article class="plugin" id="{e(p['id'])}" data-words="{e(words)}">
+        {badge}
         <div class="about">
           <h2>{e(p['name'])} <span class="version">{e(p['version'])}</span></h2>
           <p>{e(p['description'])}</p>
@@ -135,7 +161,16 @@ def page(entries):
   <style>
     .plugins {{ display: grid; gap: 0; max-width: 900px; }}
     .plugin {{ display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 22px; padding: 28px 0; border-top: 1px solid var(--line); }}
-    .plugin .key {{ width: 64px; height: 64px; cursor: default; font-size: 1.1rem; }}
+    .plugin .key, .plugin .icon {{ width: 64px; height: 64px; cursor: default; font-size: 1.1rem; }}
+    .plugin .icon {{ border-radius: var(--radius-key); }}
+    .finder {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 8px; max-width: 900px; }}
+    .finder label {{ font-weight: 700; }}
+    .finder input {{
+      flex: 1 1 16em; min-width: 0; padding: 11px 14px; border-radius: 12px; font: inherit;
+      background: var(--paper); color: var(--ink); border: 1px solid var(--line);
+    }}
+    .finder output {{ color: var(--ink-soft); font-size: 0.95rem; }}
+    .none {{ color: var(--ink-soft); padding: 28px 0; border-top: 1px solid var(--line); }}
     .plugin h2 {{ font-size: 1.45rem; margin: 0 0 6px; max-width: none; }}
     .version {{ font: 400 0.95rem/1 var(--body); color: var(--ink-soft); }}
     .plugin p {{ color: var(--ink-soft); }}
@@ -174,7 +209,13 @@ def page(entries):
     <div class="wrap">
       <h1>Plugins</h1>
       <p class="updated">Plugins add things keys can do and values their titles can show. Add them in PerritoDeck from Plugins → Look online, or download one here, unzip it and use Install from folder. They're free and open source (MIT), and they run on your computer with your permissions.</p>
+      <div class="finder" hidden>
+        <label for="find">Find a plugin</label>
+        <input id="find" type="search" placeholder="OBS, lights, timer…" autocomplete="off">
+        <output for="find" id="found" aria-live="polite"></output>
+      </div>
       <div class="plugins">{''.join(items)}
+        <p class="none" id="none" hidden>No plugin matches that. Try another word, or <a href="../guide/plugins.html#write-your-own">write your own</a>.</p>
       </div>
     </div>
   </main>
@@ -189,6 +230,31 @@ def page(entries):
       </nav>
     </div>
   </footer>
+  <script>
+    // The search box filters the list as you type. Without JavaScript it stays hidden and
+    // every plugin is listed.
+    (() => {{
+      const finder = document.querySelector(".finder");
+      const box = document.getElementById("find");
+      const found = document.getElementById("found");
+      const none = document.getElementById("none");
+      const plugins = [...document.querySelectorAll(".plugin")];
+      const show = () => {{
+        const words = box.value.toLowerCase().split(/\\s+/).filter(Boolean);
+        let shown = 0;
+        for (const p of plugins) {{
+          const hit = words.every((w) => p.dataset.words.includes(w));
+          p.hidden = !hit;
+          if (hit) shown += 1;
+        }}
+        found.textContent = words.length ? `${{shown}} of ${{plugins.length}}` : `${{plugins.length}} plugins`;
+        none.hidden = shown > 0;
+      }};
+      finder.hidden = false;
+      box.addEventListener("input", show);
+      show();
+    }})();
+  </script>
 </body>
 </html>
 """

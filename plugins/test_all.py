@@ -12,6 +12,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SDK = os.path.join(HERE, "sdk-python", "perritodeck_plugin.py")
 
 failed = False
+# Tests of the tools in this folder itself (the catalogue builder).
+for test in sorted(f for f in os.listdir(HERE) if f.startswith("test_") and f.endswith(".py") and f != "test_all.py"):
+    r = subprocess.run([sys.executable, "-m", "unittest", test], cwd=HERE)
+    failed |= r.returncode != 0
 for name in sorted(os.listdir(HERE)):
     folder = os.path.join(HERE, name)
     if not os.path.isdir(folder):

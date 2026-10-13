@@ -56,6 +56,9 @@ A plugin is a folder containing `perritodeck-plugin.json`:
   on the Plugins page; the host stores them in its settings folder
   (`plugin-settings/<id>.json`, readable by the user only) and sends them in `hello`
   and in `settings` whenever they change.
+- `icon` (optional): a square picture of the plugin, as a path inside its folder
+  (`.svg`, `.png` or `.webp`, at least 128 × 128). The online catalogue shows it; the
+  host doesn't use it yet.
 
 Installed plugins live in the host's settings folder under `plugins/<id>/`.
 
