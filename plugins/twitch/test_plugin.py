@@ -4,6 +4,7 @@ import http.server
 import itertools
 import json
 import os
+import re
 import shutil
 import socket
 import stat
@@ -23,7 +24,8 @@ CLIENT_ID = "wbmytr93xzw8zbg0p1izqyzzc5mbiz"
 ME = {"id": "141981764", "login": "perritodev", "display_name": "PerritoDev"}
 OTHER = {"id": "12826", "login": "otherstreamer", "display_name": "OtherStreamer"}
 VIEWER = {"id": "55555", "login": "someviewer", "display_name": "SomeViewer"}
-USERS = {u["login"]: u for u in (ME, OTHER, VIEWER)}
+OLD = {"id": "301", "login": "zx", "display_name": "ZX"}  # a short name from Twitch's early days
+USERS = {u["login"]: u for u in (ME, OTHER, VIEWER, OLD)}
 ALL_SCOPES = set(twitch.BASE_SCOPES) | set(twitch.SCOPE_GROUP)
 NEEDS = {
     ("POST", "/streams/markers"): "channel:manage:broadcast",
@@ -60,13 +62,21 @@ NEEDS = {
     ("POST", "/predictions"): "channel:manage:predictions",
     ("PATCH", "/predictions"): "channel:manage:predictions",
     ("GET", "/subscriptions"): "channel:read:subscriptions",
-    ("GET", "/chatters"): "moderator:read:chatters",
+    ("GET", "/chat/chatters"): "moderator:read:chatters",
 }
+# What GET /users accepts as a login. Exactly which names Twitch refuses is unconfirmed,
+# so tests can refuse more with Fake.state["refused_logins"].
+LOGIN = re.compile(r"^[a-z0-9_]{1,25}$")
 NOW = 1791741600 + 2 * 3600 + 5 * 60  # 2026-10-11T20:05:00Z
 
 
 def iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def manifest():
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "perritodeck-plugin.json"), encoding="utf-8") as f:
+        return json.load(f)
 
 
 def wait_for(cond, timeout=3.0, message="condition"):
@@ -109,11 +119,14 @@ class Fake(http.server.BaseHTTPRequestHandler):
         if self.headers.get("Client-Id") != CLIENT_ID:
             return self.send_json(401, {"error": "Unauthorized", "status": 401, "message": "Client ID and OAuth token do not match"})
         if self.headers.get("Authorization") != f"Bearer {st['access']}":
-            return self.send_json(401, {"error": "Unauthorized", "status": 401, "message": "Invalid OAuth token"}, limit)
+            return self.send_json(401, {"error": "Unauthorized", "status": 401,
+                                        "message": st.get("bad_token_message", "Invalid OAuth token")}, limit)
         if st.get("throttle"):
             return self.send_json(429, {"error": "Too Many Requests", "status": 429, "message": ""},
                                   dict(limit, **{"Ratelimit-Remaining": "0"}))
         path, cmd = url.path[len("/helix"):], self.command
+        if path in st.get("other_401", {}):  # a 401 about the request, not the token
+            return self.send_json(401, {"error": "Unauthorized", "status": 401, "message": st["other_401"][path]}, limit)
         scope = NEEDS.get((cmd, path))
         if scope and scope not in st["scopes"]:
             return self.send_json(401, {"error": "Unauthorized", "status": 401, "message": f"Missing scope: {scope}"}, limit)
@@ -130,6 +143,9 @@ class Fake(http.server.BaseHTTPRequestHandler):
         if path == "/users":
             if "login" not in query:
                 return 200, {"data": [ME]}
+            refused = st.get("refused_logins", set())
+            if not all(LOGIN.match(x.lower()) and x.lower() not in refused for x in query["login"]):
+                return bad("Invalid login names, emails or IDs in request")  # one bad name spoils the batch
             return 200, {"data": [USERS[x] for x in query["login"] if x in USERS]}
         if path == "/streams":
             return 200, {"data": [s for s in st["streams"] if s["user_id"] in query.get("user_id", [])], "pagination": {}}
@@ -177,7 +193,8 @@ class Fake(http.server.BaseHTTPRequestHandler):
                                    "next_ad_at": s["next_ad_at"]}]}
         if path == "/clips":
             st["clips"].append(one)
-            return 202, {"data": [{"id": "FiveWordsForClipSlug", "edit_url": "https://clips.twitch.tv/FiveWordsForClipSlug/edit"}]}
+            return 202, {"data": [{"id": "FiveWordsForClipSlug",
+                                   "edit_url": st.get("edit_url", "https://clips.twitch.tv/FiveWordsForClipSlug/edit")}]}
         if path == "/chat/messages":
             st["chat"].append(body)
             if "badword" in body["message"]:
@@ -283,12 +300,23 @@ class Fake(http.server.BaseHTTPRequestHandler):
             if one["broadcaster_id"] != ME["id"]:
                 return bad("broadcaster_id must match the User ID in the token", 401)
             return 200, {"data": [], "total": 321, "points": 400, "pagination": {}}
-        if path == "/chatters":
-            return 200, {"data": [], "total": 42, "pagination": {}}
+        if path == "/chat/chatters":
+            if "moderator_id" not in one:
+                return bad("Missing required parameter \"moderator_id\"")
+            if one["moderator_id"] != ME["id"]:
+                return bad("The ID in moderator_id must match the user ID in the user access token.", 401)
+            if one["broadcaster_id"] != ME["id"]:  # not a moderator there
+                return bad("The user in moderator_id must have moderator privileges in the broadcaster's chat room.", 403)
+            return 200, {"data": [{"user_id": "9", "user_login": "fan", "user_name": "Fan"}], "total": 42,
+                         "pagination": {"cursor": "next"}}
         if path == "/eventsub/subscriptions":
             if cmd == "POST":
+                st["sub_posts"].append((body["type"], body["transport"].get("session_id"), time.monotonic()))
                 if body["transport"].get("session_id") != st["session"]:
                     return bad("websocket transport session does not exist or has already disconnected")
+                if st["fail_subs"].get(body["type"]):  # Twitch has a bad moment
+                    st["fail_subs"][body["type"]] -= 1
+                    return bad("Internal Server Error", 503)
                 sub = {"id": f"sub-{len(st['subs']) + 1}", "status": "enabled", "type": body["type"],
                        "version": body["version"], "condition": body["condition"], "transport": body["transport"], "cost": 0}
                 st["subs"].append(sub)
@@ -304,13 +332,24 @@ class Fake(http.server.BaseHTTPRequestHandler):
                 return self.send_json(200, {"client_id": CLIENT_ID, "login": ME["login"], "scopes": sorted(st["scopes"]),
                                             "user_id": ME["id"], "expires_in": 5000})
             return self.send_json(401, {"status": 401, "message": "invalid access token"})
+        if path == "/oauth2/revoke":
+            if st.get("revoke_down"):
+                return self.send_json(503, {"status": 503, "message": "Service Unavailable"})
+            if form.get("client_id") != CLIENT_ID:
+                return self.send_json(404, {"status": 404, "message": "client does not exist"})
+            if form.get("token") != st["access"]:
+                return self.send_json(400, {"status": 400, "message": "Invalid token"})
+            st["revoked"].append(form["token"])
+            st["access"] = st["refresh"] = "revoked"
+            return self.send_json(200)
         if form.get("client_id") != CLIENT_ID:
             return self.send_json(400, {"status": 400, "message": "invalid client"})
         if path == "/oauth2/device":
             st["device_scopes"] = form.get("scopes")
             return self.send_json(200, {"device_code": "dev-code-1", "expires_in": 1800, "interval": 0,
                                         "user_code": "ABCDEFGH",
-                                        "verification_uri": "https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH"})
+                                        "verification_uri": st.get("verification_uri",
+                                                                   "https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH")})
         if path == "/oauth2/token" and form.get("grant_type") == twitch.DEVICE_GRANT:
             if form.get("device_code") != "dev-code-1" or st.get("device_used"):
                 return self.send_json(400, {"status": 400, "message": "invalid device code"})
@@ -360,10 +399,20 @@ class WsConn:
         out, self.buf = self.buf[:n], self.buf[n:]
         return out
 
-    def send(self, message):
+    def send(self, message, pause_after=None):
+        """Send a text message; with pause_after=n, its first n bytes, a pause, then the rest
+        (as a slow network or TLS can deliver a frame)."""
         data = twitch.encode_frame(twitch.OP_TEXT, json.dumps(message).encode(), mask=False)
         with self.lock:
+            if pause_after:
+                self.sock.sendall(data[:pause_after])
+                time.sleep(0.3)
+                data = data[pause_after:]
             self.sock.sendall(data)
+
+    def ping(self, payload):
+        with self.lock:
+            self.sock.sendall(twitch.encode_frame(twitch.OP_PING, payload, mask=False))
 
 
 class FakeEventSub:
@@ -382,6 +431,12 @@ class FakeEventSub:
         self.sessions = itertools.count(1)
         self.ids = itertools.count(1)
         self.unmasked = 0
+        self.pongs = []  # payloads of the client's pongs
+        # Like Twitch, close a session that has no subscription this long after its
+        # welcome, with 4003 (None: never).
+        self.close_unused = None
+        self.unused_closed = []  # sessions closed for that
+        self.stopped = False
         threading.Thread(target=self._accept, daemon=True).start()
 
     def _accept(self):
@@ -412,6 +467,10 @@ class FakeEventSub:
         conn.send(self.message("session_welcome", {"session": {
             "id": session, "status": "connected", "connected_at": "2026-10-11T20:00:00.123456789Z",
             "keepalive_timeout_seconds": self.keepalive, "reconnect_url": None}}))
+        if self.close_unused is not None:
+            timer = threading.Timer(self.close_unused, self._close_if_unused, (conn,))
+            timer.daemon = True
+            timer.start()
         try:
             while True:  # the client only sends pongs and close frames
                 b0, b1 = conn.read(2)
@@ -421,7 +480,9 @@ class FakeEventSub:
                 if n == 126:
                     (n,) = struct.unpack("!H", conn.read(2))
                 key = conn.read(4) if b1 & 0x80 else b"\0\0\0\0"
-                conn.read(n)
+                payload = twitch.mask_bytes(conn.read(n), key)
+                if b0 & 0x0F == twitch.OP_PONG:
+                    self.pongs.append(payload)
                 if b0 & 0x0F == twitch.OP_CLOSE:
                     conn.closed_by_client = True
                     break
@@ -429,6 +490,22 @@ class FakeEventSub:
             pass
         finally:
             sock.close()
+
+    def _close_if_unused(self, conn):
+        if self.stopped or conn.closed_by_client:
+            return
+        if any(s["transport"]["session_id"] == conn.session for s in Fake.state["subs"]):
+            return
+        if Fake.state.get("session") == conn.session:
+            Fake.state["session"] = None  # POSTs for it fail from now on
+        self.unused_closed.append(conn.session)
+        try:
+            with conn.lock:
+                conn.sock.sendall(twitch.encode_frame(twitch.OP_CLOSE, struct.pack("!H", 4003) + b"connection unused",
+                                                      mask=False))
+            conn.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def message(self, kind, payload, **meta):
         return {"metadata": dict({"message_id": f"m-{next(self.ids)}", "message_type": kind,
@@ -447,6 +524,7 @@ class FakeEventSub:
         self.current.send(message)
 
     def stop(self):
+        self.stopped = True
         try:
             self.listener.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -499,7 +577,8 @@ class Base(unittest.TestCase):
                         {"id": "r9", "title": "Song request", "cost": 1000, "is_enabled": True, "is_paused": True,
                          "mine": False}],
             "redemptions": {"r1": [{"id": "red1", "status": "UNFULFILLED"}, {"id": "red2", "status": "UNFULFILLED"}]},
-            "polls": [], "predictions": [], "subs": [], "deleted_subs": [], "session": None,
+            "polls": [], "predictions": [], "subs": [], "deleted_subs": [], "session": None, "fail_subs": {},
+            "revoked": [], "sub_posts": [],
         }
         self.data = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.data, True)
@@ -522,6 +601,8 @@ class Base(unittest.TestCase):
         twitch._hype.clear()
         twitch._ads["cache"] = None
         twitch._votes.update(poll={}, prediction={})
+        twitch._check.update(next=0.0, told=False)
+        twitch._sign_in["current"] = None
         twitch.reschedule()
         twitch.load_state()
         twitch.events.stop()
@@ -571,6 +652,34 @@ class SignInTest(Base):
         for m in self.sent:  # tokens never reach the log
             self.assertNotIn("access-1", json.dumps(m))
             self.assertNotIn("refresh-1", json.dumps(m))
+        # The log names the account, so approving as the wrong channel shows.
+        self.assertIn("signed in to Twitch as perritodev", self.logs())
+        # A fresh token isn't validated again straight away.
+        twitch.safe_poll()
+        self.assertFalse([c for c in Fake.state["calls"] if c[1] == "/oauth2/validate"])
+
+    def test_sign_in_opens_only_twitch_pages(self):
+        for odd in ("http://www.twitch.tv/activate", "https://twitch.tv.example.com/activate",
+                    "https://evil.example\\@www.twitch.tv/activate", "https://user@www.twitch.tv/activate",
+                    "https://www.twitch.tv:8443/activate", "javascript:alert(1)"):
+            Fake.state["verification_uri"] = odd
+            with mock.patch.object(twitch, "open_for_user") as browser:
+                self.assertEqual(twitch.sign_in({}), "go to twitch.tv/activate and enter ABCDEFGH")
+            browser.assert_called_once_with("https://www.twitch.tv/activate")
+            self.assertTrue(any("isn't https on twitch.tv" in m for m in self.logs()), odd)
+            twitch._sign_in["current"].cancel("test")
+        for fine in ("https://www.twitch.tv/activate?device-code=X", "https://twitch.tv/activate",
+                     "https://id.twitch.tv/device"):
+            self.assertTrue(twitch.twitch_page(fine), fine)
+        for odd in (None, "", " https://www.twitch.tv/", "https://www.twitch.tv/\n", "https://[::1/"):
+            self.assertFalse(twitch.twitch_page(odd), odd)
+
+    def test_scopes_asked_for(self):
+        scopes = twitch.wanted_scopes()
+        self.assertIn("moderator:read:chatters", scopes)  # the chatters value
+        self.assertIn("moderator:manage:automod_settings", scopes)
+        self.assertNotIn("moderator:read:automod_settings", scopes)  # the plugin never reads AutoMod settings
+        self.assertEqual(len(scopes), len(set(scopes)))
 
     def test_feature_groups_choose_the_scopes(self):
         twitch.plugin.settings = {"client_id": CLIENT_ID, "group_polls": False, "group_moderation": False,
@@ -656,24 +765,160 @@ class SignInTest(Base):
             with self.assertRaisesRegex(RuntimeError, "sign in again with Moderation turned on"):
                 twitch.clear_chat({})
 
-    def test_hourly_validation(self):
-        self.signed_in(validated=False)
+    def test_401_about_the_request_is_not_refreshed(self):
+        self.signed_in()
+        # Twitch answers 401 for a request the token can't make, too: no refresh for those,
+        # and the key and log show what Twitch said. (Polled every minute, a refresh each
+        # time would churn through single-use refresh tokens.)
+        twitch.plugin.watching = {"subscribers:otherstreamer"}
+        twitch.poll_counts()
+        twitch.poll_counts()
+        self.assertEqual(Fake.state["refreshes"], 0)
+        self.assertEqual(self.values()["subscribers:otherstreamer"], "–")
+        self.assertIn("subscribers of otherstreamer: Twitch said 401: broadcaster_id must match the User ID in the token",
+                      self.logs())
+        self.assertFalse(self.validates())  # the wording was clear enough
+        # Wording it doesn't know: Twitch is asked whether the token still works.
+        Fake.state["other_401"] = {"/streams/markers": "Something about this request"}
+        with self.assertRaisesRegex(RuntimeError, "^Twitch said 401: Something about this request$"):
+            twitch.marker({})
+        self.assertEqual((len(self.validates()), Fake.state["refreshes"]), (1, 0))
+        del Fake.state["other_401"]
+        Fake.state["access"], Fake.state["bad_token_message"] = "elsewhere", "Token not accepted"
+        twitch.marker({})  # the token doesn't work: refreshed, and sent again
+        self.assertEqual((len(self.validates()), Fake.state["refreshes"]), (2, 1))
+        self.assertEqual(len(Fake.state["markers"]), 1)
+
+    def validates(self):
+        return [c for c in Fake.state["calls"] if c[1] == "/oauth2/validate"]
+
+    def test_validation_at_start_and_hourly(self):
+        self.signed_in()  # checked recently by an earlier run: still checked at start
+        clock = [1000.0]
+        with mock.patch.object(twitch.time, "monotonic", lambda: clock[0]):
+            twitch.safe_poll()  # no key shows a Twitch value: it's checked all the same
+            self.assertEqual(len(self.validates()), 1)
+            self.assertEqual(self.validates()[0][4]["Authorization"], "OAuth access-0")
+            self.assertIn("signed in to Twitch as perritodev", self.logs())
+            clock[0] += 3599
+            twitch.safe_poll()
+            self.assertEqual(len(self.validates()), 1)
+            clock[0] += 2
+            twitch.safe_poll()
+            self.assertEqual(len(self.validates()), 2)
+            self.assertEqual(self.logs().count("signed in to Twitch as perritodev"), 1)  # said once per run
+            # While Twitch can't be reached the sign-in is kept, and checked again a minute later.
+            clock[0] += 3601
+            with mock.patch.object(twitch, "id_request", side_effect=twitch.TwitchError("couldn't reach Twitch: down")):
+                twitch.safe_poll()
+                twitch.safe_poll()
+                self.assertEqual(twitch.id_request.call_count, 1)
+            self.assertIsNotNone(twitch.load_tokens())
+            self.assertTrue(any("couldn't reach Twitch" in m for m in self.logs()))
+            clock[0] += 61
+            twitch.safe_poll()
+            self.assertEqual(len(self.validates()), 3)
+            self.assertTrue(any("sign-in: working again" in m for m in self.logs()))
+        self.assertFalse(self.helix_calls())
+
+    def test_validation_refreshes_once_then_asks_to_sign_in_again(self):
+        self.signed_in()
         twitch.plugin.watching = {"live:me"}
+        Fake.state["access"] = "elsewhere"  # the saved token stopped working
         twitch.safe_poll()
-        validates = [c for c in Fake.state["calls"] if c[1] == "/oauth2/validate"]
-        self.assertEqual(len(validates), 1)
-        self.assertEqual(validates[0][4]["Authorization"], "OAuth access-0")
-        twitch.reschedule()
-        twitch.safe_poll()
-        self.assertEqual(len([c for c in Fake.state["calls"] if c[1] == "/oauth2/validate"]), 1)
-        tokens = twitch.load_tokens()
-        tokens["validated_at"] = 0
-        twitch.save_tokens(tokens)
-        Fake.state["access"] = "elsewhere"
-        twitch.reschedule()
-        twitch.safe_poll()
+        self.assertEqual(Fake.state["refreshes"], 1)
         self.assertEqual(twitch.load_tokens()["access_token"], "access-r1")
         self.assertEqual(self.values()["live:me"], "on")
+        # Then the refresh token stops working too (the app was disconnected on twitch.tv).
+        Fake.state["access"], Fake.state["refresh"] = "gone", "gone"
+        twitch._check["next"] = 0.0
+        twitch.safe_poll()
+        self.assertIsNone(twitch.load_tokens())
+        self.assertEqual(Fake.state["refreshes"], 1)
+        self.assertIn('sign-in: Twitch ended the sign-in; press "Sign in to Twitch" again', self.logs())
+        self.assertEqual(self.values()["live:me"], "–")
+        calls = len(Fake.state["calls"])
+        twitch.safe_poll()
+        self.assertEqual(len(Fake.state["calls"]), calls)  # nothing more is sent
+
+    def test_sign_out_revokes_the_token(self):
+        self.signed_in()
+        twitch.plugin.watching = {"live:me"}
+        self.assertIsNone(twitch.sign_out({}))
+        revoke = [c for c in Fake.state["calls"] if c[1] == "/oauth2/revoke"]
+        self.assertEqual(len(revoke), 1)
+        self.assertEqual(dict(urllib.parse.parse_qsl(revoke[0][3].decode())), {"client_id": CLIENT_ID, "token": "access-0"})
+        self.assertEqual(Fake.state["revoked"], ["access-0"])
+        self.assertIsNone(twitch.load_tokens())
+        self.assertEqual(self.values()["live:me"], "–")
+        self.assertIn("signed out of Twitch", self.logs())
+        # Signed out already: nothing to revoke.
+        self.assertIsNone(twitch.sign_out({}))
+        self.assertEqual(len([c for c in Fake.state["calls"] if c[1] == "/oauth2/revoke"]), 1)
+
+    def test_sign_out_refreshes_an_expired_token_to_revoke_it(self):
+        self.signed_in(expires_in=0)
+        self.assertIsNone(twitch.sign_out({}))
+        self.assertEqual(Fake.state["revoked"], ["access-r1"])  # the refresh token behind it is ended too
+        self.assertIsNone(twitch.load_tokens())
+
+    def test_sign_out_when_twitch_cant_end_it(self):
+        self.signed_in()
+        Fake.state["revoke_down"] = True
+        self.assertEqual(twitch.sign_out({}), "signed out here, but Twitch couldn't end the sign-in; see the log")
+        self.assertIsNone(twitch.load_tokens())  # forgotten here all the same
+        warning = next(m for m in self.sent if m.get("event") == "log" and m["level"] == "warn")
+        self.assertIn("couldn't end the sign-in at Twitch (Twitch said 503: Service Unavailable)", warning["message"])
+        self.assertIn("Connections on twitch.tv", warning["message"])
+        # A token Twitch had ended already: signed out with nothing to warn about.
+        Fake.state["revoke_down"] = False
+        self.signed_in()
+        Fake.state["access"] = "elsewhere"
+        self.assertIsNone(twitch.sign_out({}))
+        self.assertIsNone(twitch.load_tokens())
+
+    def test_sign_out_cancels_a_waiting_sign_in(self):
+        Fake.state["pending_polls"] = 1000
+        with mock.patch.object(twitch, "open_for_user"):
+            twitch.sign_in({})
+        attempt = twitch._sign_in["current"]
+        twitch.sign_out({})
+        self.assertTrue(attempt.done.wait(5))
+        self.assertEqual(attempt.error, "cancelled by signing out")
+        self.assertIsNone(twitch.load_tokens())
+
+    def test_sign_out_while_the_approval_is_on_its_way(self):
+        # Twitch has approved, and the plugin is asking which account it is, when Sign out
+        # is pressed: it stays signed out, and the token Twitch just gave is ended there.
+        Fake.state["pending_polls"] = 0
+        asking, answer = threading.Event(), threading.Event()
+        real_me = twitch.me
+
+        def slow_me(token, cid):
+            asking.set()
+            answer.wait(5)
+            return real_me(token, cid)
+
+        with mock.patch.object(twitch, "me", slow_me), mock.patch.object(twitch, "open_for_user"):
+            twitch.sign_in({})
+            attempt = twitch._sign_in["current"]
+            self.assertTrue(asking.wait(5))
+            self.assertIsNone(twitch.sign_out({}))
+            answer.set()
+            self.assertTrue(attempt.done.wait(5))
+        self.assertEqual(attempt.error, "cancelled by signing out")
+        self.assertIsNone(twitch.load_tokens())
+        self.assertFalse(os.path.exists(os.path.join(self.data, "tokens.json")))
+        self.assertEqual(Fake.state["revoked"], ["access-1"])
+        self.assertIn("signed out of Twitch", self.logs())
+        self.assertNotIn("signed in to Twitch as perritodev", self.logs())
+        # Signed in normally, the account is named once (by the attempt, not again at finish).
+        Fake.state.update(device_used=False, device_polls=0)
+        with mock.patch.object(twitch, "open_for_user"):
+            twitch.sign_in({})
+        self.assertTrue(twitch._sign_in["current"].done.wait(5))
+        self.assertEqual(self.logs().count("signed in to Twitch as perritodev"), 1)
+        self.assertEqual(twitch.load_tokens()["access_token"], "access-1")
 
     def test_not_signed_in(self):
         with self.assertRaisesRegex(RuntimeError, "not signed in"):
@@ -690,12 +935,12 @@ class SignInTest(Base):
         with self.assertRaisesRegex(RuntimeError, "slow down"):
             twitch.marker({})
         Fake.state["throttle"] = False
-        calls = len(Fake.state["calls"])
+        calls = len(self.helix_calls())
         with self.assertRaisesRegex(RuntimeError, r"try again in \d+ s"):
             twitch.marker({})
         twitch.plugin.watching = {"live:me"}
         twitch.safe_poll()
-        self.assertEqual(len(Fake.state["calls"]), calls)  # neither sent
+        self.assertEqual(len(self.helix_calls()), calls)  # neither sent
         twitch._limit["until"] = 0.0
         Fake.state["remaining"] = 1
         twitch.marker({})
@@ -731,6 +976,22 @@ class ActionTest(Base):
         self.assertEqual(twitch._state["last_marker"], "1:04:04")
         with self.assertRaisesRegex(RuntimeError, "no channel called nobodyhere"):
             twitch.clip({"channel": "nobodyhere"})
+
+    def test_clip_editor_address_must_be_twitch(self):
+        Fake.state["edit_url"] = "https://clips.example.com/edit"
+        with mock.patch.object(twitch, "open_for_user") as browser:
+            self.assertEqual(twitch.clip({"open": True}),
+                             "made the clip, but didn't open the editor: Twitch's address for it isn't a twitch.tv page")
+            browser.assert_not_called()
+            self.assertIsNone(twitch._state["last_clip_edit"])
+            twitch.open_last_clip({"editor": True})  # the clip page instead
+            browser.assert_called_once_with("https://clips.twitch.tv/FiveWordsForClipSlug")
+        self.assertTrue(any("isn't https on twitch.tv" in m for m in self.logs()))
+        # An editor address in a tampered state file isn't opened either.
+        twitch.update_state(last_clip_id="a/../b?c", last_clip_edit="http://www.twitch.tv/edit")
+        with mock.patch.object(twitch, "open_for_user") as browser:
+            twitch.open_last_clip({"editor": True})
+            browser.assert_called_once_with("https://clips.twitch.tv/a%2F..%2Fb%3Fc")
 
     def test_ads(self):
         self.assertIsNone(twitch.ad({"length": "90"}))
@@ -828,6 +1089,11 @@ class ActionTest(Base):
         self.assertFalse(Fake.state["channels"][ME["id"]]["is_branded_content"])
         with self.assertRaisesRegex(RuntimeError, "pick a content label"):
             twitch.label({"label": "mature"})
+        # The manifest's default is what a key saved without touching the picker sends.
+        default = next(f for a in manifest()["actions"] if a["id"] == "label" for f in a["fields"]
+                       if f["id"] == "label")["default"]
+        twitch.label({"label": default, "state": "on"})
+        self.assertIn("DebatedSocialIssuesAndPolitics", Fake.state["channels"][ME["id"]]["content_classification_labels"])
 
     def test_chat_modes(self):
         settings = lambda: Fake.state["chat_settings"][ME["id"]]  # noqa: E731
@@ -865,7 +1131,9 @@ class ActionTest(Base):
 
     def test_moderation(self):
         twitch.ban({"user": "@SomeViewer", "duration": "600", "reason": "Spam"})
-        twitch.ban({"user": "someviewer", "duration": "0"})
+        twitch.ban({"user": "someviewer", "duration": "0"})  # "Ban (no end)", picked
+        twitch.ban({"user": "someviewer"})  # no duration saved: the 10 minute default, not a ban
+        twitch.ban({"user": "someviewer", "duration": ""})
         twitch.unban({"user": "someviewer"})
         twitch.warn({"user": "someviewer", "reason": "Be nice"})
         twitch.clear_chat({})
@@ -877,6 +1145,8 @@ class ActionTest(Base):
         self.assertEqual(Fake.state["moderation"], [
             ("POST", "/moderation/bans", mod, {"data": {"user_id": VIEWER["id"], "duration": 600, "reason": "Spam"}}),
             ("POST", "/moderation/bans", mod, {"data": {"user_id": VIEWER["id"]}}),
+            ("POST", "/moderation/bans", mod, {"data": {"user_id": VIEWER["id"], "duration": 600}}),
+            ("POST", "/moderation/bans", mod, {"data": {"user_id": VIEWER["id"], "duration": 600}}),
             ("DELETE", "/moderation/bans", dict(mod, user_id=VIEWER["id"]), None),
             ("POST", "/moderation/warnings", mod, {"data": {"user_id": VIEWER["id"], "reason": "Be nice"}}),
             ("DELETE", "/moderation/chat", mod, None),
@@ -888,6 +1158,16 @@ class ActionTest(Base):
         ])
         with self.assertRaisesRegex(RuntimeError, "no user called nobodyhere"):
             twitch.ban({"user": "nobodyhere"})
+        # New accounts need 4 characters or more, but shorter old names are Twitch's to judge.
+        twitch.ban({"user": "@ZX", "duration": "60"})
+        self.assertEqual(Fake.state["moderation"][-1][3], {"data": {"user_id": OLD["id"], "duration": 60}})
+        calls = len(self.helix_calls())
+        for bad in ("some viewer", "x" * 26, "some-viewer", "émile", "a.b"):
+            with self.assertRaisesRegex(RuntimeError, "can't be a Twitch user name: those are up to 25 letters, digits or _"):
+                twitch.ban({"user": bad})
+        with self.assertRaisesRegex(RuntimeError, "'bad name' can't be a Twitch channel name"):
+            twitch.raid({"channel": "@bad name"})
+        self.assertEqual(len(self.helix_calls()), calls)  # none sent
         with self.assertRaisesRegex(RuntimeError, "enter the reason"):
             twitch.warn({"user": "someviewer"})
         with self.assertRaisesRegex(RuntimeError, "must be 0 to 4"):
@@ -1003,12 +1283,71 @@ class ValueTest(Base):
         self.assertEqual(len(self.helix_calls("GET", "/channels")), 1)
         self.assertEqual(len(self.helix_calls("GET", "/users")), 1)
         self.assertTrue(all(c[4]["Client-Id"] == CLIENT_ID for c in self.helix_calls()))
+        # Get Chatters: /chat/chatters, with you as the moderator; only the total is read.
+        self.assertEqual(self.last("GET", "/chat/chatters")[2],
+                         {"broadcaster_id": ME["id"], "moderator_id": ME["id"], "first": "1"})
         # Only changes are published again.
         self.sent.clear()
         twitch.poll_info()
         self.assertEqual(self.values(), {})
 
+    def test_chatters_where_you_dont_moderate(self):
+        twitch.plugin.watching = {"chatters:otherstreamer", "chatters:me"}
+        twitch.poll_counts()
+        self.assertEqual(self.values(), {"chatters:otherstreamer": "–", "chatters:me": "42"})
+        self.assertTrue(any(m.startswith("chatters of otherstreamer: Twitch said 403: The user in moderator_id")
+                            for m in self.logs()))
+
+    def test_a_bad_channel_name_spoils_only_its_own_values(self):
+        # Twitch refuses a whole GET /users batch for one name no account can have, so
+        # those are left out: the other channels' values still work.
+        twitch.plugin.watching = {"live:me", "live:otherstreamer", "live:bad name", "viewers:bad name",
+                                  "title:otherstreamer", "title:a.b", "chat_mode:slow@x-y"}
+        twitch.safe_poll()
+        v = self.values()
+        self.assertEqual((v["live:me"], v["live:otherstreamer"], v["title:otherstreamer"]), ("on", "off", "Chill"))
+        self.assertEqual((v["live:bad name"], v["viewers:bad name"], v["title:a.b"], v["chat_mode:slow@x-y"]),
+                         ("–", "–", "–", "–"))
+        for c in self.helix_calls("GET", "/users"):
+            self.assertEqual(c[2]["login"], ["otherstreamer"])
+        problems = [m for m in self.logs() if "can't be a Twitch channel name" in m]
+        self.assertEqual(sorted(problems), [
+            "name a.b: 'a.b' can't be a Twitch channel name: those are up to 25 letters, digits or _",
+            "name bad name: 'bad name' can't be a Twitch channel name: those are up to 25 letters, digits or _",
+            "name x-y: 'x-y' can't be a Twitch channel name: those are up to 25 letters, digits or _"])
+        self.assertFalse(any("Twitch has no channel" in m for m in self.logs()))
+
+    def test_a_name_twitch_refuses_spoils_only_its_own_values(self):
+        # A name that passes the plugin's check but that Twitch refuses still makes it
+        # answer 400 for the whole GET /users batch. The names are then asked about one at
+        # a time, and the refused one is remembered, so it costs no more requests.
+        Fake.state["refused_logins"] = {"ab"}
+        twitch.plugin.watching = {"live:me", "live:otherstreamer", "live:ab", "title:otherstreamer", "title:AB"}
+        twitch.safe_poll()
+        v = self.values()
+        self.assertEqual((v["live:me"], v["live:otherstreamer"], v["title:otherstreamer"]), ("on", "off", "Chill"))
+        self.assertEqual((v["live:ab"], v["title:AB"]), ("–", "–"))
+        self.assertEqual([sorted(c[2]["login"]) for c in self.helix_calls("GET", "/users")],
+                         [["ab", "otherstreamer"], ["ab"], ["otherstreamer"]])
+        self.assertEqual([m for m in self.logs() if m.startswith("name ab")], [
+            "name ab: 'ab' isn't a name Twitch accepts (Twitch said 400: Invalid login names, emails or IDs in request)"])
+        self.assertFalse(any("Twitch has no channel" in m for m in self.logs()))
+        twitch.reschedule()
+        twitch.safe_poll()
+        self.assertEqual(len(self.helix_calls("GET", "/users")), 3)  # not asked about again
+        with self.assertRaisesRegex(RuntimeError, "^Twitch doesn't accept 'ab' as a user name$"):
+            twitch.ban({"user": "@Ab"})
+        self.assertEqual(len(self.helix_calls("GET", "/users")), 3)
+        # Other errors aren't taken for a refused name.
+        twitch.plugin.watching = {"live:someviewer"}
+        Fake.state["throttle"] = True
+        twitch.reschedule()
+        twitch.poll_live()
+        self.assertNotIn("someviewer", twitch._users)
+        self.assertEqual(self.values()["live:someviewer"], "–")
+
     def test_missing_scopes_for_values(self):
+        Fake.state["scopes"] -= {"channel:read:subscriptions", "channel:read:ads"}
         self.signed_in(scopes=set(ALL_SCOPES) - {"channel:read:subscriptions", "channel:read:ads"})
         twitch.plugin.settings["group_events"] = False
         twitch.plugin.watching = {"subscribers:me", "next_ad:me"}
@@ -1083,10 +1422,10 @@ class ValueTest(Base):
         self.assertEqual(len(self.helix_calls("GET", "/subscriptions")), 2)  # every 60 s
         self.assertEqual(len(self.helix_calls("GET", "/polls")), 7)  # every 10 s
         twitch.plugin.watching = set()
-        before = len(Fake.state["calls"])
+        before = len(self.helix_calls())
         twitch.reschedule()
         twitch.safe_poll()
-        self.assertEqual(len(Fake.state["calls"]), before)
+        self.assertEqual(len(self.helix_calls()), before)
 
     def test_helpers(self):
         base = 1791741600  # 2026-10-11T18:00:00Z
@@ -1199,6 +1538,146 @@ class EventSubTest(Base):
                 time.sleep(0.1)
         self.assertEqual(len(self.ws.conns), 1)
 
+    def test_pings_and_slow_frames_keep_the_session(self):
+        # Twitch pings the connection now and then. The plugin used to answer and then
+        # wait on the socket for the next message, which may only come with the next
+        # keepalive, and took the read timeout for a lost connection. Here the read
+        # timeout (0.15 s) is shorter than the gap between keepalives (0.5 s), as
+        # Twitch's 10 s is to its 30 s.
+        self.ws.keepalive = 0.6
+        with mock.patch.object(twitch, "KEEPALIVE_GRACE", 0.2), mock.patch.object(twitch, "WS_READ_TIMEOUT", 0.15):
+            self.watch("last_raid:me")
+            wait_for(lambda: len(self.subs()) == 1, message="subscription")
+            for i in range(4):
+                self.ws.current.ping(b"p%d" % i)
+                time.sleep(0.3)
+                # One keepalive arrives in two parts, 0.3 s apart (longer than the read timeout).
+                self.ws.current.send(self.ws.message("session_keepalive", {}), pause_after=3 if i == 2 else None)
+                time.sleep(0.2)
+            self.ws.notify("channel.raid", {"from_broadcaster_user_name": "Raider", "viewers": 7})
+            wait_for(lambda: self.values().get("last_raid:me") == "Raider (7)", message="raid")
+        self.assertEqual(len(self.ws.conns), 1)
+        self.assertEqual(self.ws.pongs, [b"p0", b"p1", b"p2", b"p3"])  # each answered with its own payload
+        self.assertFalse([m for m in self.logs() if "EventSub connection" in m])
+        self.assertEqual(len(self.subs()), 1)  # never subscribed again
+
+    def test_pings_alone_are_not_keepalives(self):
+        # A ping shows the connection is up, not that the EventSub session is: without
+        # messages for the keepalive time from the welcome, it starts over.
+        self.ws.keepalive = 0.3
+        with mock.patch.object(twitch, "KEEPALIVE_GRACE", 0.1):
+            self.watch("last_raid:me")
+            wait_for(lambda: len(self.subs("sess-1")) == 1, message="first subscription")
+            first = self.ws.current
+            deadline = time.monotonic() + 4
+            while not self.subs("sess-2") and time.monotonic() < deadline:
+                try:
+                    first.ping(b"x")
+                except OSError:
+                    pass
+                time.sleep(0.05)
+        self.assertEqual(len(self.subs("sess-2")), 1)
+        self.assertTrue(any("no keepalive from Twitch in 0.4 s" in m for m in self.logs()))
+
+    def test_failed_subscriptions_are_tried_again(self):
+        Fake.state["fail_subs"] = {"channel.raid": 2}  # Twitch has two bad moments
+        with mock.patch.object(twitch, "EVENTSUB_RETRY_FIRST", 0.1):
+            self.watch("last_raid:me", "last_cheer:me")
+            wait_for(lambda: {s["type"] for s in self.subs()} == {"channel.raid", "channel.cheer"}, timeout=4,
+                     message="both subscriptions, with no key changed")
+        posts = [r for r in Fake.state["requests"] if r[:2] == ("POST", "/eventsub/subscriptions")
+                 and r[3]["type"] == "channel.raid"]
+        self.assertEqual(len(posts), 3)
+        self.assertIn("event channel.raid: Twitch said 503: Internal Server Error", self.logs())
+        self.assertIn("event channel.raid: working again", self.logs())
+        self.assertEqual(len(self.ws.conns), 1)
+
+    def test_subscription_retries_wait_longer_each_time(self):
+        events = twitch.EventSub()  # not started: sync() by hand
+        events.session = Fake.state["session"] = "sess-by-hand"
+        Fake.state["fail_subs"] = {"channel.cheer": 10}
+        twitch.plugin.watching = {"last_cheer:me"}
+        wanted = twitch.wanted_subscriptions()
+        key = next(iter(wanted))
+        clock = [100.0]
+        waits = []
+        with mock.patch.object(twitch, "EVENTSUB_RETRY_FIRST", 15.0), mock.patch.object(twitch, "EVENTSUB_RETRY_MAX", 60.0), \
+                mock.patch.object(twitch.time, "monotonic", lambda: clock[0]):
+            for _ in range(5):
+                events.sync(wanted)
+                at, wait = events.failed[key]
+                waits.append(wait)
+                self.assertFalse(events.retry_due(wanted))
+                events.sync(wanted)  # not due yet: not sent
+                clock[0] = at
+                self.assertTrue(events.retry_due(wanted))
+            clock[0] -= 1
+            self.assertEqual(events.next_retry(wanted), clock[0] + 1)  # every one refused: wait for it
+            self.assertIsNone(events.next_retry(dict(wanted, other=None)))  # one not refused: no wait
+            # A session with nothing subscribed is lost (Twitch closes those after 10 s):
+            # the retry stays where it was.
+            events.drop()
+            self.assertFalse(events.retry_due(wanted))
+            self.assertEqual(events.next_retry(wanted), clock[0] + 1)
+            # A session with a working subscription is lost: due at once on the next one,
+            # and the wait stays where it got to.
+            events.subscribed = {("channel.raid", "1", "{}"): "sub-1"}
+            events.drop()
+            self.assertTrue(events.retry_due(wanted))
+            self.assertIsNone(events.next_retry(wanted))
+            self.assertEqual(events.failed[key][1], 60.0)
+        self.assertEqual(waits, [15.0, 30.0, 60.0, 60.0, 60.0])
+        posts = [r for r in Fake.state["requests"] if r[:2] == ("POST", "/eventsub/subscriptions")]
+        self.assertEqual(len(posts), 5)
+        events.sync({})  # no key wants it any more: forgotten
+        self.assertEqual(events.failed, {})
+
+    def test_failed_subscriptions_are_tried_again_on_a_new_connection(self):
+        self.ws.keepalive = 0.3
+        Fake.state["fail_subs"] = {"channel.raid": 1}
+        with mock.patch.object(twitch, "KEEPALIVE_GRACE", 0.1), mock.patch.object(twitch, "EVENTSUB_RETRY_FIRST", 60):
+            self.watch("last_raid:me", "last_cheer:me")
+            wait_for(lambda: len(self.subs("sess-1")) == 1, message="the cheer subscription")
+            # No keepalives: a new connection, where the raid is tried again at once
+            # rather than after the minute its backoff would wait.
+            wait_for(lambda: {s["type"] for s in self.subs("sess-2")} == {"channel.raid", "channel.cheer"},
+                     timeout=4, message="both on the new session")
+
+    def raid_posts(self):
+        return [p for p in Fake.state["sub_posts"] if p[0] == "channel.raid"]
+
+    def test_refused_subscriptions_wait_when_twitch_closes_unused_sessions(self):
+        # Twitch closes a session with no subscription 10 s after its welcome (4003). When
+        # it refuses every subscription, that mustn't make the retry due at once: the
+        # plugin used to reconnect and POST again every few seconds, for ever.
+        self.ws.close_unused = 0.1
+        Fake.state["fail_subs"] = {"channel.raid": 100}
+        with mock.patch.object(twitch, "EVENTSUB_RETRY_FIRST", 0.4):
+            self.watch("last_raid:me")
+            wait_for(lambda: len(self.raid_posts()) == 3, timeout=5, message="three tries")
+            times = [t for _, _, t in self.raid_posts()]
+            self.assertGreaterEqual(times[1] - times[0], 0.35)  # 0.4 s
+            self.assertGreaterEqual(times[2] - times[1], 0.75)  # then 0.8 s
+            self.assertEqual(len({session for _, session, _ in self.raid_posts()}), 3)  # a new session each time
+            self.assertEqual(len(self.ws.conns), 3)  # and none opened in between
+        self.assertEqual(self.logs().count("event channel.raid: Twitch said 503: Internal Server Error"), 1)
+
+    def test_a_session_with_every_subscription_refused_is_closed(self):
+        Fake.state["fail_subs"] = {"channel.raid": 100}
+        with mock.patch.object(twitch, "EVENTSUB_RETRY_FIRST", 60):
+            self.watch("last_raid:me")
+            # Nothing on it would ever arrive, and Twitch would close it: closed at once.
+            wait_for(lambda: self.ws.conns and self.ws.conns[0].closed_by_client, message="closed by the plugin")
+            time.sleep(0.3)
+            self.assertEqual((len(self.ws.conns), len(self.raid_posts())), (1, 1))  # waiting its minute
+            # Keys change: everything is tried again at once.
+            self.watch("last_raid:me", "last_cheer:me")
+            wait_for(lambda: len(self.subs("sess-2")) == 1, message="the cheer subscription")
+            self.assertEqual(len(self.raid_posts()), 2)
+            time.sleep(0.3)
+            self.assertEqual(len(self.ws.conns), 2)  # this one has a subscription: kept
+            self.assertFalse(self.ws.conns[1].closed_by_client)
+
     def test_revocation_and_failed_subscriptions(self):
         Fake.state["scopes"].discard("bits:read")
         self.signed_in(scopes=set(ALL_SCOPES) - {"bits:read"})
@@ -1218,6 +1697,44 @@ class EventSubTest(Base):
         self.assertEqual(self.ws.conns, [])
         twitch.safe_poll()
         self.assertEqual(self.values()["last_cheer:me"], "–")
+
+
+class ManifestTest(unittest.TestCase):
+    def test_actions_and_fields(self):
+        m = manifest()
+        self.assertEqual({a["id"] for a in m["actions"]}, set(twitch.plugin._actions))
+        for action in m["actions"]:
+            for field in action.get("fields", []):
+                if field["type"] == "select":
+                    # The editor shows the first option when there's no default but saves
+                    # nothing, so every select says which one it means.
+                    self.assertIn(field.get("default"), [o["value"] for o in field["options"]],
+                                  f"{action['id']}.{field['id']}")
+        ban = next(f for a in m["actions"] if a["id"] == "ban" for f in a["fields"] if f["id"] == "duration")
+        self.assertEqual(ban["default"], str(twitch.BAN_DEFAULT))
+        forever = next(o for o in ban["options"] if o["value"] == str(twitch.BAN_FOREVER))
+        self.assertEqual(forever["label"], "Ban (no end)")
+
+    def test_readme_matches_the_plugin(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md"), encoding="utf-8") as f:
+            text = f.read()
+        # The scopes table lists exactly the scopes the sign-in can ask for, and the count
+        # under it is right.
+        table = text.split("| Group | Scopes | For |", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(set(re.findall(r"`([a-z_]+(?::[a-z_]+)+)`", table)), ALL_SCOPES)
+        flat = " ".join(text.split())
+        self.assertIn(f"asks for these {len(ALL_SCOPES)} scopes; with none ticked, only for the "
+                      f"{len(twitch.BASE_SCOPES)} in the Always rows", flat)
+        # Any version it names is the manifest's (it used to lag behind).
+        for version in re.findall(r"\bversion (\d+\.\d+\.\d+)", flat):
+            self.assertEqual(version, manifest()["version"])
+        # Every table row is a row: text right after a row ends the table, and rows right
+        # after text are part of that paragraph.
+        lines = text.split("\n")
+        for i, line in enumerate(lines[1:], 1):
+            before = lines[i - 1]
+            if line and before and line.startswith("|") != before.startswith("|"):
+                self.fail(f"README.md line {i + 1} breaks a table: {line[:60]!r}")
 
 
 if __name__ == "__main__":

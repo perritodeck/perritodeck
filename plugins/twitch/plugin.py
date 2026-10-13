@@ -8,7 +8,8 @@ Code Grant flow as a public client: the user registers their own app (client typ
 "Public") and pastes its client ID; no client secret is needed. Which permissions the
 sign-in asks for depends on the feature groups turned on in the plugin's settings.
 Tokens are kept in the plugin's data folder, readable by the user only, refreshed
-automatically and validated hourly as Twitch asks. Standard library only.
+automatically, validated at start and hourly as Twitch requires, and revoked at
+Twitch on sign-out. Standard library only.
 """
 
 import base64
@@ -37,8 +38,10 @@ NOTHING = "–"
 ID_URL = "https://id.twitch.tv"
 HELIX_URL = "https://api.twitch.tv/helix"
 EVENTSUB_URL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30"
+ACTIVATE_URL = "https://www.twitch.tv/activate"
 TIMEOUT = 6
-VALIDATE_SECONDS = 3600  # Twitch asks apps to validate their tokens hourly
+VALIDATE_SECONDS = 3600  # Twitch requires apps to validate their tokens at start and hourly
+VALIDATE_RETRY = 60  # seconds before checking again when Twitch couldn't be reached
 MIN_DEVICE_POLL = 1.0
 TOKEN_FILE = "tokens.json"
 STATE_FILE = "state.json"
@@ -47,7 +50,10 @@ RECENT_SECONDS = 600  # a finished poll or prediction stays on keys this long
 EVENTSUB_BACKOFF_FIRST = 2.0
 EVENTSUB_BACKOFF_MAX = 60.0
 EVENTSUB_READ_SECONDS = 5.0  # how often the session checks what keys want
+EVENTSUB_RETRY_FIRST = 15.0  # a subscription Twitch refused is tried again after this,
+EVENTSUB_RETRY_MAX = 600.0  # doubling up to this (and at once when a working session is lost)
 WS_CONNECT_TIMEOUT = 8.0
+WS_READ_TIMEOUT = 10.0  # for the rest of a frame that has started to arrive
 KEEPALIVE_GRACE = 5.0  # extra seconds past the keepalive timeout before reconnecting
 WS_POLL = 1.0  # seconds between checks while the EventSub connection is quiet
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -76,8 +82,7 @@ GROUPS = {
         "moderator:manage:warnings",
         "moderator:manage:announcements",
         "moderator:manage:shoutouts",
-        "moderator:read:automod_settings",
-        "moderator:manage:automod_settings",
+        "moderator:manage:automod_settings",  # only sets the level: no read scope needed
         "moderator:read:chatters",
         "channel:manage:raids",
         "channel:manage:vips",
@@ -115,7 +120,9 @@ def wanted_scopes():
 
 
 class TwitchError(RuntimeError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status  # the HTTP status of Helix's error answer, when there was one
 
 
 SIGN_IN_AGAIN = "press \"Sign in to Twitch\" again"
@@ -221,7 +228,7 @@ def id_request(path, form=None, token=None):
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             status, raw = resp.status, resp.read()
     except urllib.error.HTTPError as e:
-        status, raw = e.code, e.read()
+        status, raw = e.code, error_body(e)
     except (urllib.error.URLError, OSError) as e:
         raise TwitchError(f"couldn't reach Twitch: {getattr(e, 'reason', e)}") from None
     try:
@@ -285,24 +292,73 @@ def access_token(force_refresh=False):
 
 
 def validate():
-    """GET /oauth2/validate, as Twitch asks every app to do at start and hourly. A token
-    that fails is refreshed (or the sign-in is dropped when that fails too)."""
+    """GET /oauth2/validate, as Twitch requires of every app at start and hourly. A token
+    that fails is refreshed once (or the sign-in is dropped when that fails too, and
+    the error says to sign in again). Returns the tokens."""
     tokens = access_token()
     status, answer = id_request("/oauth2/validate", token=tokens["access_token"])
     if status == 401:
-        tokens = access_token(force_refresh=True)
-    elif status != 200:
+        return access_token(force_refresh=True)
+    if status != 200:
         raise TwitchError(f"Twitch couldn't check the sign-in ({status})")
-    elif isinstance(answer.get("scopes"), list):
+    if isinstance(answer.get("scopes"), list):
         tokens["scope"] = answer["scopes"]
+    if answer.get("login"):
+        tokens["login"] = answer["login"]
     tokens["validated_at"] = time.time()
     with _token_lock:
         latest = current_tokens()
         if latest and latest.get("access_token") == tokens["access_token"]:
             save_tokens(tokens)
+    return tokens
+
+
+_check = {"next": 0.0, "told": False}  # monotonic time of the next validation; 0 = at start
+
+
+def check_sign_in():
+    """Validate the token when the plugin starts and every hour after, whether or not
+    keys show Twitch values (Twitch requires it of every app). Says once which account
+    is signed in, so a deck on the wrong channel is obvious in the log. Returns False
+    once the sign-in is gone."""
+    now = time.monotonic()
+    if now < _check["next"]:
+        return True
+    _check["next"] = now + VALIDATE_RETRY  # until a check gets through
+    try:
+        tokens = validate()
+    except TwitchError as e:
+        report("sign-in", str(e))
+        if current_tokens() is None:
+            events.wake()  # closes the EventSub session
+            return False
+        return True  # Twitch couldn't be reached: keep the sign-in, try again later
+    _check["next"] = now + VALIDATE_SECONDS
+    report("sign-in", None)
+    if not _check["told"]:
+        _check["told"] = True
+        plugin.log(f"signed in to Twitch as {tokens.get('login') or 'an unknown account'}")
+    return True
 
 
 # --- sign-in (device code grant) -------------------------------------------------------
+
+
+def twitch_page(url):
+    """Whether an address that came from Twitch is safe to open in the user's browser:
+    https on twitch.tv or one of its subdomains, with nothing in it that a browser
+    could read differently from Python (a backslash, spaces, a user name)."""
+    if not isinstance(url, str) or not url or any(c.isspace() or c == "\\" or ord(c) < 32 or ord(c) == 127
+                                                  for c in url):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    return (parts.scheme == "https" and "@" not in parts.netloc and port in (None, 443)
+            and (host == "twitch.tv" or host.endswith(".twitch.tv")))
 
 
 class DeviceSignIn:
@@ -311,14 +367,22 @@ class DeviceSignIn:
         self.scopes = scopes
         self.device_code = answer["device_code"]
         self.user_code = answer.get("user_code") or ""
-        self.uri = answer.get("verification_uri") or "https://www.twitch.tv/activate"
+        given = answer.get("verification_uri")
+        self.uri = given if twitch_page(given) else ACTIVATE_URL
+        self.odd_uri = given if given and given != self.uri else None
         interval = answer.get("interval")
         self.interval = float(5 if interval is None else interval)
         self.deadline = time.monotonic() + float(answer.get("expires_in") or 1800)
         self.done = threading.Event()
         self.cancelled = threading.Event()
+        self.why_cancelled = ""
         self.error = None
+        self.login = None  # the account that approved, once it has
         self.thread = threading.Thread(target=self.wait, name="twitch-sign-in", daemon=True)
+
+    def cancel(self, why):
+        self.why_cancelled = why
+        self.cancelled.set()
 
     def wait(self):
         try:
@@ -329,7 +393,7 @@ class DeviceSignIn:
     def poll(self):
         while time.monotonic() < self.deadline:
             if self.cancelled.wait(max(MIN_DEVICE_POLL, self.interval)):
-                return "replaced by a new sign-in"
+                return self.why_cancelled
             status, answer = id_request("/oauth2/token", {
                 "client_id": self.cid,
                 "scopes": " ".join(self.scopes),
@@ -337,13 +401,7 @@ class DeviceSignIn:
                 "grant_type": DEVICE_GRANT,
             })
             if status == 200:
-                user = me(answer.get("access_token"), self.cid)
-                if not answer.get("scope"):
-                    answer["scope"] = list(self.scopes)
-                with _token_lock:
-                    store_token_answer(answer, self.cid, user=user)
-                _users.clear()
-                return None
+                return self.approved(answer)
             message = str(answer.get("message") or answer.get("error") or status)
             if message == "authorization_pending":
                 continue
@@ -355,12 +413,47 @@ class DeviceSignIn:
             return f"Twitch refused the sign-in ({message})"
         return "the sign-in code expired; " + SIGN_IN_AGAIN
 
+    def approved(self, answer):
+        """Save the sign-in Twitch approved, unless it was cancelled meanwhile: then it's
+        ended at Twitch instead. Returns None once saved, else why it wasn't."""
+        token = answer.get("access_token")
+        if not token:
+            raise TwitchError("Twitch didn't send an access token")
+        try:
+            user = None if self.cancelled.is_set() else me(token, self.cid)
+        except TwitchError:
+            self.end(token)  # no use here, so it mustn't go on working at Twitch
+            raise
+        if not answer.get("scope"):
+            answer["scope"] = list(self.scopes)
+        with _token_lock:
+            # sign_out() cancels before it takes this lock, and keeps it while it ends the
+            # sign-in: checked here, a sign-out pressed while the approval was on its way
+            # (or while me() asked which account it is) always wins.
+            if not self.cancelled.is_set():
+                store_token_answer(answer, self.cid, user=user)
+                _users.clear()
+                self.login = user.get("login") or "an unknown account"
+                # Name the account: approving in a browser signed in to another channel is
+                # easy. Logged under the lock, so a sign-out right after is logged after it.
+                plugin.log(f"signed in to Twitch as {self.login}")
+                return None
+        self.end(token)
+        return self.why_cancelled
+
+    def end(self, token):
+        """End a token Twitch gave that won't be saved."""
+        problem = revoke(self.cid, token)
+        if problem:
+            plugin.log(f"couldn't end an unused Twitch sign-in at Twitch ({problem}); to end it, remove the app "
+                       "under Settings, Connections on twitch.tv", "warn")
+
     def finish(self, error=None):
         self.error = error
         if error:
             plugin.log(f"Twitch sign-in: {error}", "warn")
         else:
-            plugin.log("signed in to Twitch")
+            _check.update(next=time.monotonic() + VALIDATE_SECONDS, told=True)  # a new token is valid
             reschedule()
             events.wake()
         self.done.set()
@@ -388,7 +481,7 @@ def sign_in(settings):
     cid = client_id()
     old = _sign_in["current"]
     if old is not None and not old.done.is_set():
-        old.cancelled.set()
+        old.cancel("replaced by a new sign-in")
     scopes = wanted_scopes()
     status, answer = id_request("/oauth2/device", {"client_id": cid, "scopes": " ".join(scopes)})
     if status != 200 or not answer.get("device_code"):
@@ -399,7 +492,10 @@ def sign_in(settings):
     attempt = DeviceSignIn(cid, answer, scopes)
     _sign_in["current"] = attempt
     attempt.thread.start()
-    shown = "twitch.tv/activate" if attempt.uri.startswith("https://www.twitch.tv/activate") else attempt.uri
+    if attempt.odd_uri:
+        plugin.log(f"Twitch sent a sign-in page that isn't https on twitch.tv ({attempt.odd_uri[:200]!r}); "
+                   f"using {ACTIVATE_URL} instead", "warn")
+    shown = "twitch.tv/activate" if attempt.uri.startswith(ACTIVATE_URL) else attempt.uri
     plugin.log(f"to sign in to Twitch, open {attempt.uri} and enter the code {attempt.user_code}")
     try:
         open_for_user(attempt.uri)  # a browser it starts must outlive a plugin restart
@@ -408,12 +504,51 @@ def sign_in(settings):
     return f"go to {shown} and enter {attempt.user_code}"
 
 
+def end_at_twitch(tokens):
+    """Revoke the sign-in at Twitch (POST /oauth2/revoke), so the token stops working
+    everywhere and not only here. Returns None when it's ended (or Twitch had ended
+    it already), else what went wrong."""
+    if time.time() > float(tokens.get("expires_at") or 0) - 60 and current_tokens() is not None:
+        # An expired token can't be revoked, and the refresh token behind it would
+        # live on: refresh first to have one that can.
+        try:
+            tokens = refresh(tokens)
+        except TwitchError as e:
+            return None if load_tokens() is None else str(e)  # gone: Twitch had ended it
+    return revoke(tokens.get("client_id"), tokens["access_token"])
+
+
+def revoke(cid, token):
+    """POST /oauth2/revoke for an access token. Returns None when it's ended (or Twitch
+    had ended it already), else what went wrong."""
+    try:
+        status, answer = id_request("/oauth2/revoke", {"client_id": cid or "", "token": token})
+    except TwitchError as e:
+        return str(e)
+    message = str(answer.get("message") or "")
+    if status == 200 or (status == 400 and "invalid token" in message.lower()):
+        return None
+    return f"Twitch said {status}: {message}" if message else f"Twitch said {status}"
+
+
 @plugin.action("sign-out")
 def sign_out(settings):
+    attempt = _sign_in["current"]
+    if attempt is not None and not attempt.done.is_set():
+        # It mustn't sign back in once approved: cancelled before taking the lock, which
+        # approved() checks under.
+        attempt.cancel("cancelled by signing out")
     with _token_lock:
-        forget_tokens()
+        tokens = load_tokens()
+        problem = end_at_twitch(tokens) if tokens else None
+        forget_tokens()  # whatever Twitch said
     events.wake()
     publish_unknown()
+    if problem:
+        plugin.log(f"signed out of Twitch on this computer, but couldn't end the sign-in at Twitch ({problem}); "
+                   "to end it there too, remove the app under Settings, Connections on twitch.tv", "warn")
+        return "signed out here, but Twitch couldn't end the sign-in; see the log"
+    plugin.log("signed out of Twitch")
     return None
 
 
@@ -468,9 +603,9 @@ def api(method, path, params=None, body=None):
         except urllib.error.HTTPError as e:
             note_rate_limit(e.headers, e.code)
             message = error_message(e)
-            if e.code == 401 and attempt == 0 and "scope" not in message.lower():
+            if e.code == 401 and attempt == 0 and token_rejected(message, tokens["access_token"]):
                 continue  # expired or revoked: refresh once and try again
-            raise TwitchError(describe(e.code, message)) from None
+            raise TwitchError(describe(e.code, message), e.code) from None
         except (urllib.error.URLError, OSError) as e:
             raise TwitchError(f"couldn't reach Twitch: {getattr(e, 'reason', e)}") from None
         if not raw.strip():
@@ -482,12 +617,48 @@ def api(method, path, params=None, body=None):
     return None
 
 
+def error_body(e):
+    """The body of an HTTP error answer, and the answer closed."""
+    try:
+        return e.read() or b""
+    except Exception:
+        return b""
+    finally:
+        try:
+            e.close()
+        except Exception:
+            pass
+
+
 def error_message(e):
     try:
-        body = json.loads(e.read().decode("utf-8") or "{}")
+        body = json.loads(error_body(e).decode("utf-8") or "{}")
         return str(body.get("message") or body.get("error") or "")
     except Exception:
         return ""
+
+
+# How Helix words a 401 for a token that no longer works (expired, revoked, missing).
+BAD_TOKEN = ("invalid oauth token", "invalid access token", "oauth token is missing", "token is expired",
+             "token has expired")
+
+
+def token_rejected(message, token):
+    """Whether a Helix 401 means the token itself no longer works, so a refresh can
+    help. Other 401s are about the request ("Missing scope: ...", "The ID in
+    broadcaster_id must match the user ID found in the request's OAuth token"), and a
+    refresh would only use up the single-use refresh token, on every poll of a value.
+    For wording this doesn't know, it asks Twitch whether the token still works."""
+    text = message.lower()
+    if any(phrase in text for phrase in BAD_TOKEN):
+        return True
+    if "scope" in text or "must match" in text:
+        return False
+    try:
+        status, _ = id_request("/oauth2/validate", token=token)
+    except TwitchError:
+        return False  # can't tell: show Twitch's message rather than refresh blindly
+    return status == 401
 
 
 def describe(status, message):
@@ -498,7 +669,7 @@ def describe(status, message):
         if scope in SCOPE_GROUP:
             return missing_scope_message(scope)
         return "the sign-in doesn't allow that (" + message + "); " + SIGN_IN_AGAIN
-    if status == 401:
+    if status == 401 and (not message or any(phrase in message.lower() for phrase in BAD_TOKEN)):
         return "Twitch refused the sign-in; " + SIGN_IN_AGAIN
     return f"Twitch said {status}: {message}" if message else f"Twitch said {status}"
 
@@ -510,43 +681,95 @@ def me_id():
     return tokens["user_id"]
 
 
+def login_key(name):
+    return (name or "").strip().lower().lstrip("@")
+
+
 def is_me(name):
-    return (name or "").strip().lower().lstrip("@") in ("", "me")
+    return login_key(name) in ("", "me")
 
 
-_users = {}  # login -> user id
+# Up to 25 letters, digits or _ (matched after login_key() lowercases). New accounts need
+# 4 or more, but older ones may be shorter, so short names are left for Twitch to judge.
+LOGIN_RE = re.compile(r"^[a-z0-9_]{1,25}$")
+
+
+def login_problem(name, what="channel"):
+    """Why a name can't be a Twitch login (up to 25 letters, digits or _), or None."""
+    if LOGIN_RE.match(login_key(name)):
+        return None
+    return f"{name.strip().lstrip('@')!r} can't be a Twitch {what} name: those are up to 25 letters, digits or _"
+
+
+_users = {}  # login -> user id, or None for a name Twitch refused
+
+
+def refused(name):
+    """Whether Twitch refused this name when it was looked up."""
+    key = login_key(name)
+    return key in _users and _users[key] is None
 
 
 def user_ids(logins):
-    """{login: id} for channel names ('me' or '' is the signed-in account); unknown names are left out."""
+    """{login: id} for channel names ('me' or '' is the signed-in account); unknown names
+    are left out. So are names no Twitch account can have (logged once), which aren't
+    sent: in a batch, one of those would make Twitch refuse every name with it. And so
+    are names Twitch refused anyway (see look_up)."""
     found = {}
     missing = []
     for login in logins:
-        key = login.strip().lower().lstrip("@")
+        key = login_key(login)
         if key in ("", "me"):
             found[login] = me_id()
         elif key in _users:
-            found[login] = _users[key]
+            if _users[key] is not None:
+                found[login] = _users[key]
+        elif login_problem(login):
+            report(f"name {login}", login_problem(login))
         else:
             missing.append((login, key))
     keys = sorted({key for _, key in missing})
     for i in range(0, len(keys), 100):
-        answer = api("GET", "/users", [("login", key) for key in keys[i:i + 100]]) or {}
-        for u in answer.get("data") or []:
-            if u.get("id"):
-                _users[u.get("login", "").lower()] = u["id"]
+        look_up(keys[i:i + 100])
     for login, key in missing:
-        if key in _users:
+        if _users.get(key) is not None:
             found[login] = _users[key]
     return found
+
+
+def look_up(keys):
+    """Put the IDs of these names (up to 100) in _users with one GET /users. Twitch
+    answers 400 for the whole request when it refuses one name in it, so then each name
+    is asked about on its own: one bad name never blanks the others. A name Twitch
+    refuses on its own is logged once and remembered, so it isn't asked about again."""
+    try:
+        answer = api("GET", "/users", [("login", key) for key in keys]) or {}
+    except TwitchError as e:
+        if e.status != 400:
+            raise
+        if len(keys) > 1:
+            for key in keys:
+                look_up([key])
+        else:
+            _users[keys[0]] = None
+            report(f"name {keys[0]}", f"{keys[0]!r} isn't a name Twitch accepts ({e})")
+        return
+    for u in answer.get("data") or []:
+        if u.get("id"):
+            _users[u.get("login", "").lower()] = u["id"]
 
 
 def user_id(name, what="channel"):
     name = (name or "").strip()
     if is_me(name):
         return me_id()
+    problem = login_problem(name, what)
+    if problem:
+        raise TwitchError(problem)
     found = user_ids([name])
     if name not in found:
+        if refused(name):
+            raise TwitchError(f"Twitch doesn't accept {login_key(name)!r} as a {what} name")
         raise TwitchError(f"Twitch has no {what} called {name.lstrip('@')}")
     return found[name]
 
@@ -659,10 +882,16 @@ def open_in_browser(url):
 @plugin.action("clip")
 def clip(settings):
     info = first(api("POST", "/clips", {"broadcaster_id": channel_id(settings.get("channel"))}))
-    if info.get("id"):
-        update_state(last_clip_id=info["id"], last_clip_at=time.time(), last_clip_edit=info.get("edit_url"))
-        publish_fixed()
     edit_url = info.get("edit_url")
+    odd = bool(edit_url) and not twitch_page(edit_url)
+    if odd:  # never open whatever came back; only twitch.tv pages
+        plugin.log(f"Twitch sent a clip editor address that isn't https on twitch.tv: {str(edit_url)[:200]!r}", "warn")
+        edit_url = None
+    if info.get("id"):
+        update_state(last_clip_id=info["id"], last_clip_at=time.time(), last_clip_edit=edit_url)
+        publish_fixed()
+    if settings.get("open") and odd:
+        return "made the clip, but didn't open the editor: Twitch's address for it isn't a twitch.tv page"
     if settings.get("open") and edit_url and not open_in_browser(edit_url):
         return "made the clip, but couldn't open a web browser"
     return None
@@ -673,9 +902,10 @@ def open_last_clip(settings):
     clip_id = _state.get("last_clip_id")
     if not clip_id:
         return "no clip made from the deck yet"
-    url = f"https://clips.twitch.tv/{clip_id}"
-    if settings.get("editor") and _state.get("last_clip_edit"):
-        url = _state["last_clip_edit"]
+    url = "https://clips.twitch.tv/" + urllib.parse.quote(str(clip_id), safe="")
+    edit_url = _state.get("last_clip_edit")
+    if settings.get("editor") and twitch_page(edit_url):
+        url = edit_url
     if not open_in_browser(url):
         raise TwitchError("couldn't open a web browser")
     return None
@@ -958,13 +1188,19 @@ def shield(settings):
     return None
 
 
+BAN_DEFAULT = 600  # the manifest's default: a 10 minute timeout
+BAN_FOREVER = 0  # "Ban (no end)" in the manifest: only when picked
+
+
 @plugin.action("ban")
 def ban(settings):
     need("moderator:manage:banned_users")
     target = user_id(needs_text(settings, "user", "the user's name"), "user")
-    duration = integer(settings.get("duration"), "the timeout", 0, 1209600, default=0)
+    # No duration saved (an older key, a script) is the 10 minute timeout, never a ban
+    # with no end: that has to be picked.
+    duration = integer(settings.get("duration"), "the timeout", 0, 1209600, default=BAN_DEFAULT)
     data = {"user_id": target}
-    if duration:
+    if duration != BAN_FOREVER:
         data["duration"] = duration
     reason = (settings.get("reason") or "").strip()
     if reason:
@@ -1277,6 +1513,7 @@ class WebSocket:
         self.sock = sock
         self._buf = bytearray()
         self._send_lock = threading.Lock()
+        self._kind, self._parts, self._size = None, [], 0  # a fragmented message so far
 
     @classmethod
     def connect(cls, url, timeout=WS_CONNECT_TIMEOUT):
@@ -1337,38 +1574,91 @@ class WebSocket:
         self.sock.settimeout(seconds)
 
     def readable(self, timeout):
-        """True when data is waiting (buffered here, in TLS, or on the socket)."""
-        if self._buf or (hasattr(self.sock, "pending") and self.sock.pending()):
+        """True when there's something to read: a whole frame buffered here, decrypted
+        bytes waiting in TLS, or data on the socket (waits up to `timeout` for that)."""
+        if self._frame_size() is not None or (hasattr(self.sock, "pending") and self.sock.pending()):
             return True
         return bool(select.select([self.sock], [], [], timeout)[0])
 
-    def _read(self, n):
-        while len(self._buf) < n:
-            chunk = self.sock.recv(max(65536, n - len(self._buf)))
-            if not chunk:
-                raise WebSocketClosed(1006, "connection lost")
-            self._buf += chunk
-        out = bytes(self._buf[:n])
-        del self._buf[:n]
-        return out
+    def _fill(self):
+        chunk = self.sock.recv(65536)
+        if not chunk:
+            raise WebSocketClosed(1006, "connection lost")
+        self._buf += chunk
 
-    def _read_frame(self):
-        b0, b1 = self._read(2)
-        fin, opcode = bool(b0 & 0x80), b0 & 0x0F
+    def _frame_size(self):
+        """(header length, payload length) of the frame at the start of the buffer once
+        all of it has arrived, else None. Raises for a frame a server mustn't send."""
+        buf = self._buf
+        if len(buf) < 2:
+            return None
+        b0, b1 = buf[0], buf[1]
         if b0 & 0x70:
             raise WebSocketClosed(1002, "the server set reserved frame bits")
         if b1 & 0x80:
             raise WebSocketClosed(1002, "the server sent a masked frame")
-        n = b1 & 0x7F
-        if opcode & 0x8 and (not fin or n > 125):
+        n, head = b1 & 0x7F, 2
+        if b0 & 0x08 and (not b0 & 0x80 or n > 125):
             raise WebSocketClosed(1002, "a bad control frame")
         if n == 126:
-            (n,) = struct.unpack("!H", self._read(2))
+            if len(buf) < 4:
+                return None
+            (n,), head = struct.unpack_from("!H", buf, 2), 4
         elif n == 127:
-            (n,) = struct.unpack("!Q", self._read(8))
+            if len(buf) < 10:
+                return None
+            (n,), head = struct.unpack_from("!Q", buf, 2), 10
         if n > MAX_MESSAGE:
             raise WebSocketClosed(1009, "message too big")
-        return fin, opcode, self._read(n)
+        return (head, n) if len(buf) >= head + n else None
+
+    def _take_frame(self):
+        """(fin, opcode, payload) of the next frame, or None until all of it has arrived.
+        Nothing leaves the buffer before that, so a timeout waiting for the rest of a
+        frame loses nothing."""
+        size = self._frame_size()
+        if size is None:
+            return None
+        head, n = size
+        b0 = self._buf[0]
+        payload = bytes(self._buf[head:head + n])
+        del self._buf[:head + n]
+        return bool(b0 & 0x80), b0 & 0x0F, payload
+
+    def _message(self, fin, opcode, payload):
+        """Handle one frame: answer a ping, raise WebSocketClosed on close, collect a
+        message's fragments. Returns the text of the message it completes, else None."""
+        if opcode == OP_PING:
+            self.send_frame(OP_PONG, payload)
+            return None
+        if opcode == OP_PONG:
+            return None
+        if opcode == OP_CLOSE:
+            code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else 1005
+            reason = payload[2:].decode("utf-8", "replace")
+            try:
+                self.send_frame(OP_CLOSE, payload[:2])
+            except OSError:
+                pass
+            raise WebSocketClosed(code, reason)
+        if opcode in (OP_TEXT, OP_BINARY):
+            if self._kind is not None:
+                raise WebSocketClosed(1002, "a new message started inside a fragmented one")
+            self._kind, self._parts, self._size = opcode, [], 0
+        elif opcode == OP_CONT:
+            if self._kind is None:
+                raise WebSocketClosed(1002, "a continuation frame came with no message")
+        else:
+            raise WebSocketClosed(1002, f"unknown frame type {opcode}")
+        self._parts.append(payload)
+        self._size += len(payload)
+        if self._size > MAX_MESSAGE:
+            raise WebSocketClosed(1009, "message too big")
+        if not fin:
+            return None
+        text = b"".join(self._parts).decode("utf-8")
+        self._kind, self._parts, self._size = None, [], 0
+        return text
 
     def send_frame(self, opcode, payload, fin=True):
         frame = encode_frame(opcode, payload, fin=fin)
@@ -1376,39 +1666,31 @@ class WebSocket:
             self.sock.sendall(frame)
 
     def recv(self):
-        """The next text message. Answers pings; raises WebSocketClosed on close.
-        A socket timeout before a frame starts raises socket.timeout and loses nothing."""
-        parts, kind, size = [], None, 0
+        """The next text message, waiting for it up to the socket's timeout (which raises
+        socket.timeout and loses nothing). Answers pings; raises WebSocketClosed on close."""
         while True:
-            fin, opcode, payload = self._read_frame()
-            if opcode == OP_PING:
-                self.send_frame(OP_PONG, payload)
+            frame = self._take_frame()
+            if frame is None:
+                self._fill()
                 continue
-            if opcode == OP_PONG:
-                continue
-            if opcode == OP_CLOSE:
-                code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else 1005
-                reason = payload[2:].decode("utf-8", "replace")
-                try:
-                    self.send_frame(OP_CLOSE, payload[:2])
-                except OSError:
-                    pass
-                raise WebSocketClosed(code, reason)
-            if opcode in (OP_TEXT, OP_BINARY):
-                if kind is not None:
-                    raise WebSocketClosed(1002, "a new message started inside a fragmented one")
-                kind, parts = opcode, [payload]
-            elif opcode == OP_CONT:
-                if kind is None:
-                    raise WebSocketClosed(1002, "a continuation frame came with no message")
-                parts.append(payload)
-            else:
-                raise WebSocketClosed(1002, f"unknown frame type {opcode}")
-            size += len(payload)
-            if size > MAX_MESSAGE:
-                raise WebSocketClosed(1009, "message too big")
-            if fin:
-                return b"".join(parts).decode("utf-8")
+            text = self._message(*frame)
+            if text is not None:
+                return text
+
+    def poll(self):
+        """One frame of what has arrived, for when readable() is True: the text of the
+        message it completes, or None (a ping, answered here; a pong; part of a longer
+        message; or a frame still arriving). It never waits for another frame, so a
+        ping can't leave the reader waiting on the socket for a message that only comes
+        with the next keepalive. A socket timeout here (TLS had nothing for us after
+        all) loses nothing."""
+        frame = self._take_frame()
+        if frame is None:
+            self._fill()
+            frame = self._take_frame()
+            if frame is None:
+                return None
+        return self._message(*frame)
 
     def close(self, code=1000):
         try:
@@ -1498,7 +1780,12 @@ def wanted_subscriptions():
 class EventSub:
     """One EventSub WebSocket session on a background thread: subscribes to what keys
     show, follows reconnect messages, and reconnects (and resubscribes) when the
-    connection drops or the keepalives stop."""
+    connection drops or the messages stop (keepalives included) for longer than the
+    keepalive time Twitch gave in its welcome. Subscriptions Twitch refused are tried
+    again later, waiting longer each time, and at once on the connection that replaces
+    a lost session that had working ones. While Twitch refuses every one, no session
+    is kept open (Twitch closes a session with none 10 s after its welcome) and a new
+    one is opened only when the next try is due."""
 
     def __init__(self):
         self._wake = threading.Event()
@@ -1509,7 +1796,7 @@ class EventSub:
         self.keepalive = 10.0
         self.last_message = 0.0
         self.subscribed = {}  # key -> subscription id
-        self.failed = set()
+        self.failed = {}  # key -> (monotonic time to try again, seconds waited last)
         self.args = {}  # key -> [args]
         self.seen = []  # recent message ids (Twitch may send one twice)
         self.connected = False
@@ -1520,7 +1807,7 @@ class EventSub:
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self.run, name="twitch-eventsub", daemon=True)
                 self._thread.start()
-        self.failed.clear()
+        self.failed = {}  # keys or settings changed: try everything again now
         self._wake.set()
 
     def stop(self):
@@ -1534,8 +1821,27 @@ class EventSub:
     def drop(self):
         if self.ws is not None:
             self.ws.close()
+        worked = bool(self.subscribed)
         self.ws, self.session, self.connected = None, None, False
         self.subscribed = {}
+        if worked:
+            # A session that worked is lost: the next one tries the refused subscriptions
+            # at once, keeping their backoff. Not when nothing on it was subscribed: Twitch
+            # closes such a session after 10 s, which mustn't turn the backoff into a new
+            # session and a refused POST every few seconds.
+            self.failed = {key: (0.0, waited) for key, (_, waited) in self.failed.items()}
+
+    def retry_due(self, wanted):
+        now = time.monotonic()
+        return any(key in wanted and at <= now for key, (at, _) in list(self.failed.items()))
+
+    def next_retry(self, wanted):
+        """When every subscription keys want is one Twitch refused and none is due to be
+        tried again yet, the monotonic time the first one is; else None."""
+        now = time.monotonic()
+        failed = self.failed
+        times = [failed[key][0] if key in failed else 0.0 for key in wanted]
+        return min(times) if times and min(times) > now else None
 
     def run(self):
         backoff = EVENTSUB_BACKOFF_FIRST
@@ -1554,11 +1860,21 @@ class EventSub:
                 continue
             try:
                 if self.ws is None:
+                    retry_at = self.next_retry(wanted)
+                    if retry_at is not None:
+                        # Twitch refused every subscription: a session opened now would
+                        # have none. Wait for the first retry (or for keys to change).
+                        self._wake.wait(max(0.0, retry_at - time.monotonic()))
+                        self._wake.clear()
+                        continue
                     self.open(EVENTSUB_URL)
                     self.sync(wanted)
                     backoff = EVENTSUB_BACKOFF_FIRST
                     report("events", None)
-                elif self._wake.is_set():
+                    if not self.subscribed:
+                        self.drop()  # refused, every one: Twitch would close it after 10 s
+                        continue
+                elif self._wake.is_set() or self.retry_due(wanted):
                     self._wake.clear()
                     self.sync(wanted)
                 self.read_for(EVENTSUB_READ_SECONDS)
@@ -1576,7 +1892,7 @@ class EventSub:
 
     def open(self, url):
         ws = WebSocket.connect(url)
-        ws.settimeout(10)
+        ws.settimeout(WS_READ_TIMEOUT)
         try:
             welcome = json.loads(ws.recv())
         except BaseException:
@@ -1593,21 +1909,29 @@ class EventSub:
 
     def sync(self, wanted):
         """Create missing subscriptions (the first within Twitch's 10 s after the welcome),
-        delete ones no key shows any more."""
+        delete ones no key shows any more. One Twitch refused waits its turn to be tried
+        again (EVENTSUB_RETRY_FIRST, doubling up to EVENTSUB_RETRY_MAX)."""
+        failed = self.failed
+        for key in [k for k in failed if k not in wanted]:
+            failed.pop(key, None)
         for key, (sub_type, version, cond, _) in wanted.items():
-            if key in self.subscribed or key in self.failed:
+            if key in self.subscribed or failed.get(key, (0.0, 0.0))[0] > time.monotonic():
                 continue
             try:
                 answer = api("POST", "/eventsub/subscriptions", body={
                     "type": sub_type, "version": version, "condition": cond,
                     "transport": {"method": "websocket", "session_id": self.session}})
                 self.subscribed[key] = first(answer).get("id")
+                failed.pop(key, None)
                 report(f"event {sub_type}", None)
             except TwitchError as e:
                 if "409" in str(e):  # already exists on this session
                     self.subscribed[key] = None
+                    failed.pop(key, None)
                     continue
-                self.failed.add(key)
+                waited = failed.get(key, (0.0, 0.0))[1]
+                wait = min(EVENTSUB_RETRY_MAX, waited * 2) if waited else EVENTSUB_RETRY_FIRST
+                failed[key] = (time.monotonic() + wait, wait)
                 report(f"event {sub_type}", str(e))
         for key in [k for k in self.subscribed if k not in wanted]:
             sub_id = self.subscribed.pop(key)
@@ -1620,14 +1944,22 @@ class EventSub:
     def read_for(self, seconds):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline and not self._wake.is_set() and not self.stopped:
-            # Wait for a frame to start, then read it whole (a timeout mid-frame would lose it).
-            if not self.ws.readable(WS_POLL):
-                if time.monotonic() - self.last_message > self.keepalive + KEEPALIVE_GRACE:
-                    raise ConnectionError("no keepalive from Twitch")
-                continue
-            text = self.ws.recv()
-            self.last_message = time.monotonic()
-            self.handle(json.loads(text))
+            # Take one frame at a time, as it arrives. A ping is answered and counts for
+            # nothing: Twitch's sign of life is a message (a keepalive at the least)
+            # within the keepalive time from its welcome. A read timeout alone never
+            # ends the session.
+            text = None
+            if self.ws.readable(WS_POLL):
+                try:
+                    text = self.ws.poll()
+                except socket.timeout:
+                    pass  # TLS had nothing for us yet; nothing is lost
+            if text is not None:
+                self.last_message = time.monotonic()
+                self.handle(json.loads(text))
+            elif (not self.ws.readable(0)
+                  and time.monotonic() - self.last_message > self.keepalive + KEEPALIVE_GRACE):
+                raise ConnectionError(f"no keepalive from Twitch in {self.keepalive + KEEPALIVE_GRACE:g} s")
 
     def handle(self, message):
         meta = message.get("metadata") or {}
@@ -1653,7 +1985,8 @@ class EventSub:
             sub = payload.get("subscription") or {}
             key = sub_key(sub.get("type"), sub.get("version"), sub.get("condition") or {})
             self.subscribed.pop(key, None)
-            self.failed.add(key)
+            # Tried again only after a long wait (or on a new connection, or when keys change).
+            self.failed[key] = (time.monotonic() + EVENTSUB_RETRY_MAX, EVENTSUB_RETRY_MAX)
             report(f"event {sub.get('type')}", f"Twitch stopped sending these ({sub.get('status')})")
         # session_keepalive: only resets the timer
 
@@ -1826,7 +2159,8 @@ def poll_live():
     report("live status", None)
     for arg in channels:
         if arg not in ids:
-            report(f"channel {arg}", "Twitch has no channel with that name")
+            if not login_problem(arg) and not refused(arg):  # (those are logged already)
+                report(f"channel {arg}", "Twitch has no channel with that name")
             values = dict.fromkeys(LIVE_VALUES, NOTHING)
         else:
             stream = streams.get(ids[arg])
@@ -1921,7 +2255,7 @@ def poll_info():
 def poll_counts():
     """Subscribers (owner only) and chatters (moderators), every 60 s."""
     for value_id, path, scope in (("subscribers", "/subscriptions", "channel:read:subscriptions"),
-                                  ("chatters", "/chatters", "moderator:read:chatters")):
+                                  ("chatters", "/chat/chatters", "moderator:read:chatters")):
         for arg in plugin.watched(value_id):
             if not has(scope):
                 report(value_id, missing_scope_message(scope))
@@ -2162,6 +2496,10 @@ def safe_poll(force=False):
     if not _poll_lock.acquire(blocking=False):
         return
     try:
+        # At start and hourly while signed in, even with only action keys on the deck.
+        if signed_in() and not check_sign_in():
+            publish_unknown()
+            return
         if not watched_any(ALL_VALUES):
             return
         if not signed_in():
@@ -2169,15 +2507,6 @@ def safe_poll(force=False):
             return
         if wait_left() > 0:
             return
-        tokens = current_tokens() or {}
-        if time.time() - float(tokens.get("validated_at") or 0) > VALIDATE_SECONDS:
-            try:
-                validate()
-                report("sign-in", None)
-            except TwitchError as e:
-                report("sign-in", str(e))
-                publish_unknown()
-                return
         now = time.monotonic()
         for name, (seconds, value_ids, fn) in JOBS.items():
             if not watched_any(value_ids):
