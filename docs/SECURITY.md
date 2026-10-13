@@ -1,6 +1,6 @@
 # Security
 
-PerritoDeck's host can type keystrokes and (from Phase 2) run commands on your computer, so anything that can talk to it is effectively a keyboard. This file is the threat model and review checklist; it grows with each phase.
+PerritoDeck's host can type keystrokes and run programs on your computer, so anything that can talk to it is effectively a keyboard. This file is the threat model and review checklist; it grows with each phase. How to report a problem is in [SECURITY.md](../SECURITY.md).
 
 ## Threat model
 
@@ -12,7 +12,7 @@ PerritoDeck's host can type keystrokes and (from Phase 2) run commands on your c
 | Malicious web page in your browser connects to the host | WebSocket upgrades with an `Origin` header are refused; pairing is required anyway | — |
 | Host key theft from disk | Private key and device list written with owner-only permissions (Unix); Windows relies on the per-user profile ACL | OS keychain storage (Phase 6) |
 | Oversized or malformed frames | 64 KiB message limit; malformed frames rejected with `badMessage`; handshake timeout; idle timeout | Rate limiting |
-| Plugins doing more than they claim | Plugins run as the user, with no sandbox; the app says so when adding them. Their settings (tokens) are stored owner-only (`plugin-settings/`, `sdplugins/settings.json`) and never logged by first-party plugins | Declared permissions shown at install; signing |
+| Plugins doing more than they claim | Plugins run as the user, with no sandbox; the app says so when adding them. Their settings (tokens) are stored owner-only (`plugin-settings/`, `sdplugins/settings.json`) and never logged by first-party plugins. Plugins that sign in to a service or pair with a device keep their tokens or keys in files in their own data folder, `plugin-data/<id>/`, and write those files owner-only (the folder itself isn't; on Windows, the per-user profile ACL applies): Twitch and Spotify keep OAuth tokens in `tokens.json`, and Hue keeps the bridge's application key in `hue.json`, which gives full control of the lights from the local network. Owner-only keeps out other accounts, not other programs you run: anything running as you can read these files, like the rest of the data folder | Declared permissions shown at install; signing |
 | Tampered plugin download | Online catalogue: HTTPS only, size and file-count caps, zip paths checked, SHA-256 must match the index, plugin id must match its entry. The hash comes from the same server as the zip, so it guards against corruption, not a compromised perritodeck.dev | Signed index |
 | Web page or other local program poses as a Stream Deck plugin | The plugin WebSocket listens on 127.0.0.1 only and refuses upgrades with an `Origin` header (browsers always send one). Another program running as the same user could still connect while a plugin isn't | Per-launch tokens |
 | Plugin images (SVG) reading local files | SVG `<image>` may only use `data:` URLs; images are scaled to at most 288 px | — |
@@ -33,4 +33,4 @@ PerritoDeck's host can type keystrokes and (from Phase 2) run commands on your c
 
 ## Reporting
 
-Until the project has a security contact address, report vulnerabilities privately through GitHub's "Report a vulnerability" button on the repository.
+Don't open a public issue, discussion or pull request for a security problem. Report it privately, as [SECURITY.md](../SECURITY.md) describes: through GitHub's private vulnerability reporting (the **Report a vulnerability** button on the repository's Security tab), or by email to [dev@perritodeck.dev](mailto:dev@perritodeck.dev) with "SECURITY" in the subject. SECURITY.md also covers response times, supported versions and what's in scope.

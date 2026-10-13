@@ -1,45 +1,48 @@
-# Handoff: Windows bring-up on real hardware (local session, 2026-10-12)
+# Windows bring-up notes (2026-10)
 
 > **Next:** the prioritised task list is in [`next-steps.md`](next-steps.md).
 
-Everything is on `main`. This session took the ~40 commits that had never been compiled for
-Windows (CI is paused by billing) and ran them on a Windows 11 Pro PC (build 26200) with an
-Amazon Fire 7 (2019, KFMUWI, Fire OS 7.3.1.7 = Android 9 / API 28) on USB and Wi-Fi.
-The Windows review (`docs/windows-review-2026-10.md`) has the per-finding status.
+About 40 commits, much of the Windows-only code among them, had landed without being
+compiled for Windows. On 2026-10-12 they were built and run on Windows 11 with an Amazon
+Fire 7 (2019, KFMUWI, Fire OS 7.3.1.7 = Android 9 / API 28) on USB and Wi-Fi. This file
+keeps what that bring-up found and how to test on Windows without a person at the
+keyboard. The Windows review (`docs/windows-review-2026-10.md`) has the per-finding status.
 
 **Short version:** the host, the desktop app and Perrito all build and pass their tests on
-Windows; every item of the review's manual test plan was run on the real machine and tablet
-(except a UAC prompt, which needs a person); everything that broke was fixed, reviewed and
-re-verified on the hardware. What's left is listed under "Still open".
+Windows. The review's manual test plan was run on a real PC and tablet, and everything that
+broke was fixed, reviewed and re-verified on the hardware. What's left is listed under
+"Still open".
 
 ## 1. Builds and tests on Windows
 
 | Check | Result |
 |---|---|
 | `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` (host) | clean on the first try; the never-compiled Windows code built as written |
-| `cargo test` (host) | all pass (229 at the start of the session, more now); the plugin-removal test now runs on Windows too |
+| `cargo test` (host) | all pass; the plugin-removal test runs on Windows too |
 | `npm ci`, `npm run check`, `npx playwright test` (host/app) | 0 errors/warnings; all Playwright tests pass (use `CI=1` if another checkout's dev server may be on port 5174) |
-| `npx tauri dev`, `npx tauri build --no-bundle` | both build and run; no installers were built (NSIS/WiX tools not downloaded) |
+| `npx tauri dev`, `npx tauri build --no-bundle` | both build and run; `npx tauri build` with bundling fetches Tauri's NSIS and WiX tools the first time |
 | `.\gradlew.bat testDebugUnitTest assembleDebug` (android, JDK 17) | all unit tests pass; AGP installs Platform 36 and Build-Tools 35 on first build |
 | `py -3 plugins\test_all.py` | all plugin tests pass on Windows (obs, screenshot, windows and spotify needed Windows fixes) |
 
-Toolchain on this PC: Rust 1.97.0 (pinned), MSVC 2022 Build Tools 14.44, Node 26, JDK 17
-(Zulu; `JAVA_HOME` pointed at Android Studio's JBR 21, so the Gradle runs set it to 17),
-Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it in
-`%LOCALAPPDATA%\Android\Sdk`), WebView2 154.
+Tested with Rust 1.97.0 (pinned), MSVC 2022 Build Tools 14.44, Node 26, JDK 17, Python 3.14
+via `py -3`, and WebView2 154. Two things to know:
+
+- Gradle needs JDK 17. If `JAVA_HOME` points at Android Studio's bundled JBR 21, point it
+  at a JDK 17 for the Gradle run.
+- adb doesn't have to be on PATH: the host also looks in `%LOCALAPPDATA%\Android\Sdk`.
 
 ## 2. Hardware test results (review §"Windows manual test plan")
 
-- **Pairing.** USB: works ("Pair with a code" + the USB preset; QR pairing over the cable now
+- **Pairing.** USB: works ("Pair with a code" + the USB preset; QR pairing over the cable
   works too, since Perrito tries 127.0.0.1). Wi-Fi: QR link pairs in under 2.5 s over the
-  default-route address; mDNS discovery works on Fire OS. The QR lists `192.168.x` first,
-  then the WSL/Hyper-V `vEthernet` addresses; link-local ones are now left out. Round trip:
-  a median ~12 ms over USB and Wi-Fi alike on the Fire 7 (next-steps item 6). The "~105 ms
-  over Wi-Fi" first measured here included Perrito's own main-thread time.
-- **Firewall.** The network here is classed **Public**. The first bind of each exe path
-  (debug and release builds are different paths) brings up the Defender prompt; it was
-  answered with Public allowed, creating TCP+UDP Allow rules for that exe only. Until it's
-  answered the tablet falls back to the USB tunnel. Finding 6 stays open by request.
+  default-route address; mDNS discovery works on Fire OS. The QR lists the LAN address
+  first, then any WSL/Hyper-V `vEthernet` addresses; link-local ones are left out. Round
+  trip: a median ~12 ms over USB and Wi-Fi alike on the Fire 7 (next-steps item 6). An
+  earlier "~105 ms over Wi-Fi" included Perrito's own main-thread time.
+- **Firewall.** The first bind of each exe path (debug and release builds are different
+  paths) brings up the Defender prompt. Answering it creates TCP and UDP rules for that exe
+  only; on a network Windows classes as Public, the default answer lets nothing in. Until
+  it's answered, the tablet falls back to the USB tunnel. Finding 6 stays open by request.
 - **Console windows (release build):** none in 100 s of adb polling or from a Command key.
 - **Hotkeys and text:** after the fixes, Notepad and a classic edit control get exactly what
   was sent (`a\tb\nc`, CRLF, `|+?!&é€`); `ctrl+plus` sends Ctrl + the =/+ key.
@@ -48,8 +51,8 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
 - **Launch:** `code` starts VS Code with no console flash; `cmd` gets a working console;
   OBS by full path starts in its folder (no locale error); a quoted "Copy as path" path works.
 - **Auto-switch:** a rule typed `charmap.exe` matches; taskbar, desktop, Start/Search and
-  Task View keep the profile; another app or closing the app switches back. Not tried: a UAC
-  prompt (needs a person to answer it).
+  Task View keep the profile; another app or closing the app switches back. A UAC prompt
+  keeps the profile too (verified 2026-10-13, see "Still open").
 - **Python plugins** (soundboard, audio, windows, screenshot, clipboard, sysmon, media): all
   run under `python.exe` directly (no `py.exe`), all actions and live values work; an app the
   windows plugin launched survives a plugin restart; the clipboard is restored after a paste;
@@ -59,16 +62,16 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   inspector, survive remove/reinstall while running, and Restart no longer aborts the app.
 - **Quit:** with 7 Python plugins, 2 Stream Deck plugins and a sound playing, Quit takes
   ~4 s and leaves no process behind.
-- **MCP:** `perritodeck-app mcp` (GUI-subsystem exe) works as a stdio bridge; added to Claude
-  Code with the command from Settings → AI assistants (in Git Bash), `claude mcp get` showed
-  Connected and a `list_tablets` call through Claude Code answered. The user-scope entry was
-  removed again afterwards so other sessions don't start the bridge. Since next-steps item 1,
+- **MCP:** `perritodeck-app mcp` (GUI-subsystem exe) works as a stdio bridge. Added to
+  Claude Code with the command from Settings → AI assistants (in Git Bash), `claude mcp get`
+  shows Connected and a `list_tablets` call answers. A user-scope entry starts the bridge in
+  every assistant session, so remove a test entry afterwards. Since next-steps item 1,
   assistants start `perritodeck-mcp` from the data folder instead; `perritodeck-app mcp`
   still works.
-- **Diagnostics:** Copy diagnostics and the logs folder work; the report now also says
-  whether Windows classes the network Public or Private.
+- **Diagnostics:** Copy diagnostics and the logs folder work; the report also says whether
+  Windows classes the network Public or Private.
 
-## 3. Fixed in this session (highlights; see `git log` and `docs/DECISIONS.md`)
+## 3. What the bring-up fixed (highlights; see `git log` and `docs/DECISIONS.md`)
 
 - Stream Deck plugin **Restart aborted the app** (bare `tokio::spawn` on the UI thread).
   Plugin commands that wait now run off the UI thread.
@@ -134,20 +137,21 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   item 1): assistants start `perritodeck-mcp` from `<data dir>/bin`; verified with Claude Code
   connected across a quit, rebuild and restart. The updated real-app e2e still needs a Linux
   run.
-- Linux and macOS have not been compiled since these changes (only Windows here); the weekly
-  CI or a local build should check them first. Reviewers flagged the Linux text paths
-  (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky parts.
+- Linux and macOS have not been compiled since these changes (the bring-up was Windows
+  only); the weekly CI or a local build should check them first. Reviewers flagged the Linux
+  text paths (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky
+  parts.
 - iOS: never built (needs a Mac).
 - ~~Wi-Fi latency on the Fire 7~~: profiled 2026-10-13 (next-steps item 6). Key presses take
   the same ~12 ms on Wi-Fi as on the cable. Messages the computer starts can wait 0.3–0.9 s
   for the dozing Fire's Wi-Fi. A page switch holds Perrito's main thread for up to ~0.5 s;
   next-steps item 6 has the numbers and the suggested fix.
-- More Kindles are on the way from the maintainer for a hardware matrix and beta testers;
-  older Fire models run Fire OS 5 (API 22), which is why minSdk stays 22.
+- Older Fire models run Fire OS 5 (API 22), which is why minSdk stays 22; only the Fire 7
+  above has been tried on real hardware so far.
 
 ## 5. Testing on Windows without a person at the keyboard
 
-What worked in this session (none of it is committed; recreate as needed):
+None of these helpers is committed; recreate them as needed.
 
 - **Drive the real app:** start it with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`
   and attach Playwright with `chromium.connectOverCDP("http://127.0.0.1:9333")`; Tauri
@@ -163,23 +167,24 @@ What worked in this session (none of it is committed; recreate as needed):
   logger sees every window shown, even for 50 ms.
 - **Native file dialog:** `WM_SETTEXT` on the File name edit (id 1148) and `BM_CLICK` on Open
   (id 1).
+- **NSIS wizards** can't be read by .NET UI Automation. Use Win32 child windows, and click by
+  posting WM_COMMAND with the button's id to the dialog (a posted BM_CLICK is ignored on
+  the Finish page).
+- **Start something outside a packaged app:** `Win32_Process.Create` through WMI starts a
+  program outside the caller's MSIX package (see the first gotcha below).
 - **Accessibility checks:** use Narrator, Inspect, Accessibility Insights or MSAA. PowerShell's
   `System.Windows.Automation` shows every Win32 popup menu as an empty pane.
 
 ## 6. Gotchas learned
 
-- **Running from the Claude desktop app (Code tab) on Windows:** everything it starts runs
-  inside its MSIX package. AppData and HKCU writes go to
-  `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache`, and inside the package that copy hides
-  the real one. A PerritoDeck started there keeps its data where a normal start won't
-  look; diagnostics now say "really at …" and the log warns. An installer started there
-  installs into that folder too, and Windows Firewall then names the redirected path. To
-  test for real, start programs through Explorer with a `.cmd` launcher in
-  `C:\Users\Public`. To read the real AppData or registry, run a `.cmd` through WMI
-  (`Win32_Process.Create`), which starts outside the package.
-- NSIS wizards can't be read by .NET UI Automation. Use Win32 child windows, and click by
-  posting WM_COMMAND with the button's id to the dialog (a posted BM_CLICK is ignored on
-  the Finish page).
+- **Starting PerritoDeck from inside a packaged (MSIX) Windows app**, such as a terminal
+  built into another packaged desktop app: everything it starts runs inside that package.
+  AppData and HKCU writes go to `%LOCALAPPDATA%\Packages\<package>\LocalCache`, and inside
+  the package that copy hides the real one. A PerritoDeck started there keeps its data where
+  a normal start won't look; diagnostics say "really at …" and the log warns. An installer
+  started there installs into that folder too, and Windows Firewall then names the
+  redirected path. To test for real, start programs from Explorer or through WMI, which run
+  outside the package; the same goes for reading the real AppData or registry.
 - Some shells set `NoDefaultCurrentDirectoryInExePath=1`: run `.\gradlew.bat`, not `gradlew.bat`.
 - Windows PowerShell 5.1 strips inner double quotes from native programs' arguments, so
   `perritodeck-host action '{"type":...}'` needs cmd, PowerShell 7.3+ or bash.
@@ -192,7 +197,7 @@ What worked in this session (none of it is committed; recreate as needed):
   with tight timeouts need room for it.
 - `SO_REUSEADDR` on Windows lets two sockets bind the same port.
 
-The earlier sections of this file (cloud session, 2026-10-11) are in git history; their "next
-up" items that are still open: Companion and Stream Deck plugins with the real apps beyond the
-samples, the new service plugins (OBS, Hue, Key Light, …) against real services, the first iOS
-build, and Phase 6 (packaging, v0.1.0) when the maintainer says go.
+Earlier notes (2026-10-11) are in git history. Items from them that are still open:
+Companion and Stream Deck plugins with the real apps beyond the samples, the service plugins
+(OBS, Hue, Key Light, …) against real services, the first iOS build, and Phase 6 (packaging,
+v0.1.0) when the maintainer says go.

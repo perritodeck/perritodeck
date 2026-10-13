@@ -1,6 +1,12 @@
-# Known false positives for gitleaks (https://github.com/gitleaks/gitleaks): test fixtures and
-# a CI emulator log, not real secrets. Reviewed 2026-10-11.
+# Known false positives for gitleaks (https://github.com/gitleaks/gitleaks): test fixtures,
+# a hotkey example and a CI emulator log, not real secrets. Reviewed 2026-10-11 and
+# 2026-10-13 (gitleaks 8.30.1 over every ref: nothing else found).
 24f16323b2c8ff485cbfd823480974050fcb1401:plugins/truenas/test_plugin.py:generic-api-key:16
 7f02fcbf7468dfbeb9c96580acfa4a820e757e81:logcat.txt:generic-api-key:8438
 ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/hello-paired.json:generic-api-key:21
 ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/paired.json:generic-api-key:5
+# The made-up deviceSecret in a protocol fixture, and the iOS test that checks it.
+4cf724097577820d3b73e091d210ab9874fef4cb:protocol/fixtures/hello-network-failed.json:generic-api-key:23
+4b4236e86940c5d20ff33cae27fb08f07fbbdf9c:ios/PerritoKit/Tests/PerritoKitTests/ProtocolFixturesTests.swift:generic-api-key:88
+# A hotkey in an example command: "keys":"Ctrl+Shift+Esc".
+0476653575c766ee0ff6dc62d69ca2b3ebe01149:host/README.md:generic-api-key:34

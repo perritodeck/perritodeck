@@ -4,10 +4,10 @@ Read-only review of HEAD `cd63368`, plus a look at the uncommitted logging and M
 
 Severity scale: **crash**, **broken** (feature broken), **degraded** (works badly or slowly), **cosmetic**.
 
-## Status (2026-10-11, cloud session)
+## Status (2026-10-11, before any Windows build)
 
 Fixes were written and tested on Linux only: the `x86_64-pc-windows-gnu` target couldn't be
-downloaded there, so **none of the Windows-only code has been compiled yet**. Signatures
+downloaded in that environment, so **none of the Windows-only code has been compiled yet**. Signatures
 were checked against the `windows` 0.61.3, `windows-sys` 0.61.2 and `tokio` 1.53.2 sources.
 Run `cargo clippy --all-targets -- -D warnings` and `cargo test` in `host\` first, then the
 test plan below.
@@ -40,7 +40,7 @@ put the process in a job object" in a detailed log), that `code` and `obs64` sta
 keys, that MCI plays MP3 and WAV at the set volume, and that clicking the taskbar no longer
 flips the tablet to the default profile.
 
-## Status after the Windows run (2026-10-12, local session on Windows 11 + Fire 7)
+## Status after the Windows run (2026-10-12, Windows 11 and a Fire 7)
 
 Everything compiled on Windows on the first try; the test plan below was run on a real PC and
 tablet. "Verified" means seen working on the hardware, not just in tests.
@@ -51,13 +51,13 @@ tablet. "Verified" means seen working on the hardware, not just in tests.
 | 2 | "command" actions open a console | **Verified fixed** (starter "Run a command" key) |
 | 3 | Shifted/AltGr hotkeys type nothing | **Verified fixed**: `ctrl+plus` sends Ctrl + the =/+ key; symbols now also bring the Shift/AltGr their layout needs, letters/digits go by virtual key |
 | 4 | Launch: PATHEXT, working folder | **Verified fixed**: `code`, OBS by full path (no locale error). Also new: console programs get a working window, PATH `.cmd` shims run hidden (no flash), URIs and elevation (740) go to ShellExecute, "Copy as path" quotes are stripped |
-| 5 | Store `python.exe` stub restart loop | **Replaced**: the host asks `py -3`/`python` for the interpreter path and runs it directly; none → "needs Python 3". Store stub itself not tried (Python is installed here) |
-| 6 | Defender Firewall | Seen: one prompt per exe path (debug and release differ); this network is Public; until answered, the tablet falls back to USB. Diagnostics now show Public/Private. **Detection done** (next-steps item 2): the app reads the firewall's rules and hears from tablets that fell back, and says what to change. Installers add no rule (maintainer's decision, 2026-10-12) |
+| 5 | Store `python.exe` stub restart loop | **Replaced**: the host asks `py -3`/`python` for the interpreter path and runs it directly; none → "needs Python 3". Store stub itself not tried (Python was installed on the test PC) |
+| 6 | Defender Firewall | Seen: one prompt per exe path (debug and release differ); the test network was Public; until answered, the tablet falls back to USB. Diagnostics now show Public/Private. **Detection done** (next-steps item 2): the app reads the firewall's rules and hears from tablets that fell back, and says what to change. Installers add no rule (maintainer's decision, 2026-10-12) |
 | 7 | `open` through PowerShell in the CLI | Fixed; not timed |
 | 8 | Auto-switch flicker, Store apps | **Verified fixed** for taskbar, desktop, Start/Search, Task View; more shell hosts added (ShellHost, widgets, Snipping Tool, hung-app stand-ins). **UAC prompt verified** (2026-10-13): the profile stays through the secure desktop and switches to the elevated app's profile afterwards |
 | 9 | Pairing slow with WSL/Hyper-V | **Verified fixed**: default-route address first; link-local addresses now left out |
 | 10 | Media plugin polling, timeout, error text | Fixed differently (as above); key presses no longer wait for a poll; status value verified |
-| 11 | Screenshot DPI | Fixed; window capture verified (one monitor here, mixed DPI not tried) |
+| 11 | Screenshot DPI | Fixed; window capture verified (one monitor on the test PC, mixed DPI not tried) |
 | 12 | Soundboard latency | Fixed (winmm); play/stop verified |
 | 13 | Plugin process trees, Quit | **Verified fixed**: Quit with 9 plugins running leaves no process. Follow-up fix: programs a plugin opens for the user (browser, Focus-key apps) now outlive it (explicit breakaway) |
 | 14 | Tab/newline twice | **Confirmed and fixed**: Win32 apps got both the key and the character; enigo now sends only the key, CRLF as one Return |
@@ -95,7 +95,7 @@ New problems found by running it (all fixed unless marked):
 
 ## 0. Before anything else: CI has not built Windows for 41 commits
 
-Every Actions job since 2026-10-11 16:19Z failed before starting, with the message "recent account payments have failed or your spending limit needs to be increased". The last green Windows Host run was at `9e698c8`. Since then about 19.6k lines have landed in `host/` that have **never been compiled for Windows**, including:
+When this was written, GitHub Actions had run no jobs since 2026-10-11 16:19Z. The last green Windows Host run was at `9e698c8`. Since then about 19.6k lines have landed in `host/` that have **never been compiled for Windows**, including:
 
 - the whole plugin runtime (`crates/plugins`)
 - the Stream Deck host (`crates/sdcompat`)
@@ -103,7 +103,7 @@ Every Actions job since 2026-10-11 16:19Z failed before starting, with the messa
 - `usb.rs`
 - the new `creation_flags` calls
 
-So the first thing to do on the laptop is a local `cargo clippy --all-targets -- -D warnings` and `cargo test`.
+So the first thing to do on a Windows machine is a local `cargo clippy --all-targets -- -D warnings` and `cargo test`.
 
 ---
 
@@ -409,7 +409,7 @@ The data folder is also **Roaming** AppData (`ProjectDirs::config_dir`). With ro
   - The autostart `Run` key isn't removed on uninstall.
   - Installers are unsigned, so expect a SmartScreen warning and "Publisher: Unknown" in the firewall prompt.
   - `webviewInstallMode: downloadBootstrapper` needs internet on Windows 10 machines that don't have WebView2.
-- `host.yml` Windows job: fmt, clippy and test. It's correct, but blocked by billing (see section 0).
+- `host.yml` Windows job: fmt, clippy and test. It's correct, but wasn't running at the time (see section 0).
 
 ---
 
@@ -429,7 +429,7 @@ Results of the 2026-10-12 run are marked **[done]** / **[not done]** under each 
    - Firewall prompt: note which boxes are ticked and whether Wi-Fi is Public or Private (Settings → Network → Properties).
    - Pair the tablet by QR. Time it, and note every `a=` address in the QR text, especially vEthernet 172.x and 169.254.x.
    - Check that mDNS discovery works from the tablet.
-   **[done]** with the desktop app instead of the CLI host: prompt per exe path, answered with Public allowed (this network is Public); QR pairing under 2.5 s, addresses `192.168.x` first then two `vEthernet` 172.x (169.254.x now left out); mDNS discovery works on Fire OS.
+   **[done]** with the desktop app instead of the CLI host: prompt per exe path, answered with Public allowed (the test network is Public); QR pairing under 2.5 s, addresses `192.168.x` first then two `vEthernet` 172.x (169.254.x now left out); mDNS discovery works on Fire OS.
 3. **Actions via CLI.** Use **cmd.exe** or PowerShell 7.3+. Windows PowerShell 5.1 strips the inner quotes.
    - `perritodeck-host action "{\"type\":\"hotkey\",\"keys\":\"ctrl+plus\"}"` in a browser: expect zoom (finding 3, now fixed; before the fix nothing happened).
    - Hotkeys `ctrl+shift+esc` and `win+d`, then media play/pause and the volume keys.

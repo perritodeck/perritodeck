@@ -32,15 +32,19 @@ pieces fit.
 ## Sign your commits off (DCO)
 
 We use the [Developer Certificate of Origin](https://developercertificate.org/) instead of
-a CLA. Add a `Signed-off-by` line to every commit to certify you wrote the change or have
-the right to submit it under the project's licence:
+a CLA. Every commit needs a `Signed-off-by` line, which certifies you wrote the change or
+have the right to submit it under the project's licence. `git commit -s` adds it:
 
 ```sh
 git commit -s -m "fix(host): ..."
 ```
 
 The name and email in the sign-off are whatever you commit with; a GitHub noreply address
-and a handle are fine.
+and a handle are fine. Forgot it? `git commit --amend -s` fixes the last commit, and
+`git rebase --signoff main` fixes every commit on your branch.
+
+Sign-off is required from 2026-10-13 on. Commits made before then predate the rule and
+don't carry one; they aren't rewritten.
 
 ## Building and testing
 
@@ -57,7 +61,7 @@ and a handle are fine.
 | Stream Deck plugin host | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
 | Plugin SDKs and first-party plugins | `plugins/` | `python3 plugins/test_all.py` |
 | iOS/iPadOS app (needs a Mac) | `ios/` | `cd ios/PerritoKit && swift test`; `cd ios && xcodegen`, then Xcode |
-| Website | `website/` | static; open `index.html` |
+| Website | `website/` | static; open `index.html`. `cd plugins && python3 -m unittest test_build_catalog` checks the pages and stylesheets for anything the CSP in `website/_headers` would block |
 | Licences | repo root | `cd host && cargo deny check licenses bans sources`; `python3 scripts/third-party-notices.py --check` |
 
 Only one host can run at a time: the command-line host and the desktop app both listen

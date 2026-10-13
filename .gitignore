@@ -13,6 +13,17 @@
 *.aab
 *.keystore
 *.jks
+keystore.properties
+
+# Signing material and local secrets (Apple certificates and API keys, Windows
+# certificates, provisioning profiles). Release secrets live in GitHub, never here.
+*.p12
+*.p8
+*.pfx
+*.mobileprovision
+.env
+.env.*
+!.env.example
 
 # Node
 node_modules/

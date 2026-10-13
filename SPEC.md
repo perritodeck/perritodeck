@@ -1,6 +1,9 @@
-# Claude Code Prompt — PerritoDeck
+# PerritoDeck — the original product brief
 
-> Paste this into Claude Code at the root of an empty repo (or save it as `SPEC.md` and tell Claude Code to read it).
+> The brief the project started from, kept as it was written. It addresses whoever builds
+> the project, hence "you" and "ask me". Where later choices differ (the licence is
+> Apache-2.0 with MIT for `plugins/`, Android's minSdk is 22, and more),
+> [`docs/DECISIONS.md`](docs/DECISIONS.md) has the decision and the reason.
 
 ---
 

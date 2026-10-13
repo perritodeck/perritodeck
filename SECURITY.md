@@ -39,4 +39,5 @@ the plugin runtime, the online plugin catalogue, and the first-party plugins.
 
 Out of scope: third-party plugins (report to their authors; plugins run with your user's
 permissions by design, see docs/SECURITY.md), problems that need an attacker who already
-runs code as your user, and denial of service by someone who is already paired.
+runs code as your user (such as reading plugin sign-in tokens, device keys or settings
+from the data folder), and denial of service by someone who is already paired.
