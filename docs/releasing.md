@@ -30,7 +30,7 @@ It changes these, all of which must match the tag (the workflow runs `--check`):
 | `website/download.html` | the version in every download link |
 
 Not bumped automatically:
-- **Plugins** each have their own version in `plugins/<id>/perritodeck-plugin.json`. Bump one when its code changes: the catalogue zip is named after the version, and a changed zip under an old name breaks the SHA-256 that existing catalogues pin. `plugins/sdk-node/package.json` is versioned on its own as well.
+- **Plugins** each have their own version in `plugins/<id>/perritodeck-plugin.json`. Bump one when its code changes: the catalogue zip is named after the version, and a changed zip under an old name breaks the SHA-256 that existing catalogues pin. Its copy of the Python SDK (`perritodeck_plugin.py`) is part of its code, so a change to the SDK means bumping every Python plugin (`git diff --stat <last release>.. -- plugins/` lists them). `plugins/sdk-node/package.json` is versioned on its own as well.
 - **Protocol fixtures** (`protocol/fixtures/*.json`) contain example versions. Leave them alone.
 - **Flatpak, AUR and F-Droid recipes**: they're updated after the tag (see `packaging/README.md` and `docs/fdroid/README.md`).
 
