@@ -101,6 +101,14 @@ test("settings keep the USB line current and say why a tablet can't connect", as
   await usb({ usbProblems: [], usbDevices: ["G000L40XXXXX"] });
   await expect(page.getByText("1 tablet on a cable")).toBeVisible({ timeout: 6000 });
   await expect(page.getByText(/G000L40XXXXX: tap Allow/)).toHaveCount(0);
+
+  // When the host stops answering, the last status stays and nothing goes unhandled.
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await mock(page, `__perritoMock.failToStart("the host stopped")`);
+  await page.waitForTimeout(4500);
+  await expect(page.getByText("1 tablet on a cable")).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 const key = (page: Page, name: RegExp | string) => page.getByRole("button", { name });

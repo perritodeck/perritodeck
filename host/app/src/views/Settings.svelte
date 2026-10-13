@@ -4,7 +4,7 @@
   import { copyText } from "../lib/clipboard";
   import type { HostStatus, McpSettings, McpView, Network, Update } from "../lib/types";
 
-  let { status, onchange }: { status: HostStatus; onchange: () => void } = $props();
+  let { status, onchange }: { status: HostStatus; onchange: () => void | Promise<void> } = $props();
   let error = $state<string | null>(null);
   let autostart = $state<boolean | null>(null);
   // What's saved, and what's being edited.
@@ -46,9 +46,17 @@
   });
 
   // Tablets come and go on the cable, so keep the USB line current while this is open.
+  // A refresh that fails (the host is stopping) is tried again on the next tick rather
+  // than reported every 4 s.
   onMount(() => {
     if (!status.usbAvailable) return;
-    const every = setInterval(onchange, 4000);
+    const every = setInterval(async () => {
+      try {
+        await onchange();
+      } catch {
+        // Keep showing the last status.
+      }
+    }, 4000);
     return () => clearInterval(every);
   });
 
