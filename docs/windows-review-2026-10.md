@@ -40,6 +40,57 @@ put the process in a job object" in a detailed log), that `code` and `obs64` sta
 keys, that MCI plays MP3 and WAV at the set volume, and that clicking the taskbar no longer
 flips the tablet to the default profile.
 
+## Status after the Windows run (2026-10-12, local session on Windows 11 + Fire 7)
+
+Everything compiled on Windows on the first try; the test plan below was run on a real PC and
+tablet. "Verified" means seen working on the hardware, not just in tests.
+
+| # | Finding | Status on Windows |
+|---|---|---|
+| 1 | adb console window every 4 s | **Verified fixed**: release build, 100 s of polling, no window |
+| 2 | "command" actions open a console | **Verified fixed** (starter "Run a command" key) |
+| 3 | Shifted/AltGr hotkeys type nothing | **Verified fixed**: `ctrl+plus` sends Ctrl + the =/+ key; symbols now also bring the Shift/AltGr their layout needs, letters/digits go by virtual key |
+| 4 | Launch: PATHEXT, working folder | **Verified fixed**: `code`, OBS by full path (no locale error). Also new: console programs get a working window, PATH `.cmd` shims run hidden (no flash), URIs and elevation (740) go to ShellExecute, "Copy as path" quotes are stripped |
+| 5 | Store `python.exe` stub restart loop | **Replaced**: the host asks `py -3`/`python` for the interpreter path and runs it directly; none → "needs Python 3". Store stub itself not tried (Python is installed here) |
+| 6 | Defender Firewall | **Open** (by request). Seen: one prompt per exe path (debug and release differ); this network is Public; until answered, the tablet falls back to USB. Diagnostics now show Public/Private |
+| 7 | `open` through PowerShell in the CLI | Fixed; not timed |
+| 8 | Auto-switch flicker, Store apps | **Verified fixed** for taskbar, desktop, Start/Search, Task View; more shell hosts added (ShellHost, widgets, Snipping Tool, hung-app stand-ins). UAC prompt not tried |
+| 9 | Pairing slow with WSL/Hyper-V | **Verified fixed**: default-route address first; link-local addresses now left out |
+| 10 | Media plugin polling, timeout, error text | Fixed differently (as above); key presses no longer wait for a poll; status value verified |
+| 11 | Screenshot DPI | Fixed; window capture verified (one monitor here, mixed DPI not tried) |
+| 12 | Soundboard latency | Fixed (winmm); play/stop verified |
+| 13 | Plugin process trees, Quit | **Verified fixed**: Quit with 9 plugins running leaves no process. Follow-up fix: programs a plugin opens for the user (browser, Focus-key apps) now outlive it (explicit breakaway) |
+| 14 | Tab/newline twice | **Confirmed and fixed**: Win32 apps got both the key and the character; enigo now sends only the key, CRLF as one Return |
+| 15 | UIPI / elevated windows | Documented; not tried |
+| 16 | `write_private` ACL, Roaming | Open |
+| 17 | Plugin `main` outside its folder | Fixed; not re-tested |
+| 18 | `platformVersion` | Fixed; not checked against a plugin |
+| 19 | Tray left-click | Open (by request) |
+| 20 | MCP stdio bridge note | **Verified**: the GUI-subsystem exe works as a stdio bridge with Claude Code; the Claude Code command now quotes Windows paths and uses `--scope user`. The exe lock while connected stays a follow-up |
+
+New problems found by running it (all fixed unless marked):
+
+- Stream Deck plugin **Restart aborted the app** (`tokio::spawn` on the UI thread). Fixed.
+- Windows 11 Notepad **dropped and repeated characters** from the text action (needs ≥10 ms
+  between Unicode keystrokes). Fixed by pacing.
+- Launch of a console program from the installed app opened an empty window that closed at
+  once; `code` (a `.cmd` shim) flashed a Terminal window. Fixed.
+- The job objects of #13 also killed programs a plugin started for the user. Fixed.
+- `adb reverse` lost after an adb server restart, or failed once and never retried. Fixed.
+- Pairing over USB from a QR code failed (Perrito never tried 127.0.0.1). Fixed.
+- The tablet showed raw TLS exception text ("SSL handshake aborted … I/O error during system
+  call") when the computer's app wasn't running with a cable in. Fixed (plain words).
+- The tablet stayed portrait with the starter 5×3 grid while the editor drew it landscape.
+  Fixed: Perrito turns to the grid's shape.
+- Stream Deck plugin keys were blank in the editor (their drawing only reached tablets).
+  Fixed: the editor shows the plugin's drawing and refreshes as it redraws.
+- The deck lost full-screen after the lock screen or the notification shade (Android 9).
+  Fixed.
+- Checked and not a problem: the tray menu is a standard Win32 menu that screen readers read
+  (PowerShell's .NET UI Automation client just can't see popup menus); it now has access keys.
+- Plugin tests (obs, screenshot, windows) assumed Linux; the Spotify sign-in server could
+  share its port on Windows (`SO_REUSEADDR`). Fixed.
+
 ---
 
 ## 0. Before anything else: CI has not built Windows for 41 commits
@@ -370,11 +421,15 @@ Collect throughout:
 - the log folder (`<data>\logs\perritodeck.log` once the in-progress `logging.rs` lands), or run the CLI host in a terminal;
 - screenshots of any dialog.
 
+Results of the 2026-10-12 run are marked **[done]** / **[not done]** under each step.
+
 1. **Build and test** (CI hasn't since `9e698c8`): `cd host; cargo clippy --all-targets -- -D warnings; cargo test`, then `cd app; npm ci; npx tauri build --debug`. Save the full error output.
+   **[done]** Clean on the first try (fmt, clippy, all tests); `tauri dev` and `tauri build --no-bundle` work. Note: `--debug` builds a console-subsystem app, so use a release build for the console-window checks.
 2. **CLI host basics:** `cargo run -p perritodeck-host -- --pair`.
    - Firewall prompt: note which boxes are ticked and whether Wi-Fi is Public or Private (Settings → Network → Properties).
    - Pair the tablet by QR. Time it, and note every `a=` address in the QR text, especially vEthernet 172.x and 169.254.x.
    - Check that mDNS discovery works from the tablet.
+   **[done]** with the desktop app instead of the CLI host: prompt per exe path, answered with Public allowed (this network is Public); QR pairing under 2.5 s, addresses `192.168.x` first then two `vEthernet` 172.x (169.254.x now left out); mDNS discovery works on Fire OS.
 3. **Actions via CLI.** Use **cmd.exe** or PowerShell 7.3+. Windows PowerShell 5.1 strips the inner quotes.
    - `perritodeck-host action "{\"type\":\"hotkey\",\"keys\":\"ctrl+plus\"}"` in a browser: expect zoom (finding 3, now fixed; before the fix nothing happened).
    - Hotkeys `ctrl+shift+esc` and `win+d`, then media play/pause and the volume keys.
@@ -382,6 +437,7 @@ Collect throughout:
    - openUrl: time it (finding 7).
    - launch `notepad`, then `code` (finding 4), then OBS by full path (expect "Failed to find locale").
    - command `hostname`.
+   **[done]** `ctrl+plus` → Ctrl + =/+ (fixed), shifted symbols, `a\tb\nc` in Notepad and a Win32 edit (fixed: pacing, no doubled Tab/newline), Launch `code`, `cmd`, OBS by path and a quoted path from the release app (fixed), command `hostname`. **[not done]** `ctrl+shift+esc`, `win+d`, media and volume keys (they'd disrupt the desktop in use), openUrl timing.
 4. **Installed app (release build), not `tauri dev`:** install the NSIS setup.
    - With adb installed and on PATH, watch for console windows every 4 s (finding 1).
    - Press the starter "Run a command" key (finding 2).
@@ -390,9 +446,11 @@ Collect throughout:
    - "Restart now" after changing the port: does single-instance let the new process start?
    - "Open data folder": does it open *inside* the folder, or the parent with the folder selected?
    - "Open profile file" when `.toml` has no associated app.
+   **[done]** with `tauri build --no-bundle` (no installer): no console windows; "Run a command" quiet; tray Quit leaves no plugin process (7 Python + 2 Stream Deck plugins, a sound playing). **[not done]** NSIS install, autostart, "Restart now" after a port change, Open data folder/profile file.
 5. **Auto-switch:** add a rule for an app.
    - Click the taskbar, press Win, Alt+Tab, and trigger a UAC prompt (for example, open an admin terminal). Watch the tablet for flicker to the default profile (finding 8).
    - Try Calculator (ApplicationFrameHost).
+   **[done]** rule `charmap.exe`: taskbar, desktop, Start/Search and Task View keep the profile; another app and closing the app switch back. **[not done]** UAC prompt (needs a person), Calculator.
 6. **Plugins (Python):** first check whether Python is installed (`py -0p`).
    - If it is, temporarily rename or hide it (or test on a clean account) to see the 9009 loop (finding 5).
    - Then exercise each plugin:
@@ -404,7 +462,12 @@ Collect throughout:
      - **soundboard:** latency, MP3 volume, stop/toggle.
      - **media (Now playing):** check Task Manager CPU while idle (finding 10).
    - Note each plugin's status in the app and any stderr lines in the log.
+   **[done]** Python 3.14 installed (Store stub case not tried). All seven run (as `python.exe`, no `py.exe`), with their actions and live values: audio volume and mic mute (put back), windows focus/launch/quit (the launched app survives a plugin restart), sysmon (network rates match Windows' counters), clipboard paste (clipboard restored), screenshot window, soundboard play/stop, media status. **[not done]** mixed-DPI screenshots, idle CPU of media, region capture.
 7. **USB:** tablet on a cable with adb. Check the log for `adb reverse` and for connecting with Wi-Fi off.
+   **[done]** `adb reverse` within 0.3 s of start; pairing and connecting with Wi-Fi off; falls back to USB when Wi-Fi is blocked.
 8. **Stream Deck plugins:** install one Node `.streamDeckPlugin` (needs `node` on PATH) and one native `.exe` plugin if available. Open a settings page, remove and reinstall while running (file locks), and restart.
+   **[done]** Elgato's open-source hello-world and counter samples: install, keys, settings page, remove/reinstall while running, Restart (fixed; it aborted the app). **[not done]** a native `.exe` plugin.
 9. **Elevated target:** run OBS as admin and send a hotkey to confirm UIPI blocking (finding 15), so the user guide can say so.
+   **[not done]**
 10. **Kindle/Fire over Wi-Fi:** if time allows, repeat step 2 with the Fire tablet on the Windows host.
+   **[done]** (see step 2): the Fire 7 is the tablet used throughout.

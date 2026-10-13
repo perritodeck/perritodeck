@@ -1,169 +1,173 @@
-# Handoff: cloud session → local session (2026-10-11)
+# Handoff: Windows bring-up on real hardware (local session, 2026-10-12)
 
-Everything is on `main`. On 2026-10-11 the cloud session also built most of Phases 3–5
-(editor, profiles, switching, sliders, live values, USB, plugins, animated keys, online
-plugin catalogue) and, pulled forward from Phase 7, **Bitfocus Companion mode** and
-**Stream Deck plugin support**; see `docs/plan/phase-3.md` … `phase-7.md` for what's done
-and what isn't. Phase 6 (packaging) is next after the hardware checks.
+Everything is on `main`. This session took the ~40 commits that had never been compiled for
+Windows (CI is paused by billing) and ran them on a Windows 11 Pro PC (build 26200) with an
+Amazon Fire 7 (2019, KFMUWI, Fire OS 7.3.1.7 = Android 9 / API 28) on USB and Wi-Fi.
+The Windows review (`docs/windows-review-2026-10.md`) has the per-finding status.
 
-**CI is paused:** GitHub stopped starting jobs (spending limit / payment) at about 09:30.
-The last green CI was before the sliders work. Host and desktop-app changes since then
-were tested in the cloud session on Linux (Rust tests, Playwright, the real app under
-Xvfb); **the Android changes since then (sliders, USB fallback, alert haptics) have never
-been compiled.** Run the Android build and unit tests locally first (section 1), and fix
-anything before the Kindle check. Windows and macOS code (focus detection, volume) has
-only been compiled for Linux since then too: `cargo test` in `host\` on Windows checks it.
+**Short version:** the host, the desktop app and Perrito all build and pass their tests on
+Windows; every item of the review's manual test plan was run on the real machine and tablet
+(except a UAC prompt, which needs a person); everything that broke was fixed, reviewed and
+re-verified on the hardware. What's left is listed under "Still open".
 
-**Later on 2026-10-11 (cloud session, not committed yet):** debugging aids and the MCP
-server were wired in. Tested on Linux only (Rust tests, Playwright, the real app under Xvfb,
-and a manual CLI run piping JSON-RPC through `perritodeck-host mcp`):
+## 1. Builds and tests on Windows
 
-- **Logs:** `logs/` in the data folder, rotating daily or at 1.4 MB, seven files kept,
-  everything redacted (`host/crates/host/src/logging.rs`). Settings → Getting help has
-  "Copy diagnostics", "Open logs folder" and "Detailed logs" (live). CLI:
-  `perritodeck-host diagnostics`; `paths` shows the logs folder and MCP token file.
-- **MCP:** Settings → "AI assistants (MCP)" turns on the local server (127.0.0.1:46711,
-  off by default, press/edit/run permissions off by default) and shows copyable snippets.
-  Assistants launch `perritodeck-host mcp` or `perritodeck-app mcp` (the app handles that
-  argument before Tauri starts), a stdio bridge to the running host. `mcp --config`
-  prints the snippets. New: `Deck::press_at`, `Host::apply_mcp/set_mcp/new_mcp_token`.
-- **Untested:** Windows and macOS for all of it. Worth checking on Windows: the app
-  binary as a stdio bridge (it's a GUI-subsystem exe in release builds; stdio should work
-  when the assistant pipes it, but try it with Claude Desktop), the log folder opening,
-  and log rotation while the file is open (the writer closes it before renaming). The
-  Claude Desktop/Code wording in the website guide wasn't checked against their current docs.
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` (host) | clean on the first try; the never-compiled Windows code built as written |
+| `cargo test` (host) | all pass (229 at the start of the session, more now); the plugin-removal test now runs on Windows too |
+| `npm ci`, `npm run check`, `npx playwright test` (host/app) | 0 errors/warnings; all Playwright tests pass (use `CI=1` if another checkout's dev server may be on port 5174) |
+| `npx tauri dev`, `npx tauri build --no-bundle` | both build and run; no installers were built (NSIS/WiX tools not downloaded) |
+| `.\gradlew.bat testDebugUnitTest assembleDebug` (android, JDK 17) | all unit tests pass; AGP installs Platform 36 and Build-Tools 35 on first build |
+| `py -3 plugins\test_all.py` | all plugin tests pass on Windows (obs, screenshot, windows and spotify needed Windows fixes) |
 
-**Windows review fixes (cloud session, not committed yet):** most findings in
-`docs/windows-review-2026-10.md` are fixed (see its status table), written and tested on
-Linux only, because the Windows Rust target couldn't be downloaded in the cloud session.
-`cargo clippy --all-targets -- -D warnings` and `cargo test` in `host\` on Windows are
-the first check; the Windows-only code is in `actions/src/launch.rs`, `actions/src/job.rs`,
-`host/src/focus.rs` and `host/src/usb.rs`, plus `plugins/soundboard/winmm.py`.
+Toolchain on this PC: Rust 1.97.0 (pinned), MSVC 2022 Build Tools 14.44, Node 26, JDK 17
+(Zulu; `JAVA_HOME` pointed at Android Studio's JBR 21, so the Gradle runs set it to 17),
+Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it in
+`%LOCALAPPDATA%\Android\Sdk`), WebView2 154.
 
-## 1. Set up the Windows clone (`C:\perritodeck\perritodeck`)
+## 2. Hardware test results (review §"Windows manual test plan")
 
-In PowerShell:
+- **Pairing.** USB: works ("Pair with a code" + the USB preset; QR pairing over the cable now
+  works too, since Perrito tries 127.0.0.1). Wi-Fi: QR link pairs in under 2.5 s over the
+  default-route address; mDNS discovery works on Fire OS. The QR lists `192.168.x` first,
+  then the WSL/Hyper-V `vEthernet` addresses; link-local ones are now left out. Round trip:
+  6–18 ms over USB, ~105 ms over Wi-Fi on the Fire 7.
+- **Firewall.** The network here is classed **Public**. The first bind of each exe path
+  (debug and release builds are different paths) brings up the Defender prompt; it was
+  answered with Public allowed, creating TCP+UDP Allow rules for that exe only. Until it's
+  answered the tablet falls back to the USB tunnel. Finding 6 stays open by request.
+- **Console windows (release build):** none in 100 s of adb polling or from a Command key.
+- **Hotkeys and text:** after the fixes, Notepad and a classic edit control get exactly what
+  was sent (`a\tb\nc`, CRLF, `|+?!&é€`); `ctrl+plus` sends Ctrl + the =/+ key.
+  Before: Windows 11 Notepad dropped and repeated characters (it needs ≥10 ms between
+  them), and Tab/newline came out twice in Win32 apps.
+- **Launch:** `code` starts VS Code with no console flash; `cmd` gets a working console;
+  OBS by full path starts in its folder (no locale error); a quoted "Copy as path" path works.
+- **Auto-switch:** a rule typed `charmap.exe` matches; taskbar, desktop, Start/Search and
+  Task View keep the profile; another app or closing the app switches back. Not tried: a UAC
+  prompt (needs a person to answer it).
+- **Python plugins** (soundboard, audio, windows, screenshot, clipboard, sysmon, media): all
+  run under `python.exe` directly (no `py.exe`), all actions and live values work; an app the
+  windows plugin launched survives a plugin restart; the clipboard is restored after a paste;
+  sysmon's network rates match Windows' counters.
+- **Stream Deck plugins:** Elgato's open-source samples (hello-world prebuilt, counter built
+  from source) install, run under the system Node, draw their keys, show their property
+  inspector, survive remove/reinstall while running, and Restart no longer aborts the app.
+- **Quit:** with 7 Python plugins, 2 Stream Deck plugins and a sound playing, Quit takes
+  ~4 s and leaves no process behind.
+- **MCP:** `perritodeck-app mcp` (GUI-subsystem exe) works as a stdio bridge; added to Claude
+  Code with the command from Settings → AI assistants (in Git Bash), `claude mcp get` showed
+  Connected and a `list_tablets` call through Claude Code answered. The user-scope entry was
+  removed again afterwards so other sessions don't start the bridge.
+- **Diagnostics:** Copy diagnostics and the logs folder work; the report now also says
+  whether Windows classes the network Public or Private.
 
-```powershell
-cd C:\perritodeck\perritodeck
-git pull
+## 3. Fixed in this session (highlights; see `git log` and `docs/DECISIONS.md`)
 
-# Commit identity for this repo only; keeps personal details out of history.
-git config user.name "dmang-dev"
-git config user.email "dev@perritodeck.dev"
+- Stream Deck plugin **Restart aborted the app** (bare `tokio::spawn` on the UI thread).
+  Plugin commands that wait now run off the UI thread.
+- **Text action** paced on Windows; enigo no longer types Tab/newline twice; extended keys
+  get the extended flag; hotkeys hold the key 50 ms, press letters by virtual key, add the
+  Shift/AltGr a symbol needs, accept `Ctrl + +` and punctuation names; Win+L locks.
+- **Launch:** console programs get a working window, PATH `.cmd` shims run hidden, URIs and
+  elevated programs go through ShellExecute (UAC), quotes are stripped; Command waits for the
+  process and a timeout ends what it started; OpenPath of a missing file no longer shows a
+  blocking dialog.
+- **Plugin processes:** jobs allow explicit breakaway only, so programs a plugin opens for
+  the user (browser, an app from a Focus key) outlive it while its own children don't; Python
+  runs directly; plugins start suspended until they're in their job; removal waits for the
+  whole tree. SDK 1.3.0: `open_for_user`, `start_for_user`.
+- **USB:** lost or failed `adb reverse` is re-applied; adb calls time out; Settings says why
+  a tablet isn't connected.
+- **Pairing:** Perrito tries 127.0.0.1 first (QR and code pairing, reconnects); addresses are
+  read fresh; mDNS is IPv4 only; inverted QR codes scan; plain-language connection errors
+  (the tablet used to show "SSL handshake aborted: ssl=0x…: I/O error during system call"
+  when the computer's app wasn't running with a cable in).
+- **Orientation:** Perrito turns to the grid's shape (landscape for the starter 5×3), matching
+  the desktop editor; key images are sized for that orientation.
+- **Auto-switch:** shell windows (ShellHost, widgets, Snipping Tool, hung-app stand-ins, error
+  boxes…) keep the last app; Store apps are named; `.exe` in rules matches.
+- **MCP:** the Claude Code command works in Git Bash, PowerShell and cmd and in every folder
+  (`--scope user`); the bridge follows a new token or port.
+- Plugins: PowerShell values passed in environment variables (typographic quotes broke
+  scripts), readable PowerShell errors, sysmon network rates, media key presses no longer wait
+  for a poll, Spotify sign-in port on Windows, the clipboard plugin in-process.
+- App: the Vite dev server doesn't watch `src-tauri`; "Restart now" keeps the window when
+  started at login; a second launch no longer touches the running app's log.
+- **Editor shows what Stream Deck plugins draw** (it showed blank "Untitled" keys while the
+  tablet showed the plugin's image), refreshed as the plugin redraws.
+- Second round: text actions capped at 2,000 characters (the editor field stops there);
+  Record on Linux keeps shifted punctuation typeable; code pairing also tries the cable;
+  Node.js installed while the app runs is found; Quit waits for Stream Deck plugins too;
+  a scan can't restart a plugin being removed; programs opened by the gitlab, sysmon and
+  screenshot plugins outlive them; wireless-adb tablets get their own advice; the deck stays
+  full screen after the lock screen or notification shade; tray menu access keys; every
+  first-party plugin got a patch version for the SDK change.
 
-# The repo now pins LF line endings (.gitattributes). Re-checkout so existing files match.
-git rm -r --cached -q .
-git reset --hard
-git status   # should be clean
-```
+## 4. Still open
 
-Then install the toolchains. Skip any you already have:
+- **UAC prompt during auto-switch**: not tried (needs a person to answer the prompt).
+- **Firewall (finding 6)**: open by request. Each exe path gets its own prompt; on a Public
+  network the default answer lets nothing in. The diagnostics report now shows the category.
+- **Installers** (NSIS/MSI), autostart at login, uninstall: not built or tried this session.
+- A live value with no data yet shows its raw token in small type on the key
+  (e.g. `(plugin:dev.perritodeck.sysmon:disk)`). Deliberate ("unknown names are left as
+  written", so typos show), but a declared value that hasn't reported yet could show "–".
+- Editor nits: a two-line plugin title over an image is clipped at the key's bottom edge
+  (hello-world's "Dynamic"); a key whose plugin draws only an image still reads "Untitled"
+  to a screen reader.
+- With the CLI host on one specific `--listen` address, the USB forwarder still runs and
+  Settings still offers USB, although adb reverse then points at a closed port.
+- `actions` test `a_command_that_starts_a_program_finishes_when_it_exits` has a 1.5 s limit
+  that a heavily loaded machine overshot once (1.73 s).
+- Node plugins and Stream Deck plugins can't start programs outside their job (libuv can't
+  ask for breakaway), so anything they launch ends with them; a host-side "open" message
+  would fix it.
+- The MCP bridge is the app exe, so a connected assistant locks it (rebuilds, installer
+  upgrades). Follow-up: a separate console `perritodeck-mcp.exe`.
+- Linux and macOS have not been compiled since these changes (only Windows here); the weekly
+  CI or a local build should check them first. Reviewers flagged the Linux text paths
+  (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky parts.
+- iOS: never built (needs a Mac).
+- Wi-Fi latency on the Fire 7 is ~105 ms vs 6–18 ms on USB; worth a look on other tablets.
+- More Kindles are on the way from the maintainer for a hardware matrix and beta testers;
+  older Fire models run Fire OS 5 (API 22), which is why minSdk stays 22.
 
-- **Rust:** `winget install Rustlang.Rustup`. The pinned 1.97.0 toolchain installs itself
-  on the first `cargo` command in `host\`. It needs the MSVC build tools:
-  `winget install Microsoft.VisualStudio.2022.BuildTools`, then add the "Desktop development
-  with C++" workload.
-- **Node 22:** `winget install OpenJS.NodeJS.LTS` (desktop app UI).
-- **Android:** `winget install Google.AndroidStudio`. Open `android\` once so it installs
-  SDK 36. Gradle needs JDK 17, which Android Studio bundles. If `adb` isn't found, add
-  `%LOCALAPPDATA%\Android\Sdk\platform-tools` to PATH.
-- The WebView2 runtime the desktop app needs is already part of Windows 10 and 11.
+## 5. Testing on Windows without a person at the keyboard
 
-Smoke test:
+What worked in this session (none of it is committed; recreate as needed):
 
-```powershell
-cd host; cargo test; cd ..
-cd host\app; npm ci; npx playwright install chromium; npx playwright test; cd ..\..
-cd android; .\gradlew.bat testDebugUnitTest assembleDebug; cd ..
-```
+- **Drive the real app:** start it with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`
+  and attach Playwright with `chromium.connectOverCDP("http://127.0.0.1:9333")`; Tauri
+  commands can be called with `window.__TAURI_INTERNALS__.invoke(...)`, e.g. `test_action`
+  to run any action inside the GUI-subsystem app.
+- **Drive the tablet:** `adb -s <serial> exec-out screencap -p`, `uiautomator dump`, `input tap`;
+  `svc power stayon usb` keeps it awake (set back with `svc power stayon false`). Quote `&`
+  in URLs for `adb shell` (it goes through the tablet's `sh`); uiautomator reports unpanned
+  coordinates while the keyboard is up.
+- **Catch console flashes:** a `SetWinEventHook(EVENT_OBJECT_SHOW / EVENT_SYSTEM_FOREGROUND)`
+  logger sees every window shown, even for 50 ms.
+- **Native file dialog:** `WM_SETTEXT` on the File name edit (id 1148) and `BM_CLICK` on Open
+  (id 1).
+- **Accessibility checks:** use Narrator, Inspect, Accessibility Insights or MSAA. PowerShell's
+  `System.Windows.Automation` shows every Win32 popup menu as an empty pane.
 
-Two things haven't been tried on Windows yet: the desktop app running for real, and
-hotkeys via enigo on Windows. Both are worth a first look with `cd host\app; npx tauri dev`.
-Windows Firewall will ask about port 46710 the first time; allow it on private networks.
+## 6. Gotchas learned
 
-The release signing key (sent separately as a file) stays **outside** the repo. It's only
-needed for the v0.1.0 release, which is on hold.
+- Some shells set `NoDefaultCurrentDirectoryInExePath=1`: run `.\gradlew.bat`, not `gradlew.bat`.
+- Windows PowerShell 5.1 strips inner double quotes from native programs' arguments, so
+  `perritodeck-host action '{"type":...}'` needs cmd, PowerShell 7.3+ or bash.
+- `npx tauri dev` builds with `--no-default-features`, separately from a plain `cargo build`.
+- With adb reverse in place and no host running, the tablet's connection is accepted by adb on
+  the tablet and then reset during TLS; Perrito now says "PerritoDeck isn't running on the
+  computer this tablet is plugged into".
+- Windows 11 Notepad loses `KEYEVENTF_UNICODE` input that arrives faster than ~10 ms apart.
+- A refused TCP connect to a closed localhost port takes ~2 s on Windows (SYN retries); tests
+  with tight timeouts need room for it.
+- `SO_REUSEADDR` on Windows lets two sockets bind the same port.
 
-## 2. Next up, in order
-
-1. **Kindle hardware check.** This is the reason for going local.
-   - On the Kindle: Settings → Device Options → tap Serial Number 7 times, then Developer
-     Options → enable ADB. Connect it over USB and accept the prompt.
-   - The tablet is a **KFMUWI = Fire 7 (2019)**: 1024×600 mdpi, 1 GB RAM, cameras front
-     and back (so in-app QR scanning should work). It shipped with Fire OS 6 (API 25) and
-     updates to Fire OS 7 (API 28).
-   - `adb shell getprop ro.build.version.sdk` gives the API level. 22 is Fire OS 5 and 25
-     is Fire OS 6. 28 is Fire OS 7 and 30 is Fire OS 8.
-   - `cd android; .\gradlew.bat installDebug`, then pair with the host running on the
-     laptop (`cd host\app; npx tauri dev`, or `cargo run -p perritodeck-host -- --pair`).
-     QR or code both work; this Fire has a rear camera.
-   - Over USB: with adb installed, the host forwards its port to the tablet by itself and
-     Perrito falls back to 127.0.0.1, so it should keep working with Wi-Fi off. Try it.
-   - The starter profile's "More" page has a Volume slider: drag it (system volume on
-     Windows) and check the feel and the haptic ticks.
-   - Record the result in `docs/DECISIONS.md`. If it's API 23 or higher, raise minSdk and
-     unpin AndroidX/Compose (see the 2026-10-11 decision about minSdk 22).
-   - Check for: layout fitting the screen, key-image sharpness, latency (`fakedeck bench`
-     gives a baseline), mDNS discovery on Fire OS, and reconnection after the screen sleeps.
-2. **Windows check of the desktop app:** editor, profiles, Switching (focus detection on
-   Windows), Settings → start at login, network port and "Restart now", Plugins → add HTTP
-   requests (needs Python on the laptop), a Volume slider, tray Pause keys, an animated
-   GIF key, and the Now playing plugin (its Windows part has never run on Windows).
-3. **Companion and Stream Deck plugins with the real things** (both only tested against
-   fakes so far):
-   - Companion: install Bitfocus Companion, add `[companion]` to `integrations.toml`
-     (Settings → Open folder), restart, make a profile with "Show Bitfocus Companion's
-     buttons" and show it on the tablet. The tablet should appear under Companion's
-     Surfaces.
-   - Stream Deck: needs Node.js (`winget install OpenJS.NodeJS.LTS`). Download a free
-     Node-based plugin from the Elgato Marketplace (a `.streamDeckPlugin` file) and add it
-     on the Plugins page; put one of its actions on a key.
-4. **The new plugins with the real services.** Thirteen first-party plugins ship in the app
-   (Plugins → "Comes with PerritoDeck"); the new ones (OBS Studio, Timers, Counters, Is it
-   up?, Wake-on-LAN, Weather, Ollama, Proxmox VE, TrueNAS, GitLab) have only met fake
-   servers. Each needs its settings filled in on the Plugins page (Settings button), and
-   titles pick what to show with the key editor's "Insert a live value". Each plugin's
-   README lists what's untested.
-5. **First iOS build.** `ios/` has never been compiled. Cheapest way: rent a Scaleway
-   Mac mini M2 for a day (about €4; 24-hour minimum), open its desktop over VNC, install
-   Xcode and the Claude desktop app, open this conversation there and choose "Link to
-   this computer". Or run the `iOS` workflow by hand once Actions billing works.
-6. **Leftovers in the phase docs** ("Not done" lists): e.g. Stream Deck property
-   inspectors, Wayland auto-switch, publishing the plugin catalogue on the website.
-7. **Phase 6 / v0.1.0 release** when the maintainer says go. Set the signing secrets, tag, and watch
-   the untested `release.yml`. See `docs/releasing.md`.
-
-## 3. Open questions for the maintainer
-
-- The Kindle's Fire OS version decides minSdk.
-- Phase 3 open questions are listed at the bottom of `docs/plan/phase-3.md`: editing on the
-  tablet, theme, crash reports.
-- When to make the repo public.
-
-## 4. Gotchas learned so far
-
-- The host now runs plugins (`<settings folder>\plugins\<id>\`) and Stream Deck plugins
-  (`<settings folder>\sdplugins\`), forwards its port to USB tablets when it finds adb,
-  and watches which app is in front (for Switching). `--no-usb` turns the USB part off
-  for the command-line host.
-- `perritodeck-sdcompat`'s test runs a Node.js fixture plugin; it's skipped when Node
-  is missing or older than 22 (no built-in WebSocket).
-- The app's network settings (port, Wi-Fi) apply only to the app; the command-line host
-  keeps its `--port`/`--listen` flags.
-- CI on pushes is deliberately small (see `CLAUDE.md`); run the bigger workflows by hand.
-
-- `host/vendor/enigo` is a patched copy of enigo 0.6.1 (see its `PERRITODECK.md`).
-  `host/app/src-tauri` is a separate Cargo workspace and repeats the
-  `[patch.crates-io]` entry, so keep the two in sync.
-- The Android unit test `DeckConnectionTest` used to flake on MockWebServer shutdown. The
-  fake host now answers the close handshake. If it flakes again, look there first.
-- Log output goes through `logging::redact`; a field whose name ends in `token`,
-  `secret`, `password`… has its value hidden, so don't name ordinary fields that way
-  (diagnostics says "token file", not "token").
-- `perritodeck-host mcp` must never print anything but protocol on stdout; logging is on
-  stderr at `warn` there.
-- The E2E test pairs with the fixed code `424242`, using the hidden `--pair-code` host flag
-  (testing only).
-- Android UI tests find keys by accessibility label, not by visible text, because keys are
-  host-rendered images.
+The earlier sections of this file (cloud session, 2026-10-11) are in git history; their "next
+up" items that are still open: Companion and Stream Deck plugins with the real apps beyond the
+samples, the new service plugins (OBS, Hue, Key Light, …) against real services, the first iOS
+build, and Phase 6 (packaging, v0.1.0) when the maintainer says go.
