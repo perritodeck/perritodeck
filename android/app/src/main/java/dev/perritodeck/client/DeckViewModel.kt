@@ -63,12 +63,18 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
 
     private var pairJob: Job? = null
 
+    /** An address discovery saw for a paired host, saved once a connection through it works. */
+    private data class SeenAddress(val hostId: String, val address: HostPort)
+
+    private var unconfirmed: SeenAddress? = null
+
     init {
         // A dedicated deck tablet should come straight back to its computer after a restart.
         settings.lastHostId?.let { id -> _paired.value.firstOrNull { it.hostId == id } }?.let(::connectTo)
 
         viewModelScope.launch {
             connection.state.collect { s ->
+                if (s is ConnState.Connected) confirmAddress(s.url)
                 if (s is ConnState.Failed && _route.value == Route.Deck) {
                     _notice.value = s.reason
                     _route.value = Route.Home
@@ -78,28 +84,33 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connectTo(host: PairedHost) {
-        // Prefer the address discovery just saw (DHCP may have moved the computer).
+        // Discovery may have seen the computer at a new address (DHCP moved it). It's tried
+        // before the saved one but only saved once it works: older Android can report an
+        // address the host doesn't listen on.
         val seen = discovery.hosts.value.firstOrNull { it.hostId == host.hostId }
-        val target = if (seen != null && (seen.address != host.address || seen.port != host.port)) {
-            settings.updateAddress(host.hostId, seen.address, seen.port)
-            host.copy(address = seen.address, port = seen.port)
-        } else {
-            host
-        }
-        _paired.value = settings.pairedHosts
+            ?.let { HostPort(it.address, it.port) }
+            ?.takeIf { it != HostPort(host.address, host.port) }
+        unconfirmed = seen?.let { SeenAddress(host.hostId, it) }
         settings.lastHostId = host.hostId
         _notice.value = null
         // 127.0.0.1 goes first: over a USB cable the computer forwards its port there (adb
         // reverse), and without one it's refused at once. The certificate pin makes sure
         // whatever answers is the same computer.
-        val urls = target.urls()
+        val urls = host.urls(seen)
         connection.connect(
             urls.first(),
-            hello(target.deviceSecret),
-            Tls.pinnedClient(Tls.defaultClient, target.hostId),
+            hello(host.deviceSecret),
+            Tls.pinnedClient(Tls.defaultClient, host.hostId),
             fallbacks = urls.drop(1),
         )
         _route.value = Route.Deck
+    }
+
+    private fun confirmAddress(url: String) {
+        val seen = unconfirmed?.takeIf { it.address.url == url } ?: return
+        unconfirmed = null
+        settings.updateAddress(seen.hostId, seen.address.host, seen.address.port)
+        _paired.value = settings.pairedHosts
     }
 
     fun disconnect() {

@@ -6,6 +6,7 @@ import dev.perritodeck.client.data.PairingLink
 import dev.perritodeck.client.net.Base64Url
 import dev.perritodeck.client.net.Fingerprint
 import dev.perritodeck.client.net.Pairing
+import dev.perritodeck.client.net.usableAddress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -140,6 +141,17 @@ class PairingTest {
             // Without closing its socket the probe would sit out its 5 s read timeout.
             withTimeout(2_000) { probe.join() }
         }
+    }
+
+    @Test
+    fun discoveryPrefersIpv4() {
+        val ip = { s: String -> InetAddress.getByName(s) }
+        assertEquals("192.168.1.60", usableAddress(listOf(ip("fd24:3c13:226:491f::5"), ip("192.168.1.60"))))
+        assertEquals("192.168.1.60", usableAddress(listOf(ip("fe80::1"), ip("192.168.1.60"))))
+        // Link-local IPv6 needs an interface name, which a URL can't carry.
+        assertNull(usableAddress(listOf(ip("fe80::1"))))
+        assertEquals(ip("fd24::5").hostAddress, usableAddress(listOf(ip("fd24::5"))))
+        assertNull(usableAddress(emptyList()))
     }
 
     @Test

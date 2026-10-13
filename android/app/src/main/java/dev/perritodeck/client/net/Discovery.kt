@@ -3,11 +3,14 @@ package dev.perritodeck.client.net
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.util.ArrayDeque
 
 /** A PerritoDeck host advertising itself over mDNS. */
@@ -66,8 +69,7 @@ class Discovery(context: Context) {
             }
 
             override fun onServiceResolved(info: NsdServiceInfo) {
-                @Suppress("DEPRECATION")
-                val address = info.host?.hostAddress
+                val address = usableAddress(addressesOf(info))
                 val id = runCatching { info.attributes["id"]?.toString(Charsets.UTF_8) }.getOrNull()
                 val name = runCatching { info.attributes["n"]?.toString(Charsets.UTF_8) }.getOrNull() ?: info.serviceName
                 main.post {
@@ -82,7 +84,21 @@ class Discovery(context: Context) {
         })
     }
 
+    @Suppress("DEPRECATION") // getHost, a single address, is all there is before API 34
+    private fun addressesOf(info: NsdServiceInfo): List<InetAddress> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) info.hostAddresses
+        else listOfNotNull(info.host)
+
     companion object {
         const val SERVICE_TYPE = "_perritodeck._tcp."
     }
 }
+
+/**
+ * The address to connect to out of those a host resolved to: IPv4 when there is one, as
+ * the host listens on IPv4 only. An IPv6 link-local address needs an interface name,
+ * which a URL can't carry, so it doesn't count.
+ */
+internal fun usableAddress(addresses: List<InetAddress>): String? =
+    (addresses.firstOrNull { it is Inet4Address } ?: addresses.firstOrNull { !it.isLinkLocalAddress })
+        ?.hostAddress?.substringBefore('%')
