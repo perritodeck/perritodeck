@@ -45,7 +45,7 @@ pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Windows processes whose windows are the shell rather than an app. Their windows
 /// being in front shouldn't switch profiles.
-const SHELL_PROCESSES: [&str; 16] = [
+const SHELL_PROCESSES: [&str; 17] = [
     // Stands in for a hung app: Windows swaps a window that stops responding for a
     // "Not Responding" copy of it, which the Desktop Window Manager owns.
     "dwm",
@@ -61,8 +61,11 @@ const SHELL_PROCESSES: [&str; 16] = [
     "WidgetBoard",
     "Widgets",            // the widget board in earlier Windows 11 releases
     "ScreenClippingHost", // the Win+Shift+S overlay
-    "TextInputHost",      // emoji panel, clipboard history, touch keyboard
-    "ClickToDo",          // Copilot+ PCs' Click to Do overlay
+    // The Win+Shift+S overlay once Snipping Tool is updated, as on current Windows 11.
+    // Its own window, for marking up a snip, keeps the last app too.
+    "SnippingTool",
+    "TextInputHost", // emoji panel, clipboard history, touch keyboard
+    "ClickToDo",     // Copilot+ PCs' Click to Do overlay
     "LockApp",
     "consent",              // UAC prompt
     "ApplicationFrameHost", // Store apps' frames; the app in one is looked up
@@ -386,6 +389,7 @@ mod tests {
         assert!(is_windows_shell("WidgetBoard", ""));
         assert!(is_windows_shell("Widgets", ""));
         assert!(is_windows_shell("ScreenClippingHost", ""));
+        assert!(is_windows_shell("SnippingTool", ""));
         assert!(is_windows_shell("TextInputHost", ""));
         // The Store apps' frame host is never the app itself.
         assert!(is_windows_shell("ApplicationFrameHost", ""));
