@@ -80,7 +80,7 @@ def cargo_metadata(manifest):
     env = dict(os.environ)
     out = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--locked", "--manifest-path", str(manifest)],
-        check=True, capture_output=True, text=True, env=env,
+        check=True, capture_output=True, text=True, encoding="utf-8", env=env,
     ).stdout
     return json.loads(out)
 
