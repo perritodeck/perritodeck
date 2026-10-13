@@ -96,7 +96,7 @@ test("settings keep the USB line current and say why a tablet can't connect", as
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByText("No tablet on a cable right now")).toBeVisible();
   await usb({ usbProblems: ["G000L40XXXXX: tap Allow on the tablet's \"Allow USB debugging?\" prompt"] });
-  await expect(page.getByText("No tablet connected over the cable yet")).toBeVisible({ timeout: 6000 });
+  await expect(page.getByText("No tablet connected yet")).toBeVisible({ timeout: 6000 });
   await expect(page.getByText(/G000L40XXXXX: tap Allow/)).toBeVisible();
   await usb({ usbProblems: [], usbDevices: ["G000L40XXXXX"] });
   await expect(page.getByText("1 tablet on a cable")).toBeVisible({ timeout: 6000 });

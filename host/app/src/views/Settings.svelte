@@ -334,7 +334,7 @@
         {status.usbDevices.length
           ? `${status.usbDevices.length} tablet${status.usbDevices.length === 1 ? "" : "s"} on a cable`
           : status.usbProblems.length
-            ? "No tablet connected over the cable yet"
+            ? "No tablet connected yet"
             : "No tablet on a cable right now"}
       </span>
       {#each status.usbProblems as problem (problem)}<span class="bad">{problem}</span>{/each}

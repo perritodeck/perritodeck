@@ -111,11 +111,29 @@ fn has_reverse(list: &str, spec: &str) -> bool {
     })
 }
 
+/// Whether adb reaches this tablet over the network (wireless debugging, or `adb
+/// connect`) rather than a cable: its serial is an address ("192.168.1.40:5555") or
+/// an mDNS name ("adb-<serial>-<id>._adb-tls-connect._tcp").
+fn over_network(serial: &str) -> bool {
+    let mdns = serial.trim_end_matches('.').ends_with("._tcp");
+    let address = serial
+        .rsplit_once(':')
+        .is_some_and(|(host, port)| !host.is_empty() && port.parse::<u16>().is_ok());
+    mdns || address
+}
+
 /// Why a tablet adb lists can't connect yet, from its `adb devices` state.
-fn not_ready(state: &str) -> String {
+fn not_ready(serial: &str, state: &str) -> String {
     match state {
         "unauthorized" | "authorizing" => {
             "tap Allow on the tablet's \"Allow USB debugging?\" prompt".to_owned()
+        }
+        // Left over after wireless debugging was turned off or the tablet left the
+        // network; there's no cable to replug.
+        "offline" if over_network(serial) => {
+            "its wireless debugging connection dropped; reconnect it, or ignore this if you \
+             don't use it"
+                .to_owned()
         }
         "offline" => "adb can't talk to it; unplug the cable and plug it back in".to_owned(),
         "connecting" => "still connecting".to_owned(),
@@ -137,6 +155,13 @@ fn failure(stderr: &str) -> Option<String> {
         .map(str::trim)
         .rfind(|l| !l.is_empty())
         .map(str::to_owned)
+}
+
+/// adb's errors can name the tablet ("adb: error: device 'G000L40XXXXX' not found").
+/// The reasons end up in the diagnostics report, which leaves serial numbers out, and
+/// Settings already puts the serial in front of each one.
+fn without_serial(text: &str, serial: &str) -> String {
+    text.replace(serial, "<serial>")
 }
 
 /// An `adb` command that never opens a console window. The installed app is a GUI
@@ -205,7 +230,7 @@ async fn poll(adb: &impl Adb, port: u16, before: &UsbState) -> UsbState {
     let mut now = UsbState::default();
     for (serial, state) in listed {
         if state != "device" {
-            let why = not_ready(&state);
+            let why = not_ready(&serial, &state);
             if before.waiting.get(&serial) != Some(&why) {
                 info!("USB tablet {serial} can't connect yet: {why}");
             }
@@ -232,6 +257,7 @@ async fn poll(adb: &impl Adb, port: u16, before: &UsbState) -> UsbState {
                 now.forwarded.insert(serial);
             }
             Err(e) => {
+                let e = without_serial(&e, &serial);
                 let why = format!("couldn't forward the port ({e})");
                 if before.waiting.get(&serial) != Some(&why) {
                     warn!("USB tablet {serial} {why}; trying again every few seconds");
@@ -476,6 +502,55 @@ mod tests {
              \"Allow USB debugging?\" prompt; one can't connect: adb can't talk to it; unplug \
              the cable and plug it back in"
         );
+    }
+
+    #[test]
+    fn tells_network_serials_from_cable_ones() {
+        for serial in [
+            "192.168.1.40:5555",
+            "[fd00::40]:5555",
+            "adb-G000L40XXXXX-AbCdEf._adb-tls-connect._tcp",
+            "adb-G000L40XXXXX-AbCdEf._adb-tls-connect._tcp.",
+        ] {
+            assert!(over_network(serial), "{serial}");
+        }
+        for serial in ["G000L40XXXXX", "emulator-5554", "R58M12ABCDE", ":5555"] {
+            assert!(!over_network(serial), "{serial}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dropped_wireless_tablet_gets_no_cable_advice() {
+        let mdns = "adb-G000L40XXXXX-AbCdEf._adb-tls-connect._tcp";
+        let listing =
+            format!("List of devices attached\n192.168.1.40:5555\toffline\n{mdns}\toffline\n");
+        let adb = FakeAdb::default().answer("devices", Ok(listing.as_str()));
+        let now = poll(&adb, 46710, &UsbState::default()).await;
+        let why = "its wireless debugging connection dropped; reconnect it, or ignore this if \
+                   you don't use it";
+        assert_eq!(
+            now.problems(),
+            [
+                format!("192.168.1.40:5555: {why}"),
+                format!("{mdns}: {why}")
+            ]
+        );
+        let report = now.describe();
+        assert!(!report.contains("unplug"), "{report}");
+    }
+
+    #[tokio::test]
+    async fn an_adb_error_naming_the_tablet_leaves_its_serial_out() {
+        let adb = FakeAdb::default()
+            .answer("devices", Ok(ONE_TABLET))
+            .answer(REVERSE, Err("adb: error: device 'G000L40XXXXX' not found"));
+        let now = poll(&adb, 46710, &UsbState::default()).await;
+        assert_eq!(
+            now.problems(),
+            ["G000L40XXXXX: couldn't forward the port (adb: error: device '<serial>' not found)"]
+        );
+        let report = now.describe();
+        assert!(!report.contains("G000L40XXXXX"), "{report}");
     }
 
     #[tokio::test]
