@@ -62,9 +62,13 @@ copies keep working.
 and restarted, and `npx tauri build --no-bundle` succeeds. The real-app e2e covers the new
 bridge on Linux.
 
-## 2. Firewall: tablets on Wi-Fi silently blocked 🖥 — *maintainer decision needed*
+## 2. Firewall: tablets on Wi-Fi silently blocked 🖥 — ✅ done (2026-10-12)
 
-**Detection ✅ done (2026-10-12); installer ⏳ waiting for the maintainer's decision.**
+**Decision (maintainer, 2026-10-12): no installer rule, the in-app note only.** The NSIS
+installer is per-user, and a rule would need a UAC prompt. Recorded in DECISIONS and
+SECURITY.
+
+**Detection ✅ done.**
 
 - Perrito sends `networkFailed` in `hello` over the cable after its Wi-Fi connection timed
   out. Refusals don't count (a restarting PerritoDeck refuses). While on the cable it
