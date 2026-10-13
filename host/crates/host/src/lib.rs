@@ -201,8 +201,11 @@ pub struct HostStatus {
     pub paused: bool,
     /// False where the desktop doesn't tell apps which app is in front (Wayland).
     pub auto_switch_supported: bool,
-    /// Tablets on a USB cable that can reach this computer (needs `adb`).
+    /// Tablets on a USB cable that can reach this computer (needs `adb`): their port
+    /// is forwarded.
     pub usb_devices: Vec<String>,
+    /// Tablets on a cable that can't connect yet, or adb not answering, one line each.
+    pub usb_problems: Vec<String>,
     /// Whether `adb` was found, so USB tablets work.
     pub usb_available: bool,
     /// How the connection to Bitfocus Companion is doing, if it's set up.
@@ -667,6 +670,7 @@ impl Host {
     }
 
     pub fn status(&self) -> HostStatus {
+        let usb = self.usb.lock().expect("usb poisoned").clone();
         let port = self.addr.port();
         let addresses = if self.addr.ip().is_loopback() {
             vec![format!("127.0.0.1:{port}")]
@@ -689,13 +693,8 @@ impl Host {
             integrations: self.integrations.clone(),
             paused: self.deck.paused(),
             auto_switch_supported: focus::supported(),
-            usb_devices: self
-                .usb
-                .lock()
-                .expect("usb poisoned")
-                .iter()
-                .cloned()
-                .collect(),
+            usb_devices: usb.forwarded.iter().cloned().collect(),
+            usb_problems: usb.problems(),
             usb_available: self.usb_available,
             companion: self
                 .companion
@@ -1098,8 +1097,7 @@ impl Host {
         sections.push(integrations);
 
         let usb = if self.usb_available {
-            let n = self.usb.lock().expect("usb poisoned").len();
-            format!("adb found; {n} tablet(s) on a cable")
+            self.usb.lock().expect("usb poisoned").describe()
         } else {
             "off (adb not found, or turned off)".to_owned()
         };

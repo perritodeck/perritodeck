@@ -16,6 +16,8 @@ export interface HostStatus {
   autoSwitchSupported: boolean;
   /** Serial numbers of tablets on a USB cable that can reach this computer. */
   usbDevices: string[];
+  /** Tablets on a cable that can't connect yet and why, or adb not answering; one line each. */
+  usbProblems: string[];
   /** adb was found, so tablets on USB work. */
   usbAvailable: boolean;
   /** How the connection to Bitfocus Companion is doing; null if it isn't set up. */

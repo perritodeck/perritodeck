@@ -20,6 +20,7 @@ const status: HostStatus = {
   paused: false,
   autoSwitchSupported: true,
   usbDevices: [],
+  usbProblems: [],
   usbAvailable: true,
   companion: null,
 };
