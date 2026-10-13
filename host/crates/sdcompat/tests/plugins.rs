@@ -158,6 +158,47 @@ async fn a_node_plugin_runs_a_key() {
     host.shutdown();
 }
 
+/// Wait for the first plugin's status to become `want`.
+async fn until_status(host: &SdHost, want: Status) {
+    for _ in 0..200 {
+        if host.list().first().is_some_and(|p| p.status == want) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("never saw {want:?}: {:?}", host.list());
+}
+
+/// The app's Restart button runs on a thread that isn't one of Tokio's (a Tauri command
+/// on the UI thread): restarting from there must still start the plugin again.
+#[tokio::test(flavor = "multi_thread")]
+async fn restarts_from_a_thread_outside_the_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    // No Node.js needed: starting the plugin and finding Node missing is enough.
+    let host = SdHost::start_with_node(
+        dir.path().join("sdplugins"),
+        "perritodeck-no-such-node".into(),
+    )
+    .await
+    .unwrap();
+    let uuid = host.install(&fixture()).unwrap();
+    until_status(&host, Status::NeedsNode).await;
+
+    let (sd, id) = (host.clone(), uuid.clone());
+    let restarted = std::thread::spawn(move || sd.restart(&id)).join();
+    assert!(
+        matches!(restarted, Ok(Ok(()))),
+        "restart from a plain thread: {restarted:?}"
+    );
+    // A new entry starts as Starting; only its supervisor sets NeedsNode.
+    until_status(&host, Status::NeedsNode).await;
+
+    let (sd, id) = (host.clone(), uuid.clone());
+    let removed = std::thread::spawn(move || sd.remove(&id)).join();
+    assert!(matches!(removed, Ok(Ok(()))), "remove: {removed:?}");
+    assert!(host.list().is_empty());
+}
+
 #[tokio::test]
 async fn refuses_things_that_arent_plugins() {
     let dir = tempfile::tempdir().unwrap();

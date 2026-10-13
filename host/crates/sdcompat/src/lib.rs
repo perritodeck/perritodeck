@@ -157,6 +157,9 @@ enum Draw {
 }
 
 struct Inner {
+    /// The runtime plugins are supervised on, so a restart or install from any thread
+    /// (a UI command, say) can start them.
+    runtime: tokio::runtime::Handle,
     dir: PathBuf,
     port: u16,
     state: Mutex<State>,
@@ -196,6 +199,7 @@ impl SdHost {
             .unwrap_or_default();
         let (draws, mut draw_rx) = mpsc::unbounded_channel::<Draw>();
         let inner = Arc::new(Inner {
+            runtime: tokio::runtime::Handle::current(),
             dir,
             port,
             state: Mutex::new(State {
@@ -315,7 +319,7 @@ impl SdHost {
             }
         }
         for uuid in start {
-            tokio::spawn(supervise(self.0.clone(), uuid));
+            self.0.runtime.spawn(supervise(self.0.clone(), uuid));
         }
     }
 
