@@ -47,8 +47,12 @@ impl ProcessTree {
                 None => Err(std::io::Error::other("it exited before it started")),
             };
             if let Err(e) = resumed {
+                // Left suspended it would never run, so end it and say why.
                 let _ = child.start_kill();
-                return Err(e);
+                return Err(std::io::Error::new(
+                    e.kind(),
+                    format!("it couldn't be resumed: {e}"),
+                ));
             }
             Ok((child, tree))
         }
@@ -109,7 +113,7 @@ impl Drop for ProcessTree {
 #[allow(unsafe_code)]
 mod imp {
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
+        Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE},
         System::{
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD,
@@ -210,11 +214,46 @@ mod imp {
         }
     }
 
-    /// Let a process started with `CREATE_SUSPENDED` run by resuming its one thread.
-    /// std keeps that thread's handle to itself, so this finds it by process id.
+    /// Let a process started with `CREATE_SUSPENDED` run by resuming its threads. std
+    /// keeps the main thread's handle to itself, so this finds them by process id.
+    ///
+    /// Every thread is resumed, not only the first one found: security software can
+    /// add a thread of its own before the process runs, and resuming only that one
+    /// would leave the main thread suspended for good. Resuming a thread that isn't
+    /// suspended does nothing. An error means the process may not run, so the caller
+    /// ends it.
     pub fn resume(pid: u32) -> std::io::Result<()> {
-        // SAFETY: plain Win32 calls. Every handle opened here is closed before
-        // returning, and `entry` outlives the calls that fill it, with its size set.
+        let threads = threads_of(pid)?;
+        if threads.is_empty() {
+            return Err(std::io::Error::other("its thread wasn't found"));
+        }
+        for thread in threads {
+            // SAFETY: plain Win32 calls; the thread handle is closed before the next.
+            unsafe {
+                let handle = OpenThread(THREAD_SUSPEND_RESUME, 0, thread);
+                if handle.is_null() {
+                    let error = std::io::Error::last_os_error();
+                    // A thread that has ended since the snapshot needs no resuming.
+                    if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                let resumed = ResumeThread(handle);
+                let error = std::io::Error::last_os_error();
+                CloseHandle(handle);
+                if resumed == u32::MAX {
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The ids of the threads process `pid` has now.
+    fn threads_of(pid: u32) -> std::io::Result<Vec<u32>> {
+        // SAFETY: plain Win32 calls. The snapshot is closed before returning, and
+        // `entry` outlives the calls that fill it, with its size set.
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if snapshot == INVALID_HANDLE_VALUE {
@@ -224,30 +263,16 @@ mod imp {
                 dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
                 ..Default::default()
             };
-            let mut thread = None;
+            let mut threads = Vec::new();
             let mut more = Thread32First(snapshot, &mut entry) != 0;
             while more {
                 if entry.th32OwnerProcessID == pid {
-                    thread = Some(entry.th32ThreadID);
-                    break;
+                    threads.push(entry.th32ThreadID);
                 }
                 more = Thread32Next(snapshot, &mut entry) != 0;
             }
             CloseHandle(snapshot);
-            let Some(thread) = thread else {
-                return Err(std::io::Error::other("its thread wasn't found"));
-            };
-            let handle = OpenThread(THREAD_SUSPEND_RESUME, 0, thread);
-            if handle.is_null() {
-                return Err(std::io::Error::last_os_error());
-            }
-            let resumed = ResumeThread(handle);
-            let error = std::io::Error::last_os_error();
-            CloseHandle(handle);
-            if resumed == u32::MAX {
-                return Err(error);
-            }
-            Ok(())
+            Ok(threads)
         }
     }
 }
@@ -288,5 +313,80 @@ mod tests {
         tree.end().await;
         assert!(!alive(pid), "ending the tree ended cmd");
         assert!(child.wait().await.is_ok());
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn resume_wakes_every_suspended_thread_not_only_the_first() {
+        use std::sync::{
+            atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+            Arc,
+        };
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{
+                GetCurrentThreadId, OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME,
+            },
+        };
+
+        // Two threads of this process stand in for a main thread and one added before
+        // it, both suspended. Each counts while it runs, and holds no lock while it does,
+        // so suspending it can't block anything else here.
+        let stop = Arc::new(AtomicBool::new(false));
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let (count, id) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU32::new(0)));
+                let (c, i, s) = (count.clone(), id.clone(), stop.clone());
+                let join = std::thread::spawn(move || {
+                    // SAFETY: no arguments; it only reads this thread's id.
+                    i.store(unsafe { GetCurrentThreadId() }, Ordering::SeqCst);
+                    while !s.load(Ordering::Relaxed) {
+                        c.fetch_add(1, Ordering::Relaxed);
+                        std::hint::spin_loop();
+                    }
+                });
+                (count, id, join)
+            })
+            .collect();
+        let counting = |w: &(Arc<AtomicU64>, Arc<AtomicU32>, _)| {
+            let before = w.0.load(Ordering::Relaxed);
+            std::thread::sleep(Duration::from_millis(50));
+            w.0.load(Ordering::Relaxed) != before
+        };
+        let mut handles = Vec::new();
+        for w in &workers {
+            while w.0.load(Ordering::Relaxed) == 0 {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            // SAFETY: the thread is ours and still running; its handle is closed below.
+            let handle =
+                unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, w.1.load(Ordering::SeqCst)) };
+            assert!(!handle.is_null());
+            // SAFETY: a valid thread handle with suspend access.
+            assert_eq!(unsafe { SuspendThread(handle) }, 0);
+            handles.push(handle);
+        }
+        // Suspending takes effect a moment later.
+        std::thread::sleep(Duration::from_millis(50));
+        let were_suspended = workers.iter().all(|w| !counting(w));
+
+        let resumed = imp::resume(std::process::id());
+        let all_run = workers.iter().all(counting);
+
+        // Let them go whatever happened, so a failure doesn't hang the test.
+        for handle in handles {
+            // SAFETY: the handles opened above, each closed once here.
+            unsafe {
+                ResumeThread(handle);
+                CloseHandle(handle);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for (_, _, join) in workers {
+            join.join().unwrap();
+        }
+        assert!(were_suspended, "both threads were suspended");
+        resumed.unwrap();
+        assert!(all_run, "resume let every thread of the process run");
     }
 }
