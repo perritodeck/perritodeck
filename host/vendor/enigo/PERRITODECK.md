@@ -19,6 +19,11 @@ Windows:
   `MapVirtualKeyExW` found no scan code and keys that need Shift or AltGr on the
   current layout (`ctrl+plus` on US, digits on AZERTY) sent nothing. Upstream `main` has
   the same bug at the time of writing.
+- `src/win/win_impl.rs` (`text`): `'\n'` and `'\t'` are typed only as the Return and Tab
+  keys. Upstream queued the key and then the character as well, so apps that act on both
+  (classic edit controls, Tk) got two line breaks or two tabs. `"\r\n"` is one Return and a
+  lone `'\r'` is a Return; upstream sent no key for `'\r'` but a U+000D character, so a
+  CRLF line end could come out as three line breaks.
 
 Build:
 

@@ -281,13 +281,28 @@ impl Keyboard for Enigo {
         let mut buffer = [0; 2]; // A buffer of length 2 is large enough to encode any char in utf16
 
         let mut input = Vec::with_capacity(2 * text.len()); // Each char needs at least one event to press and one to release it
-        for c in text.chars() {
-            // Enter special characters as keys
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            // Enter special characters as keys.
+            // PerritoDeck: and only as keys. Upstream also queued the character itself after
+            // the key, so apps that take both (classic edit controls, Tk) got two tabs or two
+            // line breaks, and "\r\n" typed up to three.
             match c {
-                '\n' => self.queue_key(&mut input, Key::Return, Direction::Click)?,
-                '\r' => { // TODO: What is the correct key to type here?
+                '\n' => {
+                    self.queue_key(&mut input, Key::Return, Direction::Click)?;
+                    continue;
                 }
-                '\t' => self.queue_key(&mut input, Key::Tab, Direction::Click)?,
+                // "\r\n" is one line break, typed by its '\n'; a lone '\r' is one too.
+                '\r' => {
+                    if chars.peek() != Some(&'\n') {
+                        self.queue_key(&mut input, Key::Return, Direction::Click)?;
+                    }
+                    continue;
+                }
+                '\t' => {
+                    self.queue_key(&mut input, Key::Tab, Direction::Click)?;
+                    continue;
+                }
                 '\0' => Err(InputError::InvalidInput("the text contained a null byte"))?,
                 _ => (),
             }
