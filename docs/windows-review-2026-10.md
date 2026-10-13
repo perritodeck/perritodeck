@@ -54,7 +54,7 @@ tablet. "Verified" means seen working on the hardware, not just in tests.
 | 5 | Store `python.exe` stub restart loop | **Replaced**: the host asks `py -3`/`python` for the interpreter path and runs it directly; none → "needs Python 3". Store stub itself not tried (Python is installed here) |
 | 6 | Defender Firewall | Seen: one prompt per exe path (debug and release differ); this network is Public; until answered, the tablet falls back to USB. Diagnostics now show Public/Private. **Detection done** (next-steps item 2): the app reads the firewall's rules and hears from tablets that fell back, and says what to change. Installers add no rule (maintainer's decision, 2026-10-12) |
 | 7 | `open` through PowerShell in the CLI | Fixed; not timed |
-| 8 | Auto-switch flicker, Store apps | **Verified fixed** for taskbar, desktop, Start/Search, Task View; more shell hosts added (ShellHost, widgets, Snipping Tool, hung-app stand-ins). UAC prompt not tried |
+| 8 | Auto-switch flicker, Store apps | **Verified fixed** for taskbar, desktop, Start/Search, Task View; more shell hosts added (ShellHost, widgets, Snipping Tool, hung-app stand-ins). **UAC prompt verified** (2026-10-13): the profile stays through the secure desktop and switches to the elevated app's profile afterwards |
 | 9 | Pairing slow with WSL/Hyper-V | **Verified fixed**: default-route address first; link-local addresses now left out |
 | 10 | Media plugin polling, timeout, error text | Fixed differently (as above); key presses no longer wait for a poll; status value verified |
 | 11 | Screenshot DPI | Fixed; window capture verified (one monitor here, mixed DPI not tried) |
@@ -450,7 +450,8 @@ Results of the 2026-10-12 run are marked **[done]** / **[not done]** under each 
 5. **Auto-switch:** add a rule for an app.
    - Click the taskbar, press Win, Alt+Tab, and trigger a UAC prompt (for example, open an admin terminal). Watch the tablet for flicker to the default profile (finding 8).
    - Try Calculator (ApplicationFrameHost).
-   **[done]** rule `charmap.exe`: taskbar, desktop, Start/Search and Task View keep the profile; another app and closing the app switch back. **[not done]** UAC prompt (needs a person), Calculator.
+   **[done]** rule `charmap.exe`: taskbar, desktop, Start/Search and Task View keep the profile; another app and closing the app switch back.
+   **[done]** UAC prompt (2026-10-13, answered by a person): with Character Map in front, the tablet kept its rule's profile through the taskbar, a jump list, the PerritoDeck window, and the secure desktop (no foreground window for about 1.5 s). It switched to the default profile 0.2 s after "Administrator: Command Prompt" came to the front. **[not done]** Calculator.
 6. **Plugins (Python):** first check whether Python is installed (`py -0p`).
    - If it is, temporarily rename or hide it (or test on a clean account) to see the 9009 loop (finding 5).
    - Then exercise each plugin:

@@ -111,7 +111,8 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
 
 ## 4. Still open
 
-- **UAC prompt during auto-switch**: not tried (needs a person to answer the prompt).
+- ~~UAC prompt during auto-switch~~: verified 2026-10-13 (next-steps item 4); the profile
+  stays through the prompt and follows the elevated app afterwards.
 - **Firewall (finding 6)**: each exe path gets its own prompt; on a Public network the
   default answer lets nothing in. Detection is done (next-steps item 2): the Tablets and Pair
   pages say when a tablet fell back to the cable or Windows Firewall has no rule for

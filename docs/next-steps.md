@@ -132,7 +132,12 @@ Deck plugins can't, because libuv can't ask for breakaway.
   plugins spawn with `child_process` can't be rescued without dropping the job for them;
   document this in the phase-7 notes rather than weakening the job.
 
-## 4. The last manual check: a UAC prompt during auto-switch 🖥 (1 minute, needs a person)
+## 4. The last manual check: a UAC prompt during auto-switch 🖥 (1 minute, needs a person) — ✅ done (2026-10-13)
+
+**Result: passes.** With a rule for Character Map, the tablet kept that profile through the
+taskbar, a jump list and the UAC secure desktop. It switched to the default profile 0.2 s
+after the elevated Command Prompt came to the front. Recorded in
+`docs/windows-review-2026-10.md`.
 
 With an auto-switch rule active, trigger a UAC prompt (e.g. open an admin terminal). The
 profile should stay put, and should switch correctly after the prompt is answered. Record the
