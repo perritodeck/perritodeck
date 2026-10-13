@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Questions — PerritoDeck</title>
+  <meta name="description" content="Which tablets work, whether you need a Stream Deck, iPad support, what it costs, and what leaves your computer: answers about PerritoDeck.">
+  <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <img src="paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="features.html">Features</a>
+        <a href="plugins/">Plugins</a>
+        <a href="guide/">Guide</a>
+        <a href="faq.html" aria-current="page">FAQ</a>
+        <a href="download.html">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="prose faq">
+    <div class="wrap">
+      <h1>Questions</h1>
+      <p class="updated">Something not working? The guide's <a href="guide/troubleshooting.html">troubleshooting page</a> goes through the common problems.</p>
+
+      <h2 id="devices">Tablets and computers</h2>
+
+      <h3 id="which-tablets">Which tablets and phones work?</h3>
+      <p>Any Android tablet or phone running Android 5.1 or newer, including Amazon Fire tablets from Fire OS 5 on. Phones work too; they just fit fewer keys. The grid fits itself to the screen, and you can choose how many keys a profile has.</p>
+
+      <h3 id="why-old-android">Why support such old Android versions?</h3>
+      <p>Because the tablets in people's drawers are old. Fire tablets are among the cheapest tablets ever sold, and many still run Fire OS 5, which is Android 5.1. Keeping Perrito working there is the point: it gives those tablets a job. It needs no Google services either, so it runs on Fire tablets and de-Googled phones alike.</p>
+
+      <h3 id="ipad">Is there an iPhone or iPad version?</h3>
+      <p>It's coming. The app is written, but it hasn't been built and tested on real devices yet, which needs a Mac. It will connect over Wi-Fi only, as iOS has no equivalent of Android's USB tunnel.</p>
+
+      <h3 id="computers">Which computers can it control?</h3>
+      <p>Windows 10 and 11, macOS 10.15 or newer, and 64-bit Linux on X11 or Wayland. Windows has been tested on real hardware; Linux in automated tests; the Mac version hasn't been built yet. On Wayland, switching profiles by the app in front isn't available yet. See the <a href="download.html#requirements">system requirements</a>.</p>
+
+      <h3 id="usb">Does it need Wi-Fi?</h3>
+      <p>No. The tablet and computer only need to reach each other, over your Wi-Fi or a USB cable. For the cable, the computer needs Android's <code>adb</code> tool, and the tablet needs USB debugging on. Neither needs the internet.</p>
+
+      <h3 id="several">Can I use several tablets, or several computers?</h3>
+      <p>Yes to both. Pair as many tablets as you like with one computer; each can show its own profile. A tablet can also be paired with several computers and pick which one to connect to.</p>
+
+      <h3 id="awake">Does the tablet stay on?</h3>
+      <p>While the deck is showing, Perrito keeps the screen on and hides the system bars. Keep the tablet on its charger if it's on your desk all day.</p>
+
+      <h3 id="speed">Is it fast enough?</h3>
+      <p>A press reaches the computer in a few milliseconds. On a 2019 Fire 7, the round trip from press to the computer's answer takes about 12 ms, over USB and over Wi-Fi alike.</p>
+
+      <h2 id="stream-deck">Stream Deck</h2>
+
+      <h3 id="need-stream-deck">Do I need a Stream Deck?</h3>
+      <p>No. PerritoDeck does the job of a Stream Deck–style button pad with a tablet or phone instead of dedicated hardware. It isn't affiliated with Elgato or Corsair.</p>
+
+      <h3 id="sd-plugins">Does it work with my Stream Deck plugins?</h3>
+      <p>Many of them. PerritoDeck runs plugins made for the Elgato Stream Deck that are written for Node.js, which is most current ones, plus compiled plugins on Windows and macOS. Dials, touch strips and multi-actions aren't supported yet. The <a href="compatibility.html">compatibility page</a> has the details.</p>
+
+      <h3 id="sd-hardware">Can I use my Stream Deck itself with PerritoDeck?</h3>
+      <p>No. Using Stream Deck hardware as a PerritoDeck panel isn't supported.</p>
+
+      <h3 id="companion">Does it work with Bitfocus Companion?</h3>
+      <p>Yes, experimentally: a tablet can be a Companion surface, with Companion drawing the buttons. See <a href="compatibility.html#companion">what works</a>.</p>
+
+      <h2 id="cost">Cost and privacy</h2>
+
+      <h3 id="free">Is it free?</h3>
+      <p>Yes. PerritoDeck is free and open source, under the Apache License 2.0; the plugin SDKs and plugins are MIT. There's no paid tier, no account and no subscription.</p>
+
+      <h3 id="data">What leaves my computer?</h3>
+      <p>Nothing, unless you ask. The tablet talks only to your computer. The desktop app goes online only when you click <em>Look online</em> for plugins, or if you turn on the update check. Your own keys and plugins talk to the services you point them at, such as Twitch or your smart-home hub. There's no analytics or telemetry anywhere; the <a href="privacy.html">privacy policy</a> is short.</p>
+
+      <h3 id="safe">Could someone else on my Wi-Fi press my keys?</h3>
+      <p>Only tablets you've paired can connect, and pairing needs the code shown on your computer's screen. The connection is encrypted, and each side checks the other's identity. Plugins and actions run on your computer with your permissions, so install plugins you trust.</p>
+
+      <h2 id="project">The project</h2>
+
+      <h3 id="release">When is the first release?</h3>
+      <p>When it's ready; there's no date. Until then you can <a href="download.html#source">build it from source</a>, and the <a href="./#status">home page</a> says where things stand.</p>
+
+      <h3 id="name">Why "Perrito"?</h3>
+      <p>It's Spanish for puppy. The tablet app is Perrito, and the whole thing is PerritoDeck.</p>
+
+      <h3 id="help">How do I report a bug or help out?</h3>
+      <p>Bugs and ideas go to the project on <a href="https://github.com/perritodeck/perritodeck/issues">GitHub</a>; PerritoDeck's <em>Copy diagnostics</em> gives you a report to paste in. Security problems go privately through GitHub's "Report a vulnerability" button. Plugins, documentation and code are all welcome; <a href="https://github.com/perritodeck/perritodeck/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> explains how.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free and open-source software. Not affiliated with Elgato, Corsair or Bitfocus.</span>
+      <nav class="footer-nav" aria-label="More">
+        <a href="compatibility.html">Stream Deck and Companion</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

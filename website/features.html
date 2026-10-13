@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Features — PerritoDeck</title>
+  <meta name="description" content="What PerritoDeck does: keys, toggles and sliders, live values, pages and profiles that switch with the app in front, several tablets, USB or Wi-Fi, OBS, Home Assistant, plugins and AI assistants.">
+  <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <img src="paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="features.html" aria-current="page">Features</a>
+        <a href="plugins/">Plugins</a>
+        <a href="guide/">Guide</a>
+        <a href="faq.html">FAQ</a>
+        <a href="download.html">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap page-intro">
+      <h1>What PerritoDeck does</h1>
+      <p class="lede">Lay out keys on your computer, press them on your tablet. Everything below works in the current pre-release; where something is experimental or only on some systems, it says so.</p>
+    </div>
+
+    <section class="feature">
+      <div class="wrap">
+        <div>
+          <h2>Keys that do things</h2>
+          <ul class="ticks">
+            <li><strong>Hotkeys</strong>, recorded by pressing them, and <strong>typing text</strong> for you</li>
+            <li><strong>Media keys</strong> and the computer's volume</li>
+            <li><strong>Open</strong> websites, files, folders and programs, or <strong>run a command</strong></li>
+            <li><strong>Several steps</strong> in one key, with pauses, or a <strong>random</strong> pick from a list</li>
+            <li><strong>Toggles</strong> with two looks, which can follow the real state, such as your mic</li>
+            <li><strong>Sliders</strong> for the volume, a light's brightness, an OBS audio source, or any program</li>
+            <li><strong>Pages</strong>, a Back key, and keys that switch to another profile</li>
+            <li>Your own <strong>images and animated GIFs</strong>, colours and titles</li>
+          </ul>
+          <p>The editor mirrors your tablet's grid, with copy and paste, undo, and a Try it button. Changes show up on the tablet as you make them. <a href="guide/buttons.html">How to make buttons</a></p>
+        </div>
+        <picture class="shot">
+          <source srcset="img/app/buttons-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="img/app/buttons.webp" width="1600" height="1000" loading="lazy"
+               alt="The Buttons page: a grid of keys for a streaming profile, with the selected key's settings on the right">
+        </picture>
+      </div>
+    </section>
+
+    <section class="feature">
+      <div class="wrap">
+        <div>
+          <h2>Keys that show what's going on</h2>
+          <p>Titles can carry live values that keep themselves up to date: the time and date, how busy the computer is, OBS's scene and whether you're live, any Home Assistant sensor, and dozens more from plugins, such as the weather, a timer, a server's response time or what's playing.</p>
+          <p>Toggles can follow a value too, so the mic key turns red when the mic is really muted, whoever muted it. <a href="guide/buttons.html#live-values">Live values in the guide</a></p>
+        </div>
+        <img class="art" src="img/tablet-homelab.webp" width="1100" height="748" loading="lazy"
+             alt="A tablet of homelab keys showing live values: CPU and memory use, guests running, a storage pool's use, services' response times, the weather and the time">
+      </div>
+    </section>
+
+    <section class="feature">
+      <div class="wrap">
+        <div>
+          <h2>The right keys for the app in front</h2>
+          <p>Make a profile per job (streaming, coding, a game) and PerritoDeck switches to it when that app comes to the front, then back to your default when it goes. Each tablet can have its own rules. Works on Windows, macOS, and Linux on X11.</p>
+          <p>Profiles can be exported and shared as <code>.perritoprofile</code> files. <a href="guide/buttons.html#profiles">Profiles in the guide</a></p>
+        </div>
+        <picture class="shot">
+          <source srcset="img/app/switching-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="img/app/switching.webp" width="1600" height="750" loading="lazy"
+               alt="The Switching page: rules that pick a profile for each app">
+        </picture>
+      </div>
+    </section>
+
+    <section class="feature">
+      <div class="wrap">
+        <div>
+          <h2>Several tablets, Wi-Fi or USB</h2>
+          <p>Pair as many tablets and phones as you like with a QR code or a six-digit code. Each shows its own profile, and keys shared between them stay in step.</p>
+          <p>Perrito finds your computer on the local network by itself. Or plug in a USB cable: with Android's <code>adb</code> tool on the computer, the tablet connects over the cable, no Wi-Fi needed. Either way the connection is encrypted and tied to your computer when you pair. <a href="guide/getting-started.html">Getting started</a></p>
+        </div>
+        <picture class="shot">
+          <source srcset="img/app/pair-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="img/app/pair.webp" width="1600" height="750" loading="lazy"
+               alt="Pairing a tablet: a QR code and a six-digit code on the computer">
+        </picture>
+      </div>
+    </section>
+
+    <section class="feature">
+      <div class="wrap">
+        <div>
+          <h2>Works with your other tools</h2>
+          <ul class="ticks">
+            <li><strong>OBS Studio</strong>, built in: scenes, recording, streaming, audio sources, with their status on the keys</li>
+            <li><strong>Home Assistant</strong>, built in: run services, show any entity's state, dim lights with a slider</li>
+            <li><strong>24 plugins</strong> in Python and Node.js: Twitch, Spotify, Philips Hue, Elgato Key Light, Proxmox, TrueNAS, timers, Wake-on-LAN and more. <a href="plugins/">See them all</a></li>
+            <li><strong>Stream Deck plugins</strong> (experimental): many plugins made for the Elgato Stream Deck run as they are</li>
+            <li><strong>Bitfocus Companion</strong> (experimental): a tablet can be a Companion surface</li>
+          </ul>
+          <p>What works with Stream Deck plugins and Companion, and what doesn't yet, is on the <a href="compatibility.html">compatibility page</a>. Writing your own plugin takes a few lines with the <a href="guide/plugins.html#write-your-own">Python or Node.js SDK</a>.</p>
+        </div>
+        <picture class="shot">
+          <source srcset="img/app/plugins-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="img/app/plugins.webp" width="1600" height="1000" loading="lazy"
+               alt="The Plugins page: installed plugins with their state, and a button to find more online">
+        </picture>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>AI assistants, if you want them</h2>
+        <p>Assistants that speak the Model Context Protocol, such as Claude Desktop and Claude Code, can look at your profiles and live values, and with your permission press keys and build pages for you: "make me a page for my video calls". It's off until you turn it on, and works only on this computer. <a href="guide/integrations.html#ai-assistants">AI assistants in the guide</a></p>
+        <div class="perms">
+          <div>
+            <h3>Press keys</h3>
+            <p>Press keys already on your profiles, and switch the profile a tablet shows.</p>
+          </div>
+          <div>
+            <h3>Edit profiles</h3>
+            <p>Make, change and remove keys, pages and profiles. You can undo their edits like your own.</p>
+          </div>
+          <div>
+            <h3>Run actions</h3>
+            <p>Run any action straight away, programs included. Only for an assistant you trust, while you need it.</p>
+          </div>
+        </div>
+        <p class="note">Each permission is off until you tick it in Settings.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Private by design</h2>
+        <div class="reasons">
+          <div>
+            <h3>Nothing leaves your desk</h3>
+            <p>The tablet talks only to your computer. There's no account, no cloud service and no telemetry. The desktop app goes online only to fetch the plugin list or check for updates, and only when you ask it to. <a href="privacy.html">Privacy policy</a></p>
+          </div>
+          <div>
+            <h3>Paired, encrypted, pinned</h3>
+            <p>Pairing uses a one-time code. After that the tablet only accepts your computer's own certificate, and the computer only accepts tablets it paired, over TLS.</p>
+          </div>
+          <div>
+            <h3>Headless if you like</h3>
+            <p>A command-line host runs the same deck on a server or kiosk without a desktop, and <code>fakedeck</code> is a test client that needs no tablet at all.</p>
+          </div>
+          <div>
+            <h3>Open source</h3>
+            <p>The apps are Apache-2.0, the plugin SDKs and plugins MIT, and the protocol is documented, so you can check what it does or build on it. <a href="https://github.com/perritodeck/perritodeck">Source code</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Not there yet</h2>
+        <ul class="plain">
+          <li>Dials and touch strips as their own controls; sliders cover the main uses for now.</li>
+          <li>The iPhone and iPad app is written but hasn't been built yet, and neither has the Mac version of the desktop app.</li>
+          <li>Signed installers and store listings: until the first release you can <a href="download.html#source">build it yourself</a>.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free and open-source software. Not affiliated with Elgato, Corsair or Bitfocus.</span>
+      <nav class="footer-nav" aria-label="More">
+        <a href="compatibility.html">Stream Deck and Companion</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

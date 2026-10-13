@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream Deck plugins and Companion — PerritoDeck</title>
+  <meta name="description" content="What works when PerritoDeck runs plugins made for the Elgato Stream Deck, or acts as a Bitfocus Companion surface, and what doesn't yet.">
+  <link rel="icon" href="paw.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <img src="paw.svg" alt="" width="34" height="34">
+        PerritoDeck
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="features.html" aria-current="page">Features</a>
+        <a href="plugins/">Plugins</a>
+        <a href="guide/">Guide</a>
+        <a href="faq.html">FAQ</a>
+        <a href="download.html">Download</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap page-intro">
+      <h1>Stream Deck plugins and Companion</h1>
+      <p class="lede">PerritoDeck can run many plugins made for the Elgato Stream Deck, and a tablet can be a button surface for Bitfocus Companion. Both are experimental. This page says exactly what works and what doesn't yet.</p>
+    </div>
+
+    <section id="stream-deck">
+      <div class="wrap">
+        <h2>Plugins made for the Stream Deck</h2>
+        <p>Most current Stream Deck plugins are JavaScript programs written against Elgato's published plugin SDK. PerritoDeck starts them with Node.js and speaks the same messages the Stream Deck software does, so their actions can go on a tablet key. It's built from Elgato's public documentation; no code from other projects.</p>
+        <p>To add one, open <strong>Plugins → Stream Deck plugins</strong> in PerritoDeck and choose <em>Add a plugin file…</em> (a <code>.streamDeckPlugin</code> file) or <em>From a folder…</em> (a <code>.sdPlugin</code> folder). Its actions then appear in the key editor. You need <strong>Node.js 20 or newer</strong> on the computer. <a href="guide/plugins.html#stream-deck">Step by step in the guide</a></p>
+
+        <div class="compare">
+          <div>
+            <h3>Works</h3>
+            <ul class="ticks">
+              <li>Key actions: press and release</li>
+              <li>Titles and images the plugin draws (PNG, JPEG, GIF, BMP, WebP, SVG), and its states</li>
+              <li>The ✓ and ⚠ flashes on a key</li>
+              <li>Settings saved per key, and the plugin's global settings</li>
+              <li>The action's own settings page (its "property inspector"), shown in the key editor</li>
+              <li>Opening web addresses for you</li>
+              <li>Node.js plugins everywhere; compiled plugins on Windows and macOS</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Not yet</h3>
+            <ul class="crosses">
+              <li>Dials and touch strips (those actions are hidden)</li>
+              <li>Multi-actions, and plugins switching profiles</li>
+              <li>Watching which apps are running, and a few rarer events</li>
+              <li>Older plugins written as web pages, which need a browser engine</li>
+              <li>Compiled plugins on Linux</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>How far it's been tested</h3>
+        <p>Elgato's open-source sample plugins install, run, draw their keys and show their settings pages on Windows 11, and a small test plugin is part of PerritoDeck's automated tests. It hasn't been tried with a wide range of published plugins yet. If one doesn't work, please <a href="https://github.com/perritodeck/perritodeck/issues">report it</a> with the plugin's name.</p>
+        <p>Two things to know. On Windows, a program a Stream Deck plugin starts by itself closes when the plugin stops (web pages it opens stay open). And each plugin keeps its own licence and terms; running it in PerritoDeck doesn't change them.</p>
+      </div>
+    </section>
+
+    <section id="companion">
+      <div class="wrap">
+        <h2>Bitfocus Companion</h2>
+        <p>Companion drives broadcast and AV equipment through thousands of modules. Through its Satellite API, PerritoDeck connects to Companion as a remote surface: Companion draws the buttons and gets the presses, and nothing needs installing on the Companion side.</p>
+        <p>To set it up, add Companion's address to PerritoDeck's integrations file and make a profile with <em>Companion</em> ticked. Each tablet showing that profile appears in Companion as its own surface, named "PerritoDeck" and the tablet's name, and sized to its grid. <a href="guide/integrations.html#companion">Step by step in the guide</a></p>
+
+        <div class="compare">
+          <div>
+            <h3>Works</h3>
+            <ul class="ticks">
+              <li>Companion's button images (PNG from Satellite API 1.12; older versions' raw images are converted), text and colours</li>
+              <li>Press and release, so Companion's press and release actions both work</li>
+              <li>Several tablets, each its own surface; switching profiles adds and removes them</li>
+              <li>Reconnecting by itself, with "Companion offline" on the tablet meanwhile</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Not yet</h3>
+            <ul class="crosses">
+              <li>Rotary encoders and LED rings (Companion's advanced layouts)</li>
+              <li>Showing single Companion buttons on an ordinary PerritoDeck page</li>
+              <li>The WebSocket connection; the TCP one works with every Companion since 2.x</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>How far it's been tested</h3>
+        <p>Against a simulated Companion that follows the published Satellite API, in automated tests. It hasn't been checked against a real Companion 3 or 4 yet, so reports are very welcome.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>About the names</h2>
+        <p>Stream Deck is a trademark of Corsair Memory, Inc. Companion is made by Bitfocus. PerritoDeck isn't affiliated with, endorsed by or sponsored by Elgato, Corsair or Bitfocus; their names appear here only to say what PerritoDeck works with. PerritoDeck can't use Stream Deck hardware as a panel.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <span>PerritoDeck is free and open-source software. Not affiliated with Elgato, Corsair or Bitfocus.</span>
+      <nav class="footer-nav" aria-label="More">
+        <a href="compatibility.html">Stream Deck and Companion</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/perritodeck/perritodeck">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
