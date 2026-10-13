@@ -295,7 +295,7 @@
         },
         "networkFailed": {
           "type": "boolean",
-          "description": "True when connecting over a USB cable (127.0.0.1) after a connection to the host's network address got no answer (timed out) since the client last connected over the network: the host's firewall may be keeping clients on Wi-Fi out. Omitted otherwise."
+          "description": "True when connecting over a USB cable (127.0.0.1) while the host's network address gets no answer (a connection times out, also once the host answers over the cable) since the client last connected over the network: the host's firewall may be keeping clients on Wi-Fi out. Omitted otherwise."
         }
       }
     },

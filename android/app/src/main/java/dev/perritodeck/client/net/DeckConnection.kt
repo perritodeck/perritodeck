@@ -195,6 +195,9 @@ class DeckConnection(
         fun setNetworkFailed(failed: Boolean) {
             if (networkFailed.getAndSet(failed) != failed) onNetworkFailed(failed)
         }
+        // A network address got no answer: a firewall, or PerritoDeck wasn't running (a
+        // firewall drops connections to a closed port too). Checked once the cable works.
+        val suspect = AtomicBoolean(false)
         val networkUrls = urls.filterNot { isLoopback(hostOf(it)) }
         while (currentCoroutineContext().isActive) {
             attempt++
@@ -210,18 +213,25 @@ class DeckConnection(
             var end = runSession(url, sessionHello, client) {
                 if (!overCable) {
                     // Through over the network: whatever kept it out is fixed.
+                    suspect.set(false)
                     setNetworkFailed(false)
-                } else if (sessionHello.networkFailed && networkUrls.isNotEmpty()) {
-                    // On the cable because the network failed: look again now and then, and
-                    // once it answers, connect again so the computer hears it's fixed.
+                } else if (networkUrls.isNotEmpty() && (suspect.get() || networkFailed.get())) {
+                    // On the cable after the network didn't answer. PerritoDeck runs now, so
+                    // look at the network again: straight away, then now and then while it
+                    // fails. Connect again whenever the computer was told otherwise.
                     recheck = scope.launch {
+                        var wait = 0L
                         while (isActive) {
-                            delay(networkRecheckMs)
-                            if (networkUrls.any { networkAnswers(it) }) {
-                                setNetworkFailed(false)
+                            delay(wait)
+                            wait = networkRecheckMs
+                            val answers = networkUrls.any { networkAnswers(it) }
+                            suspect.set(false)
+                            setNetworkFailed(!answers)
+                            if (answers == sessionHello.networkFailed) {
                                 socket?.cancel()
                                 return@launch
                             }
+                            if (answers) return@launch
                         }
                     }
                 }
@@ -229,7 +239,7 @@ class DeckConnection(
             recheck?.cancel()
             // The network address didn't answer at all: maybe the computer's firewall.
             if (end is SessionEnd.Retry && !end.wasConnected && end.blocked && !overCable) {
-                setNetworkFailed(true)
+                suspect.set(true)
             }
             // Over a USB cable 127.0.0.1 leads to whichever computer the tablet is plugged
             // into, which needn't be this one. That's no reason to give up on the others.

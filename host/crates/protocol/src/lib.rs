@@ -115,9 +115,10 @@ pub struct Hello {
     /// Secret issued by `paired`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_secret: Option<String>,
-    /// Connecting over a USB cable after a connection to this computer's network address
-    /// got no answer (timed out), since the tablet last connected over the network: the
-    /// computer's firewall may be keeping tablets on Wi-Fi out.
+    /// Connecting over a USB cable while this computer's network address gets no answer
+    /// (a connection times out, also once the host answers over the cable), since the
+    /// tablet last connected over the network: the computer's firewall may be keeping
+    /// tablets on Wi-Fi out.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub network_failed: bool,
 }

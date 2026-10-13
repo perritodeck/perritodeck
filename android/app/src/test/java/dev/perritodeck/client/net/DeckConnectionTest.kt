@@ -325,9 +325,9 @@ class DeckConnectionTest {
 
     @Test
     fun overTheCableAfterTheNetworkFailedItTellsTheHost() = runBlocking<Unit> {
-        val cable = welcomingHost()
+        val cable = welcomingHost(times = 2)
         val changes = mutableListOf<Boolean>()
-        val conn = DeckConnection(http, scope)
+        val conn = DeckConnection(http, scope, networkAnswers = { false })
         // The network address goes first here, so it times out before the cable is tried.
         conn.connect(
             "ws://lan.test:46710",
@@ -336,10 +336,36 @@ class DeckConnectionTest {
             fallbacks = listOf("ws://127.0.0.1:${cable.port}"),
             onNetworkFailed = { changes += it },
         )
+        // In over the cable, it looks at the network once more; still nothing, so it
+        // connects again to tell the computer.
+        assertEquals(hello, (nextReceived().msg as Message.HelloMsg).payload)
         val said = (nextReceived().msg as Message.HelloMsg).payload
         assertTrue("networkFailed in $said", said.networkFailed)
         withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
         assertEquals(listOf(true), changes)
+        conn.disconnect()
+        runCatching { cable.shutdown() }
+    }
+
+    @Test
+    fun aComputerThatWasStillStartingIsNotAFirewall() = runBlocking<Unit> {
+        // While PerritoDeck isn't running, a firewall drops connections to its closed
+        // port too. By the time the cable gets in, the network answers.
+        val cable = welcomingHost()
+        val changes = mutableListOf<Boolean>()
+        val conn = DeckConnection(http, scope, networkAnswers = { true })
+        conn.connect(
+            "ws://lan.test:46710",
+            hello,
+            dropped,
+            fallbacks = listOf("ws://127.0.0.1:${cable.port}"),
+            onNetworkFailed = { changes += it },
+        )
+        assertEquals(hello, (nextReceived().msg as Message.HelloMsg).payload)
+        withTimeout(5_000) { conn.state.first { it is ConnState.Connected } }
+        Thread.sleep(300)
+        assertTrue(changes.isEmpty())
+        assertTrue("connected only once", received.isEmpty())
         conn.disconnect()
         runCatching { cable.shutdown() }
     }
