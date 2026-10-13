@@ -22,8 +22,8 @@ unmodified unless noted:
 | Component | Where | Licence | Notes |
 |---|---|---|---|
 | Inter (font) | host/crates/render/assets/Inter-SemiBold.otf | OFL-1.1 | Copyright (c) 2016-2023 The Inter Project Authors. Embedded in the host to draw key titles. Licence: host/crates/render/assets/OFL.txt |
-| Bricolage Grotesque (font) | @fontsource-variable/bricolage-grotesque | OFL-1.1 | Copyright 2022 The Bricolage Grotesque Project Authors. Bundled in the desktop app. Also loaded by the website from Google Fonts (not shipped). |
-| Atkinson Hyperlegible (font) | @fontsource/atkinson-hyperlegible | OFL-1.1 | Copyright 2020 Braille Institute of America, Inc. Bundled in the desktop app. Also loaded by the website from Google Fonts (not shipped). |
+| Bricolage Grotesque (font) | @fontsource-variable/bricolage-grotesque | OFL-1.1 | Copyright 2022 The Bricolage Grotesque Project Authors. Bundled in the desktop app. The website serves its own copy (website/fonts, licence alongside). |
+| Atkinson Hyperlegible (font) | @fontsource/atkinson-hyperlegible | OFL-1.1 | Copyright 2020 Braille Institute of America, Inc. Bundled in the desktop app. The website serves its own copy (website/fonts, licence alongside). |
 | Tabler Icons | host/app/src/lib/icons.generated.ts | MIT | Copyright (c) 2020-2026 Pawel Kuna. A subset is generated into the app by host/app/scripts/build-icons.mjs. |
 | enigo 0.6.1 (vendored, modified) | host/vendor/enigo | MIT | Upstream authors are listed in host/vendor/enigo/Cargo.toml; licence in host/vendor/enigo/LICENSE; changes described in host/vendor/enigo/PERRITODECK.md. |
 
