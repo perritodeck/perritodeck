@@ -27,11 +27,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import webbrowser
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from perritodeck_plugin import Plugin  # noqa: E402
+from perritodeck_plugin import Plugin, open_for_user  # noqa: E402
 
 plugin = Plugin()
 NOTHING = "–"
@@ -402,7 +401,10 @@ def sign_in(settings):
     attempt.thread.start()
     shown = "twitch.tv/activate" if attempt.uri.startswith("https://www.twitch.tv/activate") else attempt.uri
     plugin.log(f"to sign in to Twitch, open {attempt.uri} and enter the code {attempt.user_code}")
-    webbrowser.open(attempt.uri)
+    try:
+        open_for_user(attempt.uri)  # a browser it starts must outlive a plugin restart
+    except OSError:
+        pass  # the address is in the log and on the key
     return f"go to {shown} and enter {attempt.user_code}"
 
 
@@ -644,6 +646,16 @@ def marker(settings):
     return None
 
 
+def open_in_browser(url):
+    """Open a page for the user, in a browser that outlives a plugin restart; False if
+    none could be started."""
+    try:
+        open_for_user(url)
+    except OSError:
+        return False
+    return True
+
+
 @plugin.action("clip")
 def clip(settings):
     info = first(api("POST", "/clips", {"broadcaster_id": channel_id(settings.get("channel"))}))
@@ -651,7 +663,7 @@ def clip(settings):
         update_state(last_clip_id=info["id"], last_clip_at=time.time(), last_clip_edit=info.get("edit_url"))
         publish_fixed()
     edit_url = info.get("edit_url")
-    if settings.get("open") and edit_url and not webbrowser.open(edit_url):
+    if settings.get("open") and edit_url and not open_in_browser(edit_url):
         return "made the clip, but couldn't open a web browser"
     return None
 
@@ -664,7 +676,7 @@ def open_last_clip(settings):
     url = f"https://clips.twitch.tv/{clip_id}"
     if settings.get("editor") and _state.get("last_clip_edit"):
         url = _state["last_clip_edit"]
-    if not webbrowser.open(url):
+    if not open_in_browser(url):
         raise TwitchError("couldn't open a web browser")
     return None
 

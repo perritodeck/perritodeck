@@ -550,7 +550,7 @@ class Base(unittest.TestCase):
 
 class SignInTest(Base):
     def test_device_sign_in(self):
-        with mock.patch.object(twitch.webbrowser, "open", return_value=True) as browser:
+        with mock.patch.object(twitch, "open_for_user") as browser:
             answer = twitch.sign_in({})
         self.assertEqual(answer, "go to twitch.tv/activate and enter ABCDEFGH")
         browser.assert_called_once_with("https://www.twitch.tv/activate?public=true&device-code=ABCDEFGH")
@@ -581,7 +581,7 @@ class SignInTest(Base):
         self.assertIn("channel:manage:redemptions", scopes)  # "" counts as the default (on)
         self.assertNotIn("channel:manage:polls", scopes)
         self.assertNotIn("moderator:manage:banned_users", scopes)
-        with mock.patch.object(twitch.webbrowser, "open", return_value=True):
+        with mock.patch.object(twitch, "open_for_user"):
             twitch.sign_in({})
         self.assertTrue(twitch._sign_in["current"].done.wait(5))
         self.assertEqual(Fake.state["device_scopes"].split(" "), scopes)
@@ -598,7 +598,7 @@ class SignInTest(Base):
 
     def test_device_sign_in_expired_code(self):
         Fake.state["device_used"] = True
-        with mock.patch.object(twitch.webbrowser, "open", return_value=True):
+        with mock.patch.object(twitch, "open_for_user"):
             twitch.sign_in({})
         attempt = twitch._sign_in["current"]
         self.assertTrue(attempt.done.wait(5))
@@ -710,7 +710,7 @@ class ActionTest(Base):
     def test_marker_and_clip_values(self):
         twitch.marker({"description": "x" * 200})
         self.assertEqual(len(Fake.state["markers"][0]["description"]), 140)
-        with mock.patch.object(twitch.webbrowser, "open", return_value=True) as browser:
+        with mock.patch.object(twitch, "open_for_user") as browser:
             self.assertIsNone(twitch.clip({}))
             browser.assert_not_called()
             twitch.clip({"channel": "OtherStreamer", "open": True})
@@ -718,6 +718,10 @@ class ActionTest(Base):
             twitch.open_last_clip({})
             browser.assert_called_with("https://clips.twitch.tv/FiveWordsForClipSlug")
         self.assertEqual(Fake.state["clips"], [{"broadcaster_id": ME["id"]}, {"broadcaster_id": OTHER["id"]}])
+        with mock.patch.object(twitch, "open_for_user", side_effect=OSError("no browser")):
+            with self.assertRaisesRegex(RuntimeError, "couldn't open a web browser"):
+                twitch.open_last_clip({})
+            self.assertIn("couldn't open a web browser", twitch.clip({"open": True}))
         v = self.values()
         self.assertEqual(v["last_marker"], "1:04:04")
         self.assertRegex(v["last_clip"], r"^\d\d:\d\d$")
