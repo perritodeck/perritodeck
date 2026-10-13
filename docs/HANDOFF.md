@@ -34,7 +34,8 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   works too, since Perrito tries 127.0.0.1). Wi-Fi: QR link pairs in under 2.5 s over the
   default-route address; mDNS discovery works on Fire OS. The QR lists `192.168.x` first,
   then the WSL/Hyper-V `vEthernet` addresses; link-local ones are now left out. Round trip:
-  6–18 ms over USB, ~105 ms over Wi-Fi on the Fire 7.
+  a median ~12 ms over USB and Wi-Fi alike on the Fire 7 (next-steps item 6). The "~105 ms
+  over Wi-Fi" first measured here included Perrito's own main-thread time.
 - **Firewall.** The network here is classed **Public**. The first bind of each exe path
   (debug and release builds are different paths) brings up the Defender prompt; it was
   answered with Public allowed, creating TCP+UDP Allow rules for that exe only. Until it's
@@ -121,16 +122,9 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   2026-10-13 (next-steps item 5), including an upgrade with an assistant connected. A bug
   was fixed (an update turned "Start at login" off), and the release notes are in
   `docs/launch-checklist.md` §7. MSI not built.
-- A live value with no data yet shows its raw token in small type on the key
-  (e.g. `(plugin:dev.perritodeck.sysmon:disk)`). Deliberate ("unknown names are left as
-  written", so typos show), but a declared value that hasn't reported yet could show "–".
-- Editor nits: a two-line plugin title over an image is clipped at the key's bottom edge
-  (hello-world's "Dynamic"); a key whose plugin draws only an image still reads "Untitled"
-  to a screen reader.
-- With the CLI host on one specific `--listen` address, the USB forwarder still runs and
-  Settings still offers USB, although adb reverse then points at a closed port.
-- `actions` test `a_command_that_starts_a_program_finishes_when_it_exits` has a 1.5 s limit
-  that a heavily loaded machine overshot once (1.73 s).
+- ~~Raw tokens for live values not reported yet, editor title clipping and image-only key
+  labels, USB offered on a specific `--listen` address, a tight test limit~~: fixed
+  2026-10-13 (next-steps item 6).
 - ~~Node plugins can't start programs outside their job.~~ Fixed (next-steps item 3): the
   plugin protocol's `open` and Node SDK 1.1.0's `openForUser`/`startForUser`. Programs
   Stream Deck plugins start with `child_process` still end with them (documented in
@@ -144,7 +138,10 @@ Python 3.14 via `py -3`, Android SDK with adb 37 (not on PATH; the host finds it
   CI or a local build should check them first. Reviewers flagged the Linux text paths
   (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky parts.
 - iOS: never built (needs a Mac).
-- Wi-Fi latency on the Fire 7 is ~105 ms vs 6–18 ms on USB; worth a look on other tablets.
+- ~~Wi-Fi latency on the Fire 7~~: profiled 2026-10-13 (next-steps item 6). Key presses take
+  the same ~12 ms on Wi-Fi as on the cable. Messages the computer starts can wait 0.3–0.9 s
+  for the dozing Fire's Wi-Fi. A page switch holds Perrito's main thread for up to ~0.5 s;
+  next-steps item 6 has the numbers and the suggested fix.
 - More Kindles are on the way from the maintainer for a hardware matrix and beta testers;
   older Fire models run Fire OS 5 (API 22), which is why minSdk stays 22.
 

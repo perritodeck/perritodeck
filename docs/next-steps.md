@@ -13,7 +13,7 @@ Commit in small pieces, push in batches, and tick items off here as they land.
 | Windows 11 + Fire 7 (KFMUWI, Fire OS 7.3.1.7) | Builds, tests and the full manual test plan pass on real hardware (2026-10-12) |
 | Linux | After pulling all 109 Windows-session commits, these all pass: host fmt, clippy and 34 test suites; app check and 51 Playwright tests; plugins and protocol; the real-app e2e (cloud session, 2026-10-12) |
 | macOS, iOS | Never compiled |
-| Installers (NSIS/MSI) | Never built |
+| Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13); MSI never built |
 
 Items marked 🖥 need the Windows PC (and the tablet). The rest can run in any session,
 including the cloud one.
@@ -188,7 +188,52 @@ check:
 Note SmartScreen's "unknown publisher" for the launch checklist. Do **not** create a release
 or tag.
 
-## 6. Small fixes from the Windows session (any session)
+## 6. Small fixes from the Windows session (any session) — ✅ done (2026-10-13)
+
+**Landed.**
+- A plugin value the manifest declares shows "–" until the plugin reports it (values that take
+  an argument match by prefix). Unknown names still show the raw token.
+- Editor: plugin titles over an image sit at the bottom of the key and wrap inside it, so
+  hello-world's two-line "Hello / Dynamic" fits.
+- An image-only Stream Deck key is labelled with its action's name, e.g. "Count up: Stream
+  Deck plugin", for screen readers and tooltips.
+- USB is offered, and adb reverse set up, only when the host listens where adb arrives: all
+  addresses or loopback. With `--listen <LAN address>` the log says why USB is off.
+- The program-exit test now has room: the started program holds the pipe for 6 s, the
+  timeout is 4.5 s, and the key must finish within 4 s.
+- **Wi-Fi latency: not the network.** Profiled with timestamps on both ends (temporary
+  logging, since removed), pressing an empty key 12 times on each link:
+  - The host's ack reached Perrito a median 11.7 ms after the press went out, over the
+    cable and over Wi-Fi alike (cable max 18 ms, Wi-Fi max 40 ms). The host spends under
+    0.12 ms on it.
+  - Perrito used to time the round trip when its main thread got to the ack. That thread
+    also handles touches, draws, and decodes key images. That added 15–90 ms, and up to
+    0.5 s after a page key, where the key-up's ack waits behind the new page's images.
+    That was the "~105 ms over Wi-Fi". Perrito now times the round trip when the frame
+    arrives, and a test covers it.
+  - Wi-Fi does cost something for messages the computer starts. Pings from the PC take
+    0.3–0.9 s on average to reach the dozing Fire 7, against 2 ms the other way. Heartbeats
+    after 2 s idle take ~40 ms, against ~13 ms on the cable. A high-performance Wi-Fi lock
+    made no difference on Fire OS, so it wasn't kept. Titles and pages the computer pushes
+    unprompted can lag that much on this tablet.
+
+**Left open: page switches hold Perrito's main thread on slow tablets.** Measured with
+`dumpsys gfxinfo` over 20 page switches on the Fire 7, cable:
+
+| Build | Frames | Median frame | 99th percentile | Frames over 100 ms, per switch |
+|---|---|---|---|---|
+| As shipped (images decoded on the main thread) | 53 | 200 ms | 550 ms | ~560 ms |
+| Decoding off the main thread, one frame at a time | 295 | 27 ms | 350 ms | ~310 ms |
+| Decoding off the main thread, in batches | 90 | 150 ms | 1050 ms | ~640 ms |
+
+Neither variant was kept. One at a time keeps touches responsive, but the page finishes
+filling later: the key-up's ack, last in line, was handled a median 0.66 s after the
+press over Wi-Fi. Batched is no better than shipped.
+Most of the cost seems to be Compose redrawing the grid for new images, so the fix
+belongs in the deck screen, e.g. per-key image state so that one new image redraws one
+key. Compare against these numbers.
+
+The original list:
 
 - A declared plugin value that hasn't reported yet shows its raw token in small type on the
   key, e.g. `(plugin:…:disk)`. Show "–" for values the plugin's manifest declares. Keep
