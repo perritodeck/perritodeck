@@ -52,9 +52,12 @@ are cheap except `nvidia-smi`, which is only run if it's installed.
   `/sys/class/power_supply` (mice and headsets are left out).
 - macOS: one long-running `top -l 0 -s 2 -n 0` for the CPU, `vm_stat` and
   `sysctl hw.memsize` for memory, `netstat -ib`, `sysctl kern.boottime`, `pmset -g batt`.
-- Windows: `kernel32` through ctypes ([winapi.py](winapi.py)): GetSystemTimes,
-  GlobalMemoryStatusEx, GetSystemPowerStatus, GetTickCount64; `netstat -e` for the
-  network (all adapters together).
+- Windows: `kernel32` and `iphlpapi` through ctypes ([winapi.py](winapi.py)):
+  GetSystemTimes, GlobalMemoryStatusEx, GetSystemPowerStatus, GetTickCount64, and
+  GetIfTable2 for the network: the 64-bit counters of the physical adapters (the ones
+  `Get-NetAdapter -Physical` lists). `netstat -e` isn't used: it adds up every row of
+  that table, including each adapter's NDIS filter rows (QoS, WFP, Npcap) and Hyper-V's
+  vEthernet, which counts each byte four to six times, and it wraps at 4 GB.
 - Disks: Python's `shutil.disk_usage` (GetDiskFreeSpaceExW on Windows).
 
 ## Verified vs untested
@@ -64,6 +67,9 @@ are cheap except `nvidia-smi`, which is only run if it's installed.
   should there.
 - **Unit-tested with real sample output only**: `/proc` and `/sys` files (written to a
   temporary folder), `vm_stat`, `netstat -ib`, `top`, `pmset -g batt`, `kern.boottime`,
-  Windows `netstat -e` (English and German), and `nvidia-smi --query-gpu … --format=csv`.
-- **Not run on real systems**: Windows (the ctypes structures are checked for size, the
-  calls are mocked) and macOS. Neither was tested with a real NVIDIA GPU.
+  and `nvidia-smi --query-gpu … --format=csv`.
+- **Checked on Windows 11** (outside the app): the network totals and speeds match
+  `Get-NetAdapterStatistics` for the physical adapters; the test suite reads the real
+  interface table there.
+- **Not run on real systems**: the rest of Windows (the ctypes structures are checked
+  for size, the calls are mocked) and macOS. Neither was tested with a real NVIDIA GPU.

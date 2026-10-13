@@ -76,20 +76,6 @@ en0        1500  192.168.1     192.168.1.23     9876543     - 12345678901  54321
 utun0      1380  <Link#14>                          10     0       1000       12     0       2000     0
 """
 
-NETSTAT_E = """\
-Interface Statistics
-
-                           Received            Sent
-
-Bytes                    3123456789       456789012
-Unicast packets             2345678         1234567
-Non-unicast packets            12345            6789
-Discards                           0               0
-Errors                             0               0
-Unknown protocols                  0
-"""
-NETSTAT_E_DE = NETSTAT_E.replace("Interface Statistics", "Schnittstellenstatistik").replace("Received", "Empfangen").replace("Sent", "Gesendet")
-
 NVIDIA = "23, 54, 2048, 8192\n5, 40, 100, 4096\n"
 PMSET = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=4653155)\t85%; discharging; 3:12 remaining present: true\n"
 PMSET_DESKTOP = "Now drawing from 'AC Power'\n"
@@ -157,12 +143,6 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(sysmon.parse_netstat_ib(NETSTAT_IB), (12345678901, 987654321))
         with self.assertRaises(ValueError):
             sysmon.parse_netstat_ib("garbage here\n")
-
-    def test_netstat_e_in_any_language(self):
-        self.assertEqual(sysmon.parse_netstat_e(NETSTAT_E), (3123456789, 456789012))
-        self.assertEqual(sysmon.parse_netstat_e(NETSTAT_E_DE), (3123456789, 456789012))
-        with self.assertRaises(ValueError):
-            sysmon.parse_netstat_e("")
 
     def test_top(self):
         self.assertAlmostEqual(sysmon.parse_top_cpu("CPU usage: 5.12% user, 8.33% sys, 86.54% idle \n"), 13.46)
@@ -414,6 +394,7 @@ class WindowsTest(unittest.TestCase):
         api.memory.return_value = (16 * 1024 ** 3, 4 * 1024 ** 3)
         api.uptime_seconds.return_value = 90061.0
         api.battery_percent.return_value = None
+        api.network_bytes.return_value = (3123456789, 456789012)
         s = sysmon.WindowsSampler.__new__(sysmon.WindowsSampler)
         sysmon.Sampler.__init__(s)
         s.api = api
@@ -421,9 +402,41 @@ class WindowsTest(unittest.TestCase):
         self.assertEqual(s.cpu(), 25.0)
         self.assertEqual(s.memory(), (12 * 1024 ** 3, 16 * 1024 ** 3))
         self.assertEqual(sysmon.duration(s.uptime()), "1d 1h")
-        with mock.patch.object(sysmon.subprocess, "run", return_value=done(NETSTAT_E)) as run:
+        with mock.patch.object(sysmon.subprocess, "run") as run:
             self.assertEqual(s.net(), (3123456789, 456789012))
-        self.assertEqual(run.call_args.args[0], ["netstat", "-e"])
+        run.assert_not_called()  # no netstat every two seconds
+
+    def test_interface_table_layout(self):
+        # The size and offsets of the Windows SDK's MIB_IF_ROW2 (netioapi.h).
+        self.assertEqual(ctypes.sizeof(winapi.MIB_IF_ROW2), 1352)
+        self.assertEqual(winapi.MIB_IF_ROW2.InterfaceAndOperStatusFlags.offset, 1152)
+        self.assertEqual(winapi.MIB_IF_ROW2.InOctets.offset, 1208)
+        self.assertEqual(winapi.MIB_IF_ROW2.OutOctets.offset, 1280)
+        self.assertEqual(winapi.MIB_IF_TABLE2.Table.offset, 8)
+
+    def test_only_physical_adapters_count(self):
+        def row(flags, received, sent):
+            return winapi.MIB_IF_ROW2(InterfaceAndOperStatusFlags=flags, InOctets=received, OutOctets=sent)
+
+        hardware, connector, ndis_filter = winapi.IF_HARDWARE, winapi.IF_CONNECTOR, winapi.IF_FILTER
+        rows = [
+            row(hardware | connector, 2**40, 5000),  # the Ethernet adapter, past 32 bits
+            row(ndis_filter, 2**40, 5000),  # it again, as the QoS Packet Scheduler sees it
+            row(ndis_filter, 2**40, 5000),  # and a WFP layer
+            row(0, 700, 800),  # vEthernet (Default Switch): its traffic crosses the adapter too
+            row(hardware, 9, 9),  # the KM-TEST loopback adapter: "hardware", but no connector
+            row(hardware | connector | 0x10, 300, 400),  # Wi-Fi with no network: still counts
+        ]
+        self.assertEqual(winapi.traffic(rows), (2**40 + 300, 5400))
+        self.assertEqual(winapi.traffic([]), (0, 0))
+
+    @unittest.skipUnless(sys.platform == "win32", "reads this computer's network adapters")
+    def test_network_bytes_on_this_computer(self):
+        first = winapi.network_bytes()
+        second = winapi.network_bytes()
+        self.assertTrue(all(isinstance(n, int) and n >= 0 for n in first))
+        self.assertGreaterEqual(second[0], first[0])
+        self.assertGreaterEqual(second[1], first[1])
 
 
 class ActionTest(unittest.TestCase):

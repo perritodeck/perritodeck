@@ -10,8 +10,9 @@ Where the numbers come from:
 - Linux: /proc (stat, meminfo, net/dev, uptime) and /sys (temperatures, battery).
 - macOS: top (one long-running sampler, for CPU), vm_stat and sysctl (memory,
   uptime), netstat -ib (network), pmset -g batt (battery).
-- Windows: kernel32 through ctypes (GetSystemTimes, GlobalMemoryStatusEx,
-  GetSystemPowerStatus, GetTickCount64; see winapi.py) and netstat -e (network).
+- Windows: kernel32 and iphlpapi through ctypes (GetSystemTimes,
+  GlobalMemoryStatusEx, GetSystemPowerStatus, GetTickCount64, and GetIfTable2 for the
+  physical network adapters; see winapi.py).
 - Everywhere: shutil.disk_usage for disks, nvidia-smi for NVIDIA GPUs.
 """
 
@@ -225,16 +226,6 @@ def parse_netstat_ib(text):
         except ValueError:
             continue
     return rx, tx
-
-
-def parse_netstat_e(text):
-    """(received, sent) bytes from Windows `netstat -e`: the first row with two
-    numbers is Bytes (its label is translated, so it isn't matched by name)."""
-    for line in text.splitlines():
-        numbers = re.findall(r"\d+", line)
-        if len(numbers) == 2:
-            return int(numbers[0]), int(numbers[1])
-    raise ValueError("unexpected netstat -e output")
 
 
 def parse_top_cpu(line):
@@ -472,7 +463,7 @@ class WindowsSampler(Sampler):
         return total - available, total
 
     def net(self):
-        return parse_netstat_e(run(["netstat", "-e"]))
+        return self.api.network_bytes()
 
     def uptime(self):
         return self.api.uptime_seconds()
