@@ -488,4 +488,17 @@ mod windows_commands {
         let quoted = command(&format!("\"{}\"", cmd.display()), &["/c", "exit 0"], None);
         assert_eq!(ex.run(&quoted).await.unwrap(), Outcome::Ok);
     }
+
+    #[tokio::test]
+    async fn a_relative_program_is_found_in_the_working_folder() {
+        let (ex, _) = setup();
+        // The test runs in the crate's folder, which has no cmd.exe.
+        let s = ActionSpec::Command {
+            program: r".\cmd.exe".into(),
+            args: vec!["/c".into(), "exit 0".into()],
+            cwd: Some(system32()),
+            timeout_ms: None,
+        };
+        assert_eq!(ex.run(&s).await.unwrap(), Outcome::Ok);
+    }
 }

@@ -540,6 +540,9 @@ pub(crate) async fn run_command(
     timeout_ms: Option<u64>,
 ) -> Result<Outcome, ActionError> {
     let program = launch::unquote(program);
+    // `.\tools\build.exe` with a working folder is the one in that folder, everywhere.
+    let in_cwd = launch::in_folder(program, cwd);
+    let program = in_cwd.as_deref().unwrap_or(program);
     let build = |p: &std::ffi::OsStr| {
         let mut cmd = Command::new(p);
         // Only the error output is used, for the alert.

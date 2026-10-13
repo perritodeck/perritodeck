@@ -53,6 +53,19 @@ pub(crate) fn program_dir(program: &str) -> Option<&Path> {
         .filter(|d| !d.as_os_str().is_empty() && d.is_dir())
 }
 
+/// A Command's program as a path in its working folder, when it's a relative path such
+/// as `.\tools\build.exe`. Windows would look for it in the host's folder, while Linux
+/// and macOS look in the working folder. `None` for a bare name (looked up on PATH), an
+/// absolute path, or no working folder.
+pub(crate) fn in_folder(program: &str, cwd: Option<&Path>) -> Option<String> {
+    let path = Path::new(program);
+    let has_folder = path.parent().is_some_and(|p| !p.as_os_str().is_empty());
+    if !has_folder || !path.is_relative() {
+        return None;
+    }
+    cwd?.join(path).into_os_string().into_string().ok()
+}
+
 /// Whether a Launch runs without a console window. A batch file reached by name through
 /// PATH (`code` is `code.cmd`, `npm`) is a shim that starts the real program, so its
 /// console would only flash up. A batch file given by path is the user's own script and
@@ -412,6 +425,26 @@ mod tests {
         let exe = dir.path().join("obs64.exe");
         assert_eq!(program_dir(exe.to_str().unwrap()), Some(dir.path()));
         assert_eq!(program_dir("/no/such/folder/x"), None);
+    }
+
+    #[test]
+    fn relative_programs_are_in_the_working_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = Some(dir.path());
+        let tool = Path::new(".").join("tools").join("build");
+        assert_eq!(
+            in_folder(tool.to_str().unwrap(), cwd).map(PathBuf::from),
+            Some(dir.path().join(&tool))
+        );
+        assert_eq!(
+            in_folder("tools/build", cwd).map(PathBuf::from),
+            Some(dir.path().join("tools/build"))
+        );
+        // Bare names are looked up on PATH; absolute paths stay as they are.
+        assert_eq!(in_folder("git", cwd), None);
+        let absolute = dir.path().join("build");
+        assert_eq!(in_folder(absolute.to_str().unwrap(), cwd), None);
+        assert_eq!(in_folder("tools/build", None), None);
     }
 
     #[test]
