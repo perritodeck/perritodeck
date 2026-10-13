@@ -649,7 +649,7 @@ test.describe("plugins", () => {
 
   test("add and remove plugins", async ({ page }) => {
     await page.getByRole("button", { name: "Plugins" }).click();
-    await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plugins", exact: true })).toBeVisible();
     const installed = page.locator("section", { has: page.getByRole("heading", { name: "Installed" }) });
     await expect(installed.getByText("HTTP requests")).toBeVisible();
     await expect(installed.getByText("Running")).toBeVisible();
