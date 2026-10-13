@@ -3,7 +3,7 @@
 
 use std::net::IpAddr;
 
-use mdns_sd::{ServiceDaemon, ServiceInfo};
+use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
 
 pub const SERVICE_TYPE: &str = "_perritodeck._tcp.local.";
 
@@ -27,6 +27,10 @@ pub fn advertise(
     port: u16,
 ) -> Result<Advertisement, mdns_sd::Error> {
     let daemon = ServiceDaemon::new()?;
+    // The host listens on IPv4 only, so don't hand out IPv6 addresses. Android before
+    // 14 (and Fire OS) gives the app a single address per host, and when that's an
+    // IPv6 one the tablet can't connect.
+    daemon.disable_interface(IfKind::IPv6)?;
     let instance = format!("PerritoDeck on {host_name}");
     let mdns_host = format!("{}.local.", sanitize_label(host_name));
     let props = [("v", "1"), ("id", host_id), ("n", host_name)];
