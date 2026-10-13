@@ -9,24 +9,35 @@
 pub struct Foreground {
     /// A short, stable name for it: `obs64`, `OBS`, `firefox`. Compared case-insensitively.
     pub app: String,
-    /// Its process, where the OS says (Windows), to notice the app quitting.
-    pid: Option<u32>,
+    /// Where the OS says (Windows), its process and the window that was in front, to
+    /// notice the app going away.
+    seen: Option<Seen>,
+}
+
+/// An app's process, and its window that was in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Seen {
+    pid: u32,
+    /// The window's handle, as a number so it can be passed to another thread.
+    window: usize,
 }
 
 impl Foreground {
-    /// Whether the app has quit since it was in front. False where we can't tell.
-    pub fn has_quit(&self) -> bool {
-        self.pid.is_some_and(|pid| imp::has_quit(pid, &self.app))
+    /// Whether the app has gone since it was in front: it has quit, or closed or hidden
+    /// (in the tray, say) its last window. False where we can't tell.
+    pub fn has_left(&self) -> bool {
+        self.seen.is_some_and(|seen| imp::has_left(seen, &self.app))
     }
 }
 
 /// The app in front, if there's one to name.
 pub fn foreground() -> Option<Foreground> {
-    let (app, pid) = imp::foreground()?;
+    let (app, seen) = imp::foreground()?;
     let app = app.trim();
     (!app.is_empty()).then(|| Foreground {
         app: app.to_owned(),
-        pid,
+        seen,
     })
 }
 
@@ -38,9 +49,9 @@ pub fn supported() -> bool {
 /// Whether "no app" from [`foreground`] means "nothing worth switching for; keep the
 /// last app". On Windows it does: the foreground window is NULL while focus moves and
 /// while the UAC or lock screen is up, and the shell's own windows (taskbar, Start,
-/// Search, Alt+Tab) are reported as no app too. Once the last app has quit
-/// ([`Foreground::has_quit`]), as when it's closed with only the desktop behind it, no
-/// app means no app again.
+/// Search, Alt+Tab) are reported as no app too. Once the last app has gone
+/// ([`Foreground::has_left`]), as when it's closed or hidden in the tray with only the
+/// desktop behind it, no app means no app again.
 pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
 /// Decides, one look at a time, when the app in front has changed enough to switch
@@ -52,6 +63,8 @@ pub struct Watch {
     /// The last app's newest window seen in front, to notice it going away while no app
     /// is.
     last_seen: Option<Foreground>,
+    /// Whether the last look found the last app gone too.
+    leaving: bool,
     /// [`NONE_KEEPS_LAST`], except in tests.
     none_keeps_last: bool,
 }
@@ -61,26 +74,33 @@ impl Default for Watch {
         Self {
             last: None,
             last_seen: None,
+            leaving: false,
             none_keeps_last: NONE_KEEPS_LAST,
         }
     }
 }
 
 impl Watch {
-    /// The app last seen in front, to ask whether it has quit while no app is.
+    /// The app last seen in front, to ask whether it has left while no app is.
     pub fn last_seen(&self) -> Option<&Foreground> {
         self.last_seen.as_ref()
     }
 
-    /// Takes a look at what's in front (`front`), and whether the app last seen has quit
-    /// since (`quit`, asked only while no app is in front). Gives the app to switch
+    /// Takes a look at what's in front (`front`), and whether the app last seen has left
+    /// since (`left`, asked only while no app is in front). Gives the app to switch
     /// profiles for when that has changed, `Some(None)` being no app.
-    pub fn change(&mut self, front: Option<Foreground>, quit: bool) -> Option<Option<String>> {
-        // On Windows a moment with no window in front, or the shell, keeps the last app,
-        // unless it has quit.
-        if front.is_none() && self.none_keeps_last && !quit {
-            return None;
+    pub fn change(&mut self, front: Option<Foreground>, left: bool) -> Option<Option<String>> {
+        if front.is_none() && self.none_keeps_last {
+            // On Windows a moment with no window in front, or the shell, keeps the last
+            // app, unless it has left. It has to look gone twice in a row, so an app
+            // replacing its window (a splash screen, a game changing display modes)
+            // isn't taken for the app closing.
+            let leaving = std::mem::replace(&mut self.leaving, left);
+            if !(left && leaving) {
+                return None;
+            }
         }
+        self.leaving = false;
         let app = front.as_ref().map(|f| f.app.clone());
         // The newest window seen counts even when the app hasn't changed, so closing an
         // older one isn't taken for the app going away.
@@ -141,6 +161,7 @@ fn is_windows_shell(process: &str, class: &str) -> bool {
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod imp {
+    use super::Seen;
     use windows_sys::{
         core::BOOL,
         Win32::{
@@ -150,7 +171,9 @@ mod imp {
                 PROCESS_QUERY_LIMITED_INFORMATION,
             },
             UI::WindowsAndMessaging::{
-                EnumChildWindows, GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId,
+                EnumChildWindows, EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW,
+                GetWindowThreadProcessId, IsHungAppWindow, IsWindowVisible, GWL_EXSTYLE,
+                WS_EX_TOOLWINDOW,
             },
         },
     };
@@ -159,32 +182,110 @@ mod imp {
         true
     }
 
-    pub fn foreground() -> Option<(String, Option<u32>)> {
+    pub fn foreground() -> Option<(String, Option<Seen>)> {
         // SAFETY: plain Win32 calls on a window handle Windows just gave us; a window
         // that has gone away since only makes the calls fail.
         let hwnd = unsafe { GetForegroundWindow() };
         if hwnd.is_null() {
             return None;
         }
-        let mut pid = window_pid(hwnd)?;
         let class = class_name(hwnd);
+        let pid = app_pid(hwnd, &class)?;
+        let name = process_name(pid)?;
+        if super::is_windows_shell(&name, &class) {
+            return None;
+        }
+        let window = hwnd as usize;
+        Some((name, Some(Seen { pid, window })))
+    }
+
+    /// The process of the app that `window`, of class `class`, belongs to.
+    fn app_pid(window: HWND, class: &str) -> Option<u32> {
+        let pid = window_pid(window)?;
         if class == "ApplicationFrameWindow" {
             // A Store app: the frame is ApplicationFrameHost's (explorer has frames too
             // on Windows 11), and the app's own CoreWindow is a child window owned by
             // the app's process. While the app starts or closes there is none: that's
             // no app, like the shell, rather than the frame's owner.
-            pid = hosted_app_pid(hwnd, pid)?;
+            return hosted_app_pid(window, pid);
         }
-        let name = process_name(pid)?;
-        if super::is_windows_shell(&name, &class) {
-            return None;
+        Some(pid)
+    }
+
+    /// Whether the app `app`, `seen` in front, has gone: it has quit, or closed or hidden
+    /// its last window. A minimized window, or one on another virtual desktop, is still
+    /// there.
+    pub fn has_left(seen: Seen, app: &str) -> bool {
+        has_quit(seen.pid, app) || !(is_still_there(seen) || has_window(seen.pid, app))
+    }
+
+    /// Whether the window `seen` in front is still there and still the app's: shown, or
+    /// hung (whether or not Windows has swapped it for its "Not Responding" copy yet).
+    fn is_still_there(seen: Seen) -> bool {
+        let window = seen.window as HWND;
+        // SAFETY: plain Win32 calls; a window that has gone is neither visible nor hung.
+        let there = unsafe { IsWindowVisible(window) != 0 || IsHungAppWindow(window) != 0 };
+        if !there {
+            return false;
         }
-        Some((name, Some(pid)))
+        let class = class_name(window);
+        match app_pid(window, &class) {
+            Some(pid) => pid == seen.pid,
+            // A Store app's frame stays while the app is minimized, but the app's own
+            // window is taken out of it then.
+            None => class == "ApplicationFrameWindow",
+        }
+    }
+
+    /// Whether process `pid`, the app `app`, has a window someone could go back to.
+    fn has_window(pid: u32, app: &str) -> bool {
+        struct Search<'a> {
+            pid: u32,
+            app: &'a str,
+            found: bool,
+        }
+        unsafe extern "system" fn visit(window: HWND, lparam: LPARAM) -> BOOL {
+            // SAFETY: `lparam` is the `Search` below, alive for the whole enumeration.
+            let search = unsafe { &mut *(lparam as *mut Search<'_>) };
+            if is_app_window(window, search.pid, search.app) {
+                search.found = true;
+                0 // stop
+            } else {
+                1 // keep going
+            }
+        }
+        let mut search = Search {
+            pid,
+            app,
+            found: false,
+        };
+        // SAFETY: the callback only runs during this call, while `search` is alive.
+        unsafe {
+            EnumWindows(Some(visit), &mut search as *mut Search<'_> as LPARAM);
+        }
+        search.found
+    }
+
+    /// Whether the top-level window `window` is one of the app `app`'s (process `pid`)
+    /// that someone could go back to: shown (minimized is fine), not a tool window (the
+    /// small helper windows some programs keep shown), and one [`foreground`] would name
+    /// as the app.
+    fn is_app_window(window: HWND, pid: u32, app: &str) -> bool {
+        // SAFETY: plain Win32 calls on a window Windows has just listed.
+        let shown = unsafe {
+            IsWindowVisible(window) != 0
+                && (GetWindowLongW(window, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW) == 0
+        };
+        if !shown {
+            return false;
+        }
+        let class = class_name(window);
+        app_pid(window, &class) == Some(pid) && !super::is_windows_shell(app, &class)
     }
 
     /// Whether process `pid`, last seen as `app`, has exited, or its id now belongs to
     /// another program.
-    pub fn has_quit(pid: u32, app: &str) -> bool {
+    pub(super) fn has_quit(pid: u32, app: &str) -> bool {
         // An exited process lingers while anything holds a handle to it (whatever
         // launched it, say), so ask for its exit code.
         // SAFETY: the handle is closed before returning, and `code` outlives the call
@@ -319,7 +420,7 @@ mod imp {
 
     /// The window list is ordered front to back; the first normal-layer window belongs
     /// to the frontmost app. Owner names don't need the screen recording permission.
-    pub fn foreground() -> Option<(String, Option<u32>)> {
+    pub fn foreground() -> Option<(String, Option<super::Seen>)> {
         let list: CFArray = copy_window_info(
             kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
             kCGNullWindowID,
@@ -352,8 +453,8 @@ mod imp {
         None
     }
 
-    /// No process ids are reported here, so this is never asked.
-    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+    /// No processes or windows are reported here, so this is never asked.
+    pub fn has_left(_seen: super::Seen, _app: &str) -> bool {
         false
     }
 }
@@ -369,7 +470,7 @@ mod imp {
         std::env::var_os("WAYLAND_DISPLAY").is_none() && std::env::var_os("DISPLAY").is_some()
     }
 
-    pub fn foreground() -> Option<(String, Option<u32>)> {
+    pub fn foreground() -> Option<(String, Option<super::Seen>)> {
         if !supported() {
             return None;
         }
@@ -404,8 +505,8 @@ mod imp {
         Some((String::from_utf8_lossy(class).into_owned(), None))
     }
 
-    /// No process ids are reported here, so this is never asked.
-    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+    /// No processes or windows are reported here, so this is never asked.
+    pub fn has_left(_seen: super::Seen, _app: &str) -> bool {
         false
     }
 }
@@ -415,10 +516,10 @@ mod imp {
     pub fn supported() -> bool {
         false
     }
-    pub fn foreground() -> Option<(String, Option<u32>)> {
+    pub fn foreground() -> Option<(String, Option<super::Seen>)> {
         None
     }
-    pub fn has_quit(_pid: u32, _app: &str) -> bool {
+    pub fn has_left(_seen: super::Seen, _app: &str) -> bool {
         false
     }
 }
@@ -458,10 +559,10 @@ mod tests {
         assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
     }
 
-    fn in_front(app: &str, pid: u32) -> Option<Foreground> {
+    fn in_front(app: &str, window: usize) -> Option<Foreground> {
         Some(Foreground {
             app: app.into(),
-            pid: Some(pid),
+            seen: Some(Seen { pid: 8, window }),
         })
     }
 
@@ -475,15 +576,20 @@ mod tests {
             watch.change(in_front("obs64", 10), false),
             Some(Some("obs64".into()))
         );
-        // Another window of the same app (another process here) isn't a change, but it's
-        // the one to watch now.
+        // Another window of the same app isn't a change, but it's the one to watch now.
         assert_eq!(watch.change(in_front("obs64", 11), false), None);
         assert_eq!(watch.last_seen(), in_front("obs64", 11).as_ref());
         // No app in front (the desktop, the shell, a moment between windows) keeps the
         // last app...
         assert_eq!(watch.change(None, false), None);
         assert_eq!(watch.last_seen(), in_front("obs64", 11).as_ref());
-        // ...until it has quit.
+        // ...until it has left, as seen on two looks in a row: here it came back...
+        assert_eq!(watch.change(None, true), None);
+        assert_eq!(watch.change(in_front("obs64", 11), false), None);
+        assert_eq!(watch.change(None, true), None);
+        assert_eq!(watch.change(None, false), None);
+        // ...and here it's gone.
+        assert_eq!(watch.change(None, true), None);
         assert_eq!(watch.change(None, true), Some(None));
         assert_eq!(watch.last_seen(), None);
         assert_eq!(watch.change(None, false), None);
@@ -548,17 +654,11 @@ mod tests {
         use std::{io::Write, process::Stdio};
 
         let me = std::env::current_exe().unwrap();
-        let me = Foreground {
-            app: me.file_stem().unwrap().to_string_lossy().into_owned(),
-            pid: Some(std::process::id()),
-        };
-        assert!(!me.has_quit());
+        let me = me.file_stem().unwrap().to_string_lossy();
+        let pid = std::process::id();
+        assert!(!imp::has_quit(pid, &me));
         // The same process id, now another program's.
-        let reused = Foreground {
-            app: "obs64".into(),
-            ..me.clone()
-        };
-        assert!(reused.has_quit());
+        assert!(imp::has_quit(pid, "obs64"));
 
         // `set /p` waits for a line on stdin.
         let mut child = std::process::Command::new("cmd")
@@ -567,24 +667,98 @@ mod tests {
             .stdout(Stdio::null())
             .spawn()
             .unwrap();
-        let cmd = Foreground {
-            app: "cmd".into(),
-            pid: Some(child.id()),
-        };
-        assert!(!cmd.has_quit());
+        let cmd = child.id();
+        assert!(!imp::has_quit(cmd, "cmd"));
         child.stdin.take().unwrap().write_all(b"bye\n").unwrap();
         child.wait().unwrap();
         // Ended, though `child` still holds a handle that keeps the process around.
-        assert!(cmd.has_quit());
+        assert!(imp::has_quit(cmd, "cmd"));
         drop(child);
-        assert!(cmd.has_quit());
+        assert!(imp::has_quit(cmd, "cmd"));
+    }
 
-        // Without a process id there's no telling.
+    #[cfg(windows)]
+    #[test]
+    #[allow(unsafe_code)]
+    fn an_app_has_left_once_its_last_window_is_closed_or_hidden() {
+        use windows_sys::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, ShowWindow, SHOW_WINDOW_CMD, SW_HIDE,
+                SW_SHOWNOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+            },
+        };
+
+        // Plain "Static" windows: 1x1 pixel, far off the screen and never activated.
+        // Those shown are owned by a hidden window, which keeps them off the taskbar.
+        let class: Vec<u16> = "Static\0".encode_utf16().collect();
+        let create = |owner: HWND, ex_style: u32| {
+            // SAFETY: the class name is NUL-terminated and outlives the call.
+            let window = unsafe {
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE | ex_style,
+                    class.as_ptr(),
+                    std::ptr::null(),
+                    WS_POPUP,
+                    -32000,
+                    -32000,
+                    1,
+                    1,
+                    owner,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                )
+            };
+            assert!(!window.is_null());
+            window
+        };
+        // SAFETY: the windows are this thread's own, made above.
+        let show = |window: HWND, how: SHOW_WINDOW_CMD| unsafe {
+            ShowWindow(window, how);
+        };
+        let close = |window: HWND| unsafe {
+            DestroyWindow(window);
+        };
+        let owner = create(std::ptr::null_mut(), 0);
+        let first = create(owner, 0);
+        let second = create(owner, 0);
+        let tool = create(owner, WS_EX_TOOLWINDOW);
+
+        let me = std::env::current_exe().unwrap();
+        let app = Foreground {
+            app: me.file_stem().unwrap().to_string_lossy().into_owned(),
+            seen: Some(Seen {
+                pid: std::process::id(),
+                window: first as usize,
+            }),
+        };
+        // Nothing shown yet (the test process has no windows of its own).
+        assert!(app.has_left());
+        show(first, SW_SHOWNOACTIVATE);
+        assert!(!app.has_left());
+        // Its window that was in front is hidden (as in the tray), but there's another.
+        show(second, SW_SHOWNOACTIVATE);
+        show(first, SW_HIDE);
+        assert!(!app.has_left());
+        // That one is closed. A tool window still shown doesn't count.
+        show(tool, SW_SHOWNOACTIVATE);
+        close(second);
+        assert!(app.has_left());
+        // Its window that was in front is shown again, then closed.
+        show(first, SW_SHOWNOACTIVATE);
+        assert!(!app.has_left());
+        close(first);
+        assert!(app.has_left());
+        close(tool);
+        close(owner);
+
+        // Without a process or a window there's no telling.
         let unknown = Foreground {
             app: "obs64".into(),
-            pid: None,
+            seen: None,
         };
-        assert!(!unknown.has_quit());
+        assert!(!unknown.has_left());
     }
 
     /// What auto-switch sees in front, printed as it changes for a minute, to check
@@ -599,9 +773,11 @@ mod tests {
         let mut last = None;
         while start.elapsed() < Duration::from_secs(60) {
             let now = foreground();
-            if now != last {
+            // The app and its process; another window of the same app isn't news here.
+            let app = now.as_ref().map(|f| (f.app.clone(), f.seen.map(|s| s.pid)));
+            if app != last {
                 println!("{:6.1}s {now:?}", start.elapsed().as_secs_f32());
-                last = now;
+                last = app;
             }
             std::thread::sleep(Duration::from_millis(100));
         }

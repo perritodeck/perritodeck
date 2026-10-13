@@ -2047,10 +2047,10 @@ fn spawn_focus_watch(shared: Arc<Shared>) {
         loop {
             every.tick().await;
             let last = watch.last_seen().cloned();
-            let Ok((front, quit)) = tokio::task::spawn_blocking(move || {
+            let Ok((front, left)) = tokio::task::spawn_blocking(move || {
                 let front = focus::foreground();
-                let quit = front.is_none() && last.is_some_and(|l| l.has_quit());
-                (front, quit)
+                let left = front.is_none() && last.is_some_and(|l| l.has_left());
+                (front, left)
             })
             .await
             else {
@@ -2060,7 +2060,7 @@ fn spawn_focus_watch(shared: Arc<Shared>) {
             if front.as_ref().is_some_and(|f| is_us(&f.app)) {
                 continue;
             }
-            let Some(app) = watch.change(front, quit) else {
+            let Some(app) = watch.change(front, left) else {
                 continue;
             };
             if let Some(a) = &app {
