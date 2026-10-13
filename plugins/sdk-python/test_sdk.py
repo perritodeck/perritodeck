@@ -258,6 +258,36 @@ class OrderingTest(unittest.TestCase):
         self.assertEqual(proc.wait(timeout=5), 0)
 
 
+CHATTY = """
+import sys, threading
+sys.path.insert(0, %r)
+from perritodeck_plugin import Plugin
+p = Plugin()
+def chatter():
+    while True:
+        p.set_value("n", "x" * 200)
+@p.on_start
+def go():
+    threading.Thread(target=chatter, daemon=True).start()
+p.run()
+""" % HERE
+
+
+class ShutdownTest(unittest.TestCase):
+    def test_exits_cleanly_while_another_thread_is_writing(self):
+        # Python exiting while a daemon thread is inside a write to stdout is a fatal
+        # error at shutdown (exit code 0xC0000409 on Windows, SIGABRT elsewhere).
+        for _ in range(5):
+            proc = start(CHATTY)
+            pipe = Pipe(proc)
+            pipe.send({"event": "hello", "protocol": 1, "host": "t"})
+            for _ in range(50):
+                pipe.receive()
+            pipe.send({"event": "shutdown"})
+            proc.communicate(timeout=10)  # keeps reading, as the host does
+            self.assertEqual(proc.returncode, 0)
+
+
 def remove_soon(folder):
     """Delete a folder a program started in it may still be leaving (Windows keeps a
     process's working folder busy until it has exited)."""

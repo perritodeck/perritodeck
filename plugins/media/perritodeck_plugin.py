@@ -228,6 +228,7 @@ class Plugin:
         self._on_watch = []
         self._timers = []
         self._lock = threading.Lock()
+        self._closed = False  # run() has returned: nothing more goes to the host
         self._started = threading.Event()
         self._events = queue.Queue()  # hello/settings/watch callbacks, in order
         self._worker = None
@@ -305,6 +306,8 @@ class Plugin:
     def _send(self, message):
         line = json.dumps(message, ensure_ascii=False)
         with self._lock:
+            if self._closed:
+                return
             sys.stdout.write(line + "\n")
             sys.stdout.flush()
 
@@ -372,7 +375,8 @@ class Plugin:
 
     def run(self):
         """Talk to the host until it says goodbye. Each action runs on its own thread;
-        on_start, on_settings and on_watch run in order on one worker thread."""
+        on_start, on_settings and on_watch run in order on one worker thread. Once it
+        returns, nothing more is sent to the host (values, logs, results)."""
         for line in sys.stdin:
             try:
                 message = json.loads(line)
@@ -401,3 +405,9 @@ class Plugin:
                 break
         if self._worker is not None:
             self._events.put(None)
+        # Let a message another thread is writing finish, and start no more: Python
+        # exiting while a daemon thread (an action, a timer) is inside a write to stdout
+        # is a fatal error ("could not acquire lock for <stdout> at interpreter
+        # shutdown"), so the plugin would crash on its way out.
+        with self._lock:
+            self._closed = True
