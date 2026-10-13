@@ -14,6 +14,19 @@ LONG = [PY, "-c", "import time; time.sleep(30)"]
 SHORT = [PY, "-c", "pass"]
 FAIL = [PY, "-c", "import sys; sys.stderr.write('unsupported format\\n'); sys.exit(1)"]
 
+# What Windows PowerShell 5.1 wrote on stderr when the SoundPlayer fallback threw,
+# before the script caught it; shortened.
+CLIXML_ERROR = (
+    "#< CLIXML\r\n"
+    '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+    '<S S="Error">Exception calling "PlaySync" with "0" argument(s): "Please be sure a sound file exists at the '
+    'specified location."_x000D__x000A_</S>'
+    '<S S="Error">At line:38 char:9_x000D__x000A_</S>'
+    '<S S="Error">+         (New-Object System.Media.SoundPlayer $path).PlaySync()_x000D__x000A_</S>'
+    '<S S="Error"> _x000D__x000A_</S></Objs>'
+)
+FAIL_CLIXML = [PY, "-c", "import sys; sys.stderr.write(sys.argv[1]); sys.exit(1)", CLIXML_ERROR]
+
 
 def which_all(name):
     return "/usr/bin/" + name
@@ -118,6 +131,20 @@ class SoundboardTest(unittest.TestCase):
         self.assertIn("System.Media.SoundPlayer", script)
         self.assertNotIn("a b.mp3", script)  # the path travels in the environment, unquoted
         self.assertEqual(env, {"PERRITODECK_SOUND": "C:\\Sounds\\a b.mp3", "PERRITODECK_VOLUME": "0.700"})
+        # A failure is one line of UTF-8, not CLIXML in the console's code page.
+        self.assertIn("[Console]::OutputEncoding = [Text.Encoding]::UTF8", script)
+        self.assertIn("[Console]::Error.WriteLine(", script)
+
+    def test_error_text(self):
+        self.assertEqual(
+            soundboard.error_text(CLIXML_ERROR),
+            'Exception calling "PlaySync" with "0" argument(s): "Please be sure a sound file exists at the specified location."',
+        )
+        self.assertEqual(soundboard.error_text(CLIXML_ERROR.split("<S S=")[0] + "</Objs>"), "")
+        emoji = '#< CLIXML\r\n<Objs><S S="Error">&lt;hi&gt; _xD83D__xDC4B__x000D__x000A_</S></Objs>'
+        self.assertEqual(soundboard.error_text(emoji), "<hi> \U0001F44B")
+        self.assertEqual(soundboard.error_text("noise\nunsupported format\n\n"), "unsupported format")
+        self.assertEqual(soundboard.error_text(""), "")
 
     def test_spawn_hides_the_console_on_windows(self):
         with mock.patch.object(soundboard.sys, "platform", "win32"), mock.patch.object(
@@ -178,6 +205,31 @@ class SoundboardTest(unittest.TestCase):
             self.assertTrue(wait_until(lambda: soundboard._sounds[key][0].proc.args == LONG))
         self.assertTrue(soundboard.is_playing(key))
         self.assertTrue(any("unsupported format" in m for m in self.logs()))
+
+    def test_a_clixml_failure_is_logged_as_its_message(self):
+        with self.fake_players(FAIL_CLIXML):
+            soundboard.play(self.wav, 100, "play")
+            self.assertTrue(wait_until(lambda: any("no player could play" in m for m in self.logs())))
+        failure = next(m for m in self.logs() if "couldn't play" in m)
+        self.assertTrue(failure.endswith("Please be sure a sound file exists at the specified location.\""), failure)
+        self.assertNotIn("<Objs", failure)
+
+    @unittest.skipUnless(sys.platform == "win32", "runs Windows PowerShell")
+    def test_windows_fallback_logs_one_line(self):
+        # A 4-byte "RIFF" file: MediaPlayer and then SoundPlayer refuse it, so nothing
+        # is heard. SoundPlayer's message breaks the line before the path, and the
+        # path's ü and ’ only survive if the script writes UTF-8.
+        stub = os.path.join(self.dir.name, "stub ü’.wav")
+        with open(stub, "wb") as f:
+            f.write(b"RIFF")
+        fallback = soundboard.player_commands(stub, 50, "", "win32")[1]
+        with mock.patch.object(soundboard, "player_commands", return_value=[fallback]):
+            soundboard.play(stub, 50, "play")
+            self.assertTrue(wait_until(lambda: any("no player could play" in m for m in self.logs()), timeout=60))
+        failure = next(m for m in self.logs() if "couldn't play" in m)
+        self.assertNotIn("CLIXML", failure)
+        self.assertNotIn("\n", failure)
+        self.assertEqual(failure.count(os.path.basename(stub)), 2, failure)  # once from the plugin, once from Windows
 
     def test_every_player_fails(self):
         key = soundboard.sound_key(self.mp3)

@@ -13,7 +13,9 @@ is stopping the process; the `playing:<file>` value follows them. Standard libra
 """
 
 import base64
+import html
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,9 +39,12 @@ INSTALL_HINT = "install PipeWire (pw-play), pulseaudio-utils (paplay), alsa-util
 # come in environment variables, so no path ever has to be quoted into the script.
 # MediaPlayer raises its events through a WPF dispatcher, which a console script
 # doesn't run, so Pump processes the dispatcher's queue between checks.
+# A failure is one line of UTF-8 on stderr, which the plugin logs; uncaught,
+# PowerShell would write it as CLIXML in the console's code page.
 WINDOWS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $path = $env:PERRITODECK_SOUND
 $volume = [double]::Parse($env:PERRITODECK_VOLUME, [Globalization.CultureInfo]::InvariantCulture)
 try {
@@ -72,11 +77,19 @@ try {
     }
     $player.Close()
 } catch {
+    $failure = $_.Exception
     if ($path -match '\.wav$') {
         # SoundPlayer can't change the volume, but plays WAV without WPF.
-        (New-Object System.Media.SoundPlayer $path).PlaySync()
-    } else {
-        [Console]::Error.WriteLine([string]$_.Exception.Message)
+        try {
+            (New-Object System.Media.SoundPlayer $path).PlaySync()
+            $failure = $null
+        } catch {
+            $failure = $_.Exception
+        }
+    }
+    if ($null -ne $failure) {
+        # Some messages break the line before the file's path.
+        [Console]::Error.WriteLine(([string]$failure.GetBaseException().Message -replace '\s+', ' ').Trim())
         exit 1
     }
 }
@@ -160,6 +173,26 @@ def spawn(argv, extra_env):
     )
 
 
+def error_text(stderr):
+    """The message in what a player wrote on stderr, or "": its last line, except
+    for Windows PowerShell's CLIXML. With -EncodedCommand and stderr redirected,
+    PowerShell writes an uncaught error as a "#< CLIXML" line, then XML with each
+    line of the error in an <S S="Error"> element and line breaks written as
+    _x000D__x000A_. The first of those lines is the message; the rest say where in
+    the script it happened."""
+    text = (stderr or "").strip()
+    if not text.startswith("#< CLIXML"):
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines[-1] if lines else ""
+    text = html.unescape("".join(re.findall(r'<S S="Error">(.*?)</S>', text, re.S)))
+    text = re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), text)
+    # A character outside the BMP (an emoji) comes as its two UTF-16 halves, each
+    # escaped on its own; join them, or they'd print as "??".
+    text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else ""
+
+
 class Sound:
     def __init__(self, key, path, commands):
         self.key, self.path = key, path
@@ -195,14 +228,11 @@ def _follow(sound):
             _, err = proc.communicate()
         except Exception:
             err = b""
-        detail = (err or b"").decode("utf-8", "replace").strip().splitlines()
+        detail = error_text((err or b"").decode("utf-8", "replace"))
         with _lock:
             if sound.stopped or proc.returncode == 0:
                 break
-            plugin.log(
-                f"{sound.player} couldn't play {sound.path}: {detail[-1] if detail else 'exit code %s' % proc.returncode}",
-                "warn",
-            )
+            plugin.log(f"{sound.player} couldn't play {sound.path}: {detail or 'exit code %s' % proc.returncode}", "warn")
             if not _start_next(sound):
                 plugin.log(f"no player could play {sound.path}", "error")
                 break
