@@ -1143,3 +1143,14 @@ fn network_addresses() {
     assert_eq!(pairing_addrs_for(localhost, vec![], false), [localhost]);
     assert_eq!(pairing_addrs_for(localhost, vec![], true), [localhost]);
 }
+
+#[tokio::test]
+async fn diagnostics_say_what_kind_of_network_this_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let report = host.diagnostics(None);
+    // Only Windows says (and only for connected networks), so this checks the wiring.
+    for category in discovery::network_categories() {
+        assert!(report.contains(&category), "{report}");
+    }
+}

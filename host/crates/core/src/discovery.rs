@@ -124,6 +124,74 @@ pub fn pairing_uri(
     uri
 }
 
+/// The category Windows gave each connected network, like `Ethernet 12: Public`, for
+/// the diagnostics report: on a Public network the firewall turns tablets away unless
+/// its prompt was answered for Public networks. The network's own name (often the
+/// Wi-Fi's) is left out. Empty on other systems, or when Windows doesn't say.
+pub fn network_categories() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        windows_network_categories().unwrap_or_default()
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(windows)]
+fn windows_network_categories() -> Option<Vec<String>> {
+    use std::io::Read as _;
+    use std::os::windows::process::CommandExt as _;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // By full path: a `powershell` earlier on PATH could be anything.
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let exe = std::path::Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let mut child = Command::new(exe)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-NetConnectionProfile | ForEach-Object { '{0}: {1}' -f $_.InterfaceAlias, $_.NetworkCategory }",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .ok()?;
+    // It normally answers within a second; a report shouldn't wait on it for long.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().ok()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    Some(parse_categories(&out))
+}
+
+/// Keeps the `<adapter>: <category>` lines, in case anything else was printed.
+#[cfg(any(windows, test))]
+fn parse_categories(out: &str) -> Vec<String> {
+    out.lines()
+        .map(str::trim)
+        .filter(|l| {
+            ["Public", "Private", "DomainAuthenticated"]
+                .iter()
+                .any(|c| l.strip_suffix(c).is_some_and(|rest| rest.ends_with(": ")))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
 fn percent_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
@@ -196,6 +264,28 @@ mod tests {
             uri,
             "perritodeck://pair?v=1&n=Dev%20Laptop&a=192.168.1.20%3A46710&a=10.0.0.5%3A46710&fp=abc_-123&c=042913"
         );
+    }
+
+    #[test]
+    fn network_categories_are_parsed() {
+        let out = "Ethernet 12: Public\r\nWi-Fi: Private\r\n\r\nCorp: DomainAuthenticated\r\nWARNING: something\r\n";
+        assert_eq!(
+            parse_categories(out),
+            [
+                "Ethernet 12: Public",
+                "Wi-Fi: Private",
+                "Corp: DomainAuthenticated"
+            ]
+        );
+    }
+
+    /// Asks Windows for real (read-only): whatever it says is in the expected shape.
+    #[cfg(windows)]
+    #[test]
+    fn network_categories_on_this_machine() {
+        for line in network_categories() {
+            assert_eq!(parse_categories(&line), std::slice::from_ref(&line));
+        }
     }
 
     #[test]

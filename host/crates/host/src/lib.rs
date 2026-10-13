@@ -1100,11 +1100,12 @@ impl Host {
         } else {
             "off (adb not found, or turned off)".to_owned()
         };
-        sections.push(diagnostics::network(
-            &settings,
-            Some(&self.addr.to_string()),
-            &usb,
-        ));
+        let mut network = diagnostics::network(&settings, Some(&self.addr.to_string()), &usb);
+        // Public or Private decides whether Windows' firewall lets tablets in.
+        for category in discovery::network_categories() {
+            network.field("network type", category);
+        }
+        sections.push(network);
         let state = self.mcp_state.lock().expect("mcp poisoned").describe();
         sections.push(diagnostics::mcp_section(
             &settings,
