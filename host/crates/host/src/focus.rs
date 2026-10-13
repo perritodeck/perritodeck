@@ -43,6 +43,56 @@ pub fn supported() -> bool {
 /// app means no app again.
 pub const NONE_KEEPS_LAST: bool = cfg!(windows);
 
+/// Decides, one look at a time, when the app in front has changed enough to switch
+/// profiles for.
+#[derive(Debug)]
+pub struct Watch {
+    /// The app the profiles were last switched for.
+    last: Option<String>,
+    /// The last app's newest window seen in front, to notice it going away while no app
+    /// is.
+    last_seen: Option<Foreground>,
+    /// [`NONE_KEEPS_LAST`], except in tests.
+    none_keeps_last: bool,
+}
+
+impl Default for Watch {
+    fn default() -> Self {
+        Self {
+            last: None,
+            last_seen: None,
+            none_keeps_last: NONE_KEEPS_LAST,
+        }
+    }
+}
+
+impl Watch {
+    /// The app last seen in front, to ask whether it has quit while no app is.
+    pub fn last_seen(&self) -> Option<&Foreground> {
+        self.last_seen.as_ref()
+    }
+
+    /// Takes a look at what's in front (`front`), and whether the app last seen has quit
+    /// since (`quit`, asked only while no app is in front). Gives the app to switch
+    /// profiles for when that has changed, `Some(None)` being no app.
+    pub fn change(&mut self, front: Option<Foreground>, quit: bool) -> Option<Option<String>> {
+        // On Windows a moment with no window in front, or the shell, keeps the last app,
+        // unless it has quit.
+        if front.is_none() && self.none_keeps_last && !quit {
+            return None;
+        }
+        let app = front.as_ref().map(|f| f.app.clone());
+        // The newest window seen counts even when the app hasn't changed, so closing an
+        // older one isn't taken for the app going away.
+        self.last_seen = front;
+        if app == self.last {
+            return None;
+        }
+        self.last.clone_from(&app);
+        Some(app)
+    }
+}
+
 /// Windows processes whose windows are the shell rather than an app. Their windows
 /// being in front shouldn't switch profiles.
 const SHELL_PROCESSES: [&str; 17] = [
@@ -406,6 +456,53 @@ mod tests {
         assert!(!is_windows_shell("explorer", "CabinetWClass"));
         assert!(!is_windows_shell("EXPLORER", "ExploreWClass"));
         assert!(!is_windows_shell("obs64", "Qt663QWindowIcon"));
+    }
+
+    fn in_front(app: &str, pid: u32) -> Option<Foreground> {
+        Some(Foreground {
+            app: app.into(),
+            pid: Some(pid),
+        })
+    }
+
+    #[test]
+    fn the_watch_switches_when_the_app_in_front_changes() {
+        let mut watch = Watch {
+            none_keeps_last: true,
+            ..Watch::default()
+        };
+        assert_eq!(
+            watch.change(in_front("obs64", 10), false),
+            Some(Some("obs64".into()))
+        );
+        // Another window of the same app (another process here) isn't a change, but it's
+        // the one to watch now.
+        assert_eq!(watch.change(in_front("obs64", 11), false), None);
+        assert_eq!(watch.last_seen(), in_front("obs64", 11).as_ref());
+        // No app in front (the desktop, the shell, a moment between windows) keeps the
+        // last app...
+        assert_eq!(watch.change(None, false), None);
+        assert_eq!(watch.last_seen(), in_front("obs64", 11).as_ref());
+        // ...until it has quit.
+        assert_eq!(watch.change(None, true), Some(None));
+        assert_eq!(watch.last_seen(), None);
+        assert_eq!(watch.change(None, false), None);
+        assert_eq!(
+            watch.change(in_front("firefox", 20), false),
+            Some(Some("firefox".into()))
+        );
+
+        // Where no app means just that (macOS, Linux), it switches straight away.
+        let mut watch = Watch {
+            none_keeps_last: false,
+            ..Watch::default()
+        };
+        assert_eq!(
+            watch.change(in_front("firefox", 20), false),
+            Some(Some("firefox".into()))
+        );
+        assert_eq!(watch.change(None, false), Some(None));
+        assert_eq!(watch.change(None, false), None);
     }
 
     #[cfg(windows)]
