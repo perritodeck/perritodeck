@@ -11,6 +11,11 @@ use crate::{ActionError, Chord, InputBackend, Key, MediaKey, Modifier, SystemBac
 /// global hotkeys every 25 ms on Windows, and some games and overlays work the same way.
 const KEY_HOLD: Duration = Duration::from_millis(50);
 
+/// The pause between the characters of a text action on Windows. Windows 11 Notepad (a
+/// WinUI text box) drops and repeats characters that arrive less than about 10 ms apart;
+/// classic edit controls take any speed. 100 characters take about 1.5 s.
+const CHAR_PACE: Duration = Duration::from_millis(15);
+
 /// Keyboard input through `enigo`. The connection to the display server is made on
 /// first use, so the host still starts on a machine where input isn't available
 /// (e.g. a headless server); only the action fails.
@@ -57,8 +62,8 @@ fn input_err(e: impl std::fmt::Display) -> ActionError {
     ActionError::Input(e.to_string())
 }
 
-/// Run input work that waits (a held key) without stalling the async runtime: on
-/// tokio's multi-thread runtime the worker first hands its other tasks to another
+/// Run input work that waits (a held key, paced text) without stalling the async runtime:
+/// on tokio's multi-thread runtime the worker first hands its other tasks to another
 /// thread. Elsewhere (no runtime, or a single-threaded one) it just runs.
 fn blocking<T>(f: impl FnOnce() -> T) -> T {
     use tokio::runtime::{Handle, RuntimeFlavor};
@@ -101,6 +106,45 @@ fn press_chord<E: std::fmt::Display>(
         let _ = key(modifier_key(m), Direction::Release);
     }
     result
+}
+
+/// Type `text` through `send` a piece at a time (see [`text_pieces`]), waiting `pace`
+/// between pieces.
+fn type_paced<E: std::fmt::Display>(
+    text: &str,
+    pace: Duration,
+    mut send: impl FnMut(&str) -> Result<(), E>,
+) -> Result<(), ActionError> {
+    // enigo refuses a null character; refuse it before typing anything rather than partway.
+    if text.contains('\0') {
+        return Err(ActionError::Input(
+            "the text contains a null character".into(),
+        ));
+    }
+    for (i, piece) in text_pieces(text).enumerate() {
+        if i > 0 {
+            std::thread::sleep(pace);
+        }
+        send(piece).map_err(input_err)?;
+    }
+    Ok(())
+}
+
+/// Split text into what is typed in one go: a character (both halves of an emoji's UTF-16
+/// pair go together), or "\r\n", which is a single line break.
+fn text_pieces(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        let c = rest.chars().next()?;
+        let len = if rest.starts_with("\r\n") {
+            2
+        } else {
+            c.len_utf8()
+        };
+        let (piece, tail) = rest.split_at(len);
+        rest = tail;
+        Some(piece)
+    })
 }
 
 fn modifier_key(m: Modifier) -> enigo::Key {
@@ -183,7 +227,13 @@ impl InputBackend for EnigoInput {
     }
 
     fn text(&self, text: &str) -> Result<(), ActionError> {
-        self.with(|e| e.text(text).map_err(input_err))
+        if cfg!(windows) {
+            // A character at a time: Windows 11 Notepad and other WinUI text boxes drop
+            // and repeat characters sent in one burst.
+            blocking(|| self.with(|e| type_paced(text, CHAR_PACE, |piece| e.text(piece))))
+        } else {
+            self.with(|e| e.text(text).map_err(input_err))
+        }
     }
 
     fn media(&self, key: MediaKey) -> Result<(), ActionError> {
@@ -296,6 +346,59 @@ mod input_tests {
             keys(&log),
             [(E::Control, Press), (E::F13, Press), (E::Control, Release)]
         );
+    }
+
+    fn pieces(text: &str) -> Vec<&str> {
+        text_pieces(text).collect()
+    }
+
+    #[test]
+    fn text_is_typed_a_piece_at_a_time() {
+        assert_eq!(pieces("ab"), ["a", "b"]);
+        assert_eq!(pieces("é€😀"), ["é", "€", "😀"]);
+        assert_eq!(
+            pieces("a\r\nb\nc\rd\te"),
+            ["a", "\r\n", "b", "\n", "c", "\r", "d", "\t", "e"]
+        );
+        assert_eq!(pieces("\r\r\n\n"), ["\r", "\r\n", "\n"]);
+        assert!(pieces("").is_empty());
+
+        let pace = Duration::from_millis(10);
+        let mut sent = Vec::new();
+        let start = Instant::now();
+        type_paced("hé\r\n!", pace, |s| {
+            sent.push(s.to_owned());
+            Ok::<_, String>(())
+        })
+        .unwrap();
+        assert_eq!(sent, ["h", "é", "\r\n", "!"]);
+        assert!(start.elapsed() >= pace * 3, "paused between pieces");
+    }
+
+    #[test]
+    fn text_with_a_null_character_types_nothing() {
+        let mut sent = 0;
+        let result = type_paced("ab\0c", Duration::ZERO, |_| {
+            sent += 1;
+            Ok::<_, String>(())
+        });
+        assert!(result.is_err());
+        assert_eq!(sent, 0);
+    }
+
+    #[test]
+    fn text_stops_at_the_first_failure() {
+        let mut sent = 0;
+        let result = type_paced("abc", Duration::ZERO, |_| {
+            sent += 1;
+            if sent == 2 {
+                Err("blocked")
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(sent, 2);
     }
 }
 
