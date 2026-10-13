@@ -97,7 +97,7 @@ class FakeObs:
         self.connections = 0
         self.state = {
             "program": "Live", "preview": None, "studio": False, "streaming": False, "recording": False,
-            "stream_bytes": 0, "available": list(ALL_REQUESTS),
+            "stream_bytes": 0, "stream_skipped": 0, "available": list(ALL_REQUESTS),
         }
         self.handlers = {}
         self.running = True
@@ -238,8 +238,8 @@ class FakeObs:
         active = self.state["streaming"]
         return {"outputActive": active, "outputReconnecting": False,
                 "outputTimecode": "00:01:02.345" if active else "00:00:00.000", "outputDuration": 62345,
-                "outputCongestion": 0, "outputBytes": self.state["stream_bytes"], "outputSkippedFrames": 0,
-                "outputTotalFrames": 100}
+                "outputCongestion": 0, "outputBytes": self.state["stream_bytes"],
+                "outputSkippedFrames": self.state["stream_skipped"], "outputTotalFrames": 400 if active else 0}
 
     def on_GetRecordStatus(self, d):
         active = self.state["recording"]
@@ -613,8 +613,8 @@ class ActionTest(PluginTest):
             (obs.send_request, {"request": "GetVersion"}, [("GetVersion", None)]),
             (obs.send_request, {"request": "SetCurrentProgramScene", "data": '{"sceneName": "A"}'},
              [("SetCurrentProgramScene", {"sceneName": "A"})]),
-            (obs.send_request_value, {"request": "SetInputVolume", "data": '{"inputName": "Mic", "inputVolumeDb": {value}}', "value": 37},
-             [("SetInputVolume", {"inputName": "Mic", "inputVolumeDb": 37})]),
+            (obs.send_request_value, {"request": "SetInputAudioSyncOffset", "data": '{"inputName": "Mic", "inputAudioSyncOffset": {value}}', "value": 37},
+             [("SetInputAudioSyncOffset", {"inputName": "Mic", "inputAudioSyncOffset": 37})]),
             (obs.send_request_value, {"request": "SetInputVolume", "data": '{"inputName": "Mic", "inputVolumeMul": {mul}}', "value": 50},
              [("SetInputVolume", {"inputName": "Mic", "inputVolumeMul": 0.25})]),
         ]
@@ -672,6 +672,46 @@ class ActionTest(PluginTest):
         self.server.handlers["SaveReplayBuffer"] = disabled
         with self.assertRaisesRegex(RuntimeError, "replay buffer is turned off"):
             self.run_action(obs.replay_buffer, {"mode": "save"})
+
+        # What OBS actually answers when the replay buffer is turned off in its settings.
+        def not_available(d):
+            raise Fail(604, "Replay buffer is not available.")
+        self.server.handlers["ToggleReplayBuffer"] = not_available
+        with self.assertRaisesRegex(RuntimeError, r"replay buffer is turned off in OBS \(Settings → Output"):
+            self.run_action(obs.replay_buffer, {"mode": "toggle"})
+
+        # Other 604s are OBS's own words.
+        def busy(d):
+            raise Fail(604, "Not now.")
+        self.server.handlers["StartVirtualCam"] = busy
+        with self.assertRaisesRegex(RuntimeError, "OBS: Not now."):
+            self.run_action(obs.virtualcam, {"mode": "start"})
+
+    def test_refusals_without_a_comment_are_explained_like_the_built_in_obs(self):
+        def missing(d):
+            raise Fail(600)
+        self.server.handlers["SetCurrentProgramScene"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS: there's no scene called “Gone”$"):
+            self.run_action(obs.switch_scene, {"scene": "Gone"})
+        self.server.handlers["ToggleInputMute"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS: there's no source called “Mic”$"):
+            self.run_action(obs.mute, {"input": "Mic"})
+
+        def busy(d):
+            raise Fail(604)
+        self.server.handlers["StartVirtualCam"] = busy
+        with self.assertRaisesRegex(RuntimeError, "^OBS: it can't do that right now$"):
+            self.run_action(obs.virtualcam, {"mode": "start"})
+
+        # A request naming a scene and a source doesn't say which was missing.
+        self.assertEqual(
+            str(obs.ObsError("GetSceneItemId", 600, None, {"sceneName": "Main", "sourceName": "Cam"})),
+            "OBS: it couldn't find that",
+        )
+        self.assertEqual(str(obs.ObsError("GetInputVolume", 600)), "OBS: it couldn't find that")
+        # OBS's own words come first, and codes without a plain message keep the number.
+        self.assertEqual(str(obs.ObsError("StartVirtualCam", 604, "Not now.")), "OBS: Not now.")
+        self.assertEqual(str(obs.ObsError("SplitRecordFile", 702)), "OBS refused SplitRecordFile (error 702)")
 
     def test_request_failure_includes_obs_comment(self):
         with self.assertRaisesRegex(RuntimeError, "OBS: No source was found by the name of `Nope`."):
@@ -961,14 +1001,18 @@ class ValueTest(PluginTest):
         self.value("fps", "60")
         self.value("cpu", "3.1")
         self.value("memory", "513")
-        self.value("dropped_frames", "0.3")  # (1 + 2) / (900 + 100)
+        self.value("dropped_frames", "0.3")  # (1 + 2) / (900 + 100), rendering and encoding
+        self.value("network_dropped_frames", "0")  # not streaming
         self.value("stream_time", "00:00:00")
         self.value("bitrate", "0")
         self.server.state["streaming"] = True
         self.server.state["recording"] = True
         self.server.state["stream_bytes"] = 1_000_000
+        self.server.state["stream_skipped"] = 6
         obs.poll()
         self.value("streaming", "on")
+        self.value("network_dropped_frames", "1.5")  # 6 / 400, from GetStreamStatus
+        self.value("dropped_frames", "0.3")
         self.value("stream_time", "00:01:02")
         self.value("record_time", "01:00:00")
         clock[0] += 2.0

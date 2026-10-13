@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.obs",
   "name": "OBS Studio",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Control OBS Studio 28 or newer: scenes, streaming, recording, audio, sources, filters, screenshots and more, with live status on your keys.",
   "author": "PerritoDeck contributors",
   "runtime": "python",
@@ -643,7 +643,7 @@
           "id": "data",
           "label": "Request data as JSON",
           "type": "text",
-          "placeholder": "{\"inputName\": \"Mic/Aux\", \"inputVolumeDb\": {value}}"
+          "placeholder": "{\"inputName\": \"Mic/Aux\", \"inputVolumeMul\": {mul}}"
         }
       ]
     }
@@ -719,7 +719,11 @@
     },
     {
       "id": "dropped_frames",
-      "name": "Skipped frames (%)"
+      "name": "Skipped frames, rendering and encoding (%)"
+    },
+    {
+      "id": "network_dropped_frames",
+      "name": "Dropped frames, network (%)"
     },
     {
       "id": "bitrate",

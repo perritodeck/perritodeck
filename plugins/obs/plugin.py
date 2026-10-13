@@ -59,7 +59,7 @@ CLOSE_SESSION_INVALIDATED = 4011
 UNKNOWN_REQUEST_TYPE = 204
 OUTPUT_RUNNING, OUTPUT_NOT_RUNNING, OUTPUT_PAUSED, OUTPUT_NOT_PAUSED = 500, 501, 502, 503
 OUTPUT_DISABLED, STUDIO_MODE_ACTIVE, STUDIO_MODE_NOT_ACTIVE = 504, 505, 506
-RESOURCE_NOT_FOUND = 600
+RESOURCE_NOT_FOUND, INVALID_RESOURCE_STATE = 600, 604
 FRIENDLY = {
     UNKNOWN_REQUEST_TYPE: "this version of OBS doesn't support that; update OBS",
     OUTPUT_RUNNING: "it's already running",
@@ -69,7 +69,20 @@ FRIENDLY = {
     OUTPUT_DISABLED: "it's turned off in OBS's settings",
     STUDIO_MODE_ACTIVE: "Studio Mode is on",
     STUDIO_MODE_NOT_ACTIVE: "Studio Mode is off",
+    RESOURCE_NOT_FOUND: "it couldn't find that",
+    INVALID_RESOURCE_STATE: "it can't do that right now",
 }
+
+
+def friendly(code, data=None):
+    """What a refusal OBS sent without a comment means, worded as the host's built-in OBS
+    support words it. A missing scene or source is named when the request names just one."""
+    if code == RESOURCE_NOT_FOUND and isinstance(data, dict):
+        named = [(k, data[k]) for k in ("sceneName", "inputName", "sourceName") if isinstance(data.get(k), str) and data[k]]
+        if len(named) == 1:
+            key, name = named[0]
+            return f"there's no {'scene' if key == 'sceneName' else 'source'} called “{name}”"
+    return FRIENDLY.get(code)
 
 # ---------------------------------------------------------------------------
 # WebSocket client (RFC 6455): handshake, masked frames, fragments, ping/pong, close.
@@ -319,12 +332,13 @@ def auth_string(password, salt, challenge):
 class ObsError(RuntimeError):
     """OBS answered a request with a failure."""
 
-    def __init__(self, request_type, code, comment=None):
+    def __init__(self, request_type, code, comment=None, data=None):
         self.request_type, self.code, self.comment = request_type, code, comment
+        plain = None if comment else friendly(code, data)
         if comment:
             text = f"OBS: {comment}"
-        elif code in FRIENDLY:
-            text = f"OBS: {FRIENDLY[code]}"
+        elif plain:
+            text = f"OBS: {plain}"
         else:
             text = f"OBS refused {request_type} (error {code})"
         super().__init__(text)
@@ -622,7 +636,7 @@ class Obs:
         )
         status = response.get("requestStatus") or {}
         if not status.get("result"):
-            raise ObsError(request_type, status.get("code"), status.get("comment"))
+            raise ObsError(request_type, status.get("code"), status.get("comment"), data)
         return response.get("responseData") or {}
 
     def batch(self, requests, timeout=TIMEOUT, wait=None, drop_on_timeout=False):
@@ -648,7 +662,7 @@ class Obs:
             if status.get("result"):
                 results[index] = r.get("responseData") or {}
             else:
-                results[index] = ObsError(requests[index][0], status.get("code"), status.get("comment"))
+                results[index] = ObsError(requests[index][0], status.get("code"), status.get("comment"), requests[index][1])
         return results
 
 
@@ -697,7 +711,7 @@ def split_pair(arg):
 FIXED_VALUES = [
     "connected", "scene", "preview_scene", "studio_mode", "streaming", "recording", "record_paused",
     "replay_buffer", "virtualcam", "transition", "profile", "scene_collection", "stream_time",
-    "record_time", "fps", "cpu", "memory", "dropped_frames", "bitrate",
+    "record_time", "fps", "cpu", "memory", "dropped_frames", "network_dropped_frames", "bitrate",
 ]
 ARG_VALUES = [
     "scene_active", "scene_preview", "muted", "volume", "volume_db", "item_visible", "filter_enabled",
@@ -728,7 +742,7 @@ class Live:
             self.s = {k: None for k in ("program", "preview", "studio", "streaming", "recording", "paused",
                                          "replay", "virtualcam", "transition", "profile", "collection",
                                          "stream_time", "record_time", "fps", "cpu", "memory", "dropped",
-                                         "bitrate")}
+                                         "net_dropped", "bitrate")}
             self.available = None
             self.muted, self.volume, self.texts, self.media = {}, {}, {}, {}
             self.items, self.filters = {}, {}  # arg -> bool/None
@@ -792,6 +806,7 @@ class Live:
             "cpu": number(s["cpu"]),
             "memory": number(s["memory"], 0),
             "dropped_frames": number(s["dropped"]),
+            "network_dropped_frames": number(s["net_dropped"]),
             "bitrate": number(s["bitrate"], 0),
         }
 
@@ -1071,11 +1086,15 @@ class Live:
                 s["fps"] = stats.get("activeFps")
                 s["cpu"] = stats.get("cpuUsage")
                 s["memory"] = stats.get("memoryUsage")
+                # Frames OBS skipped because rendering or encoding fell behind (its own load).
                 skipped = (stats.get("renderSkippedFrames") or 0) + (stats.get("outputSkippedFrames") or 0)
                 total = (stats.get("renderTotalFrames") or 0) + (stats.get("outputTotalFrames") or 0)
                 s["dropped"] = 100.0 * skipped / total if total else 0
             if isinstance(stream, dict):
                 active = bool(stream.get("outputActive"))
+                # Frames the stream output dropped because the network couldn't keep up.
+                skipped, total = stream.get("outputSkippedFrames") or 0, stream.get("outputTotalFrames") or 0
+                s["net_dropped"] = 100.0 * skipped / total if active and total else 0
                 s["streaming"] = active
                 s["stream_time"] = timecode(stream.get("outputTimecode")) if active else "00:00:00"
                 sent = stream.get("outputBytes") or 0
@@ -1360,7 +1379,9 @@ def replay_buffer(settings):
     try:
         return output_action(mode, modes, "running the replay buffer")
     except RuntimeError as e:
-        if "turned off" in str(e):
+        # 504 comes back from output_action as "turned off"; OBS answers 604 "Replay buffer
+        # is not available." when the buffer is turned off in its settings.
+        if "turned off" in str(e) or getattr(e, "code", None) == INVALID_RESOURCE_STATE:
             raise RuntimeError("the replay buffer is turned off in OBS (Settings → Output → Replay Buffer)") from None
         raise
 

@@ -57,18 +57,22 @@ the plugin is talking to OBS.
 | Switch scene collection | Scene collection | `SetCurrentSceneCollection` |
 | Send a caption on the stream | Caption | `SendStreamCaption` (CEA-608) |
 | Send any request (advanced) | Request type, request data as JSON | Any request from the [protocol](https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md); the answer goes to the value `last_response` |
-| Send any request with the slider's value (advanced, **slider**) | Request type, data with `{value}` (0–100) or `{mul}` (the volume multiplier) | e.g. `SetInputVolume` with `{"inputName": "Mic/Aux", "inputVolumeDb": {value}}` |
+| Send any request with the slider's value (advanced, **slider**) | Request type, data with `{value}` (0–100) or `{mul}` (the volume multiplier) | e.g. `SetInputVolume` with `{"inputName": "Mic/Aux", "inputVolumeMul": {mul}}`. Mind OBS's ranges: `{value}` is 0–100, which doesn't fit `inputVolumeDb` (-100 to 26) |
 
 "Already streaming", "isn't recording" and similar flash a warning rather than an
-error. When OBS refuses a request, the key shows OBS's own explanation. Names (scenes,
-sources, filters) must match OBS exactly, including capital letters.
+error. When OBS refuses a request, the key shows OBS's own explanation, or a plain one
+when OBS gives none. A replay buffer action while the replay buffer is turned off in
+OBS's settings says so. Names (scenes, sources, filters) must match OBS exactly,
+including capital letters.
 
 ## Values
 
 Titles show a value with `{plugin:dev.perritodeck.obs:<value>}`, or
 `{plugin:dev.perritodeck.obs:<value>:<argument>}` for the ones that take an argument.
 On/off values are `on` or `off`, so toggles can follow them; `–` means unknown (OBS
-isn't connected, or the name wasn't found).
+isn't connected, or the name wasn't found). A toggle follows the same name without the
+braces (*Choose a value to follow* in the editor fills it in); typed with braces works
+too.
 
 | Value | Shows |
 |---|---|
@@ -82,7 +86,8 @@ isn't connected, or the name wasn't found).
 | `fps` | Frames per second OBS renders |
 | `cpu` | OBS's CPU use, in % |
 | `memory` | OBS's memory use, in MB |
-| `dropped_frames` | Frames skipped while rendering and encoding, in % of all frames |
+| `dropped_frames` | Frames OBS skipped because rendering or encoding fell behind (the computer's load), in % of all frames |
+| `network_dropped_frames` | Frames the stream dropped because the network couldn't keep up, in % of the frames sent while streaming (`0` when not streaming) |
 | `bitrate` | Stream bitrate in kbps (from the bytes sent between two polls) |
 | `last_response` | The answer to the last *Send any request* (JSON, up to 500 characters) |
 | `scene_active:<scene>` | `on` while that scene is live |
@@ -104,20 +109,22 @@ Spaces around the separator are ignored.
 
 - A recording key: action *Recording → Start or stop*, title
   `REC {plugin:dev.perritodeck.obs:record_time}`, toggle follows
-  `{plugin:dev.perritodeck.obs:recording}`.
+  `plugin:dev.perritodeck.obs:recording`.
 - A scene key that lights up when live: *Switch scene → Gaming*, toggle follows
-  `{plugin:dev.perritodeck.obs:scene_active:Gaming}`.
+  `plugin:dev.perritodeck.obs:scene_active:Gaming`.
 - A mic mute key: *Mute an audio source → Mic/Aux*, toggle follows
-  `{plugin:dev.perritodeck.obs:muted:Mic/Aux}`, title `Mic {plugin:dev.perritodeck.obs:volume_db:Mic/Aux} dB`.
+  `plugin:dev.perritodeck.obs:muted:Mic/Aux`, title `Mic {plugin:dev.perritodeck.obs:volume_db:Mic/Aux} dB`.
   (Audio source names may contain `/`; arguments for `muted`, `volume`, `volume_db`,
   `input_text` and `media_playing` are the whole name.)
-- A music slider: *Volume of an audio source → Desktop Audio*, slider follows
-  `{plugin:dev.perritodeck.obs:volume:Desktop Audio}`.
+- A music slider: *Volume of an audio source → Desktop Audio*; under *The slider
+  follows* choose *Source volume (0–100)* and type `Desktop Audio`. (In a profile file:
+  `follow = "volume:Desktop Audio"`.)
 - A webcam key: *Show or hide a source → Webcam* (scene blank), toggle follows
-  `{plugin:dev.perritodeck.obs:item_visible:Gaming/Webcam}`.
+  `plugin:dev.perritodeck.obs:item_visible:Gaming/Webcam`.
 - A stats key: `{plugin:dev.perritodeck.obs:fps} fps · {plugin:dev.perritodeck.obs:cpu}% · {plugin:dev.perritodeck.obs:bitrate} kbps`.
+- A stream health key: `Drops {plugin:dev.perritodeck.obs:network_dropped_frames}%`.
 - A blur filter key: *Turn a filter on or off → Webcam / Blur*, toggle follows
-  `{plugin:dev.perritodeck.obs:filter_enabled:Webcam/Blur}`.
+  `plugin:dev.perritodeck.obs:filter_enabled:Webcam/Blur`.
 
 ## Good to know
 
@@ -126,15 +133,18 @@ Spaces around the separator are ignored.
   the Pictures folder of this computer (Windows: the Pictures known folder; Linux:
   `XDG_PICTURES_DIR`; macOS: `~/Pictures`).
 - **Transition now** only works in Studio Mode; otherwise it warns.
-- **Statistics** (`fps`, `cpu`, `memory`, `dropped_frames`, `bitrate`, timecodes) are
-  polled every 2 s with one batched request while connected. The host doesn't say
-  which values without an argument are on screen, so this happens whether or not a
-  key shows them.
+- **Statistics** (`fps`, `cpu`, `memory`, `dropped_frames`, `network_dropped_frames`,
+  `bitrate`, timecodes) are polled every 2 s with one batched request while connected.
+  The host doesn't say which values without an argument are on screen, so this happens
+  whether or not a key shows them.
 - If OBS kicks PerritoDeck from its session list, the plugin doesn't reconnect by
   itself (as obs-websocket asks); pressing any OBS key or changing the settings does.
 - Stream markers (as on Twitch) aren't offered: obs-websocket 5 has no request for them.
-- The built-in OBS integration in PerritoDeck (a few actions with no live values) works
-  independently of this plugin; you can use either or both.
+- The built-in OBS integration in PerritoDeck (set up in `integrations.toml`: ten
+  actions, a volume slider and the live values `{obs:scene}`, `{obs:recording}` and
+  `{obs:streaming}`, read every 2 seconds) works independently of this plugin; you can
+  use either or both. This plugin updates the moment OBS reports a change and does much
+  more.
 
 ## What's tested and what isn't
 
