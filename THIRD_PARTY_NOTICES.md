@@ -4,8 +4,10 @@
 
 PerritoDeck is licensed under Apache-2.0 (see [LICENSE](LICENSE)); the plugin SDKs
 and first-party plugins in `plugins/` are MIT (see [plugins/LICENSE](plugins/LICENSE)).
-It is built on the open-source work listed below. Release bundles carry the full
-licence texts (`third-party-licenses.txt`, from `--full`).
+It is built on the open-source work listed below. The full licence texts are in
+`third-party-licenses.txt` (made with `--full`), which the GitHub release, the
+command-line archives and the desktop installers carry. The Android app doesn't
+carry it yet.
 
 No dependency is GPL, AGPL or LGPL-only. Copyleft-adjacent items, all used
 unmodified unless noted:

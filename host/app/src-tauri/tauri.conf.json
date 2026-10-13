@@ -44,6 +44,7 @@
       "icons/icon.ico"
     ],
     "resources": {
+      "../../../plugins/LICENSE": "plugins/LICENSE",
       "../../../plugins/audio/": "plugins/audio/",
       "../../../plugins/clipboard/": "plugins/clipboard/",
       "../../../plugins/clock/": "plugins/clock/",

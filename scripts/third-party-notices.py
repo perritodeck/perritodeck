@@ -14,9 +14,14 @@ Sources:
 - Android, fonts, icons and vendored code: the hand-kept tables in this file. Update
   ANDROID when android/gradle/libs.versions.toml changes.
 
-The --full file collects LICENSE/COPYING/NOTICE files, de-duplicated, for the release
-bundles (MIT, BSD and Apache-2.0 NOTICE terms need the actual texts to travel with the
-binaries). Standard library only.
+The --full file collects LICENSE/COPYING/NOTICE files, de-duplicated, as
+third-party-licenses.txt for the GitHub release, the command-line archives and the
+desktop installers (MIT, BSD and Apache-2.0 NOTICE terms need the actual texts to travel
+with the binaries). The Android app doesn't carry it yet. Both outputs are byte-for-byte
+the same on every run with the same inputs: packages and texts are visited in sorted
+order, and of several copies of one text that differ only in whitespace the smallest is
+kept, so the file doesn't change between re-runs of the release job. Standard library
+only.
 """
 
 import argparse
@@ -73,7 +78,8 @@ OTHER = [
      "MIT", "Upstream authors are listed in host/vendor/enigo/Cargo.toml; licence in host/vendor/enigo/LICENSE; changes described in host/vendor/enigo/PERRITODECK.md."),
 ]
 
-LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|notice|copyright|unlicense)", re.I)
+# OFL.txt is how fonts ship their licence (the Inter font the host embeds, for one).
+LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|notice|copyright|unlicense|ofl)", re.I)
 
 
 def cargo_metadata(manifest):
@@ -86,7 +92,8 @@ def cargo_metadata(manifest):
 
 
 def shipped_rust_packages(meta):
-    """Packages reachable from workspace members through normal or build edges."""
+    """Packages reachable from workspace members through normal or build edges, sorted
+    by name, version and id (never in set order, which changes with PYTHONHASHSEED)."""
     pkgs = {p["id"]: p for p in meta["packages"]}
     nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
     seen, stack = set(), list(meta["workspace_members"])
@@ -100,7 +107,8 @@ def shipped_rust_packages(meta):
             if kinds & {None, "build"}:
                 stack.append(dep["pkg"])
     members = set(meta["workspace_members"])
-    return [pkgs[i] for i in seen if i not in members]
+    return sorted((pkgs[i] for i in seen if i not in members),
+                  key=lambda p: (p["name"], p["version"], p["id"]))
 
 
 def rust_license(p):
@@ -139,8 +147,10 @@ def build(metas):
         "",
         "PerritoDeck is licensed under Apache-2.0 (see [LICENSE](LICENSE)); the plugin SDKs",
         "and first-party plugins in `plugins/` are MIT (see [plugins/LICENSE](plugins/LICENSE)).",
-        "It is built on the open-source work listed below. Release bundles carry the full",
-        "licence texts (`third-party-licenses.txt`, from `--full`).",
+        "It is built on the open-source work listed below. The full licence texts are in",
+        "`third-party-licenses.txt` (made with `--full`), which the GitHub release, the",
+        "command-line archives and the desktop installers carry. The Android app doesn't",
+        "carry it yet.",
         "",
         "No dependency is GPL, AGPL or LGPL-only. Copyleft-adjacent items, all used",
         "unmodified unless noted:",
@@ -158,9 +168,8 @@ def build(metas):
         "",
     ]
     for title, meta in metas:
-        pkgs = sorted(shipped_rust_packages(meta), key=lambda p: (p["name"], p["version"]))
         rows = []
-        for p in pkgs:
+        for p in shipped_rust_packages(meta):
             if p["name"].startswith("perritodeck-"):
                 continue
             src = "vendored" if p.get("source") is None else ""
@@ -201,8 +210,11 @@ def build(metas):
 
 
 def license_texts(metas):
-    """Map text hash -> (text, set of package labels)."""
-    texts = {}
+    """List of (text, set of package labels), one per distinct text, in output order.
+
+    Texts that differ only in whitespace count as one; the smallest variant is kept,
+    so which one appears doesn't depend on the order packages are visited in."""
+    texts = {}  # whitespace-normalised hash -> (set of variants, set of labels)
 
     def add(label, folder):
         folder = Path(folder)
@@ -215,17 +227,22 @@ def license_texts(metas):
                 except OSError:
                     continue
                 key = hashlib.sha256(re.sub(r"\s+", " ", t).encode()).hexdigest()
-                texts.setdefault(key, [t, set()])[1].add(label)
+                variants, labels = texts.setdefault(key, (set(), set()))
+                variants.add(t)
+                labels.add(label)
 
     for _, meta in metas:
         for p in shipped_rust_packages(meta):
             if not p["name"].startswith("perritodeck-"):
                 add(f'{p["name"]} {p["version"]}', Path(p["manifest_path"]).parent)
     nm = NPM_LOCK.parent / "node_modules"
-    for name, (ver, _, _) in npm_packages().items():
+    for name, (ver, _, _) in sorted(npm_packages().items()):
         add(f"{name} {ver} (npm)", nm / name)
     add("Inter font", ROOT / "host" / "crates" / "render" / "assets")
-    return texts
+    # Sorted by first label, then by the text itself: one package often has several texts
+    # (LICENSE-APACHE and LICENSE-MIT), which share that first label.
+    return sorted(((min(variants), labels) for variants, labels in texts.values()),
+                  key=lambda x: (sorted(x[1])[0], x[0]))
 
 
 def write_full(metas, path):
@@ -236,14 +253,14 @@ def write_full(metas, path):
         "",
     ]
     texts = license_texts(metas)
-    covered = set().union(*(labels for _, labels in texts.values())) if texts else set()
+    covered = set().union(*(labels for _, labels in texts))
     missing = []
     for _, meta in metas:
         for p in shipped_rust_packages(meta):
             label = f'{p["name"]} {p["version"]}'
             if not p["name"].startswith("perritodeck-") and label not in covered:
                 missing.append(f"{label}: {rust_license(p)}")
-    for t, labels in sorted(texts.values(), key=lambda x: sorted(x[1])[0]):
+    for t, labels in texts:
         out += ["=" * 78, "Used by: " + ", ".join(sorted(labels)), "-" * 78, t, ""]
     if missing:
         out += [
@@ -257,7 +274,8 @@ def write_full(metas, path):
         ]
     out += ["=" * 78, "Apache License 2.0 (Android libraries, and the crates above that name it)",
             "-" * 78, (ROOT / "LICENSE").read_text(encoding="utf-8").strip(), ""]
-    Path(path).write_text("\n".join(out), encoding="utf-8")
+    # "\n" on every OS, so a file made on Windows matches one made by the release job.
+    Path(path).write_text("\n".join(out), encoding="utf-8", newline="\n")
     print(f"wrote {path} ({len(texts)} distinct texts, {len(set(missing))} crates without a licence file)")
 
 
