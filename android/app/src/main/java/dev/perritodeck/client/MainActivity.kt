@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -14,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import dev.perritodeck.client.scan.ScanScreen
@@ -136,15 +138,25 @@ private fun DeckOrientation(cols: Int?, rows: Int?) {
 @Composable
 private fun DeckMode() {
     val view = LocalView.current
-    DisposableEffect(view) {
-        val window = (view.context as Activity).window
-        val controller = WindowCompat.getInsetsController(window, view)
+    val window = (view.context as Activity).window
+    val controller = remember(view) { WindowCompat.getInsetsController(window, view) }
+    val hideBars = {
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.hide(WindowInsetsCompat.Type.systemBars())
+    }
+    DisposableEffect(view) {
+        hideBars()
+        // Before Android 11 (Fire OS 7 is Android 9) hidden bars come back for good once
+        // the window loses focus: the lock screen, the notification shade, a dialog.
+        val refocus = ViewTreeObserver.OnWindowFocusChangeListener { focused -> if (focused) hideBars() }
+        view.viewTreeObserver.addOnWindowFocusChangeListener(refocus)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
+            view.viewTreeObserver.removeOnWindowFocusChangeListener(refocus)
             controller.show(WindowInsetsCompat.Type.systemBars())
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
+    // Turning the screen (see DeckOrientation) can bring them back too.
+    LaunchedEffect(LocalConfiguration.current.orientation) { hideBars() }
 }
