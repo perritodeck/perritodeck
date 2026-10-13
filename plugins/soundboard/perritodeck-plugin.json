@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.soundboard",
   "name": "Soundboard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Play sound files (WAV, MP3 and more) from a key, and stop them again. Uses the players your computer already has.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

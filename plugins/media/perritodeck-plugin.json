@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.media",
   "name": "Now playing",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Show what's playing (Spotify, Music, a browser or another media player) and play, pause or skip it. Works on Windows, macOS and Linux. On Linux it needs playerctl.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

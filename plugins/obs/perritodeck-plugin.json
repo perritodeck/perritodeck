@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.obs",
   "name": "OBS Studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Control OBS Studio 28 or newer: scenes, streaming, recording, audio, sources, filters, screenshots and more, with live status on your keys.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

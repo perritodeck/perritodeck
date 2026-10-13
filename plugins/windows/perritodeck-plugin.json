@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.windows",
   "name": "Windows and apps",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Switch to an app (or open it), minimize, maximize, close or quit it, show the desktop, and show which app is in front. Windows, macOS and Linux (X11, Sway, Hyprland).",
   "author": "PerritoDeck contributors",
   "runtime": "python",

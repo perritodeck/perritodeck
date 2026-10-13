@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.hue",
   "name": "Philips Hue",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Turn Hue lights and rooms on and off, dim them, change their colour and start scenes, through the Hue Bridge on your network.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

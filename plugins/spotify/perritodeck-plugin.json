@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.spotify",
   "name": "Spotify",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Play, pause, skip, like and change the volume in Spotify on any of your devices, and show what's playing. Uses your Spotify account; controlling playback needs Spotify Premium.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.clock",
   "name": "Clocks",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The time and date here or anywhere in the world, countdowns, days until a date and the week number.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

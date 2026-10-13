@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.wol",
   "name": "Wake-on-LAN",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Switch on a computer or server on your network with a key press. Wake-on-LAN must be turned on in its BIOS or network settings.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

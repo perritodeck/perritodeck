@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.mqtt",
   "name": "MQTT",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Publish an MQTT message when a key is pressed or a slider moves (Mosquitto, Zigbee2MQTT, Tasmota, Home Assistant).",
   "author": "PerritoDeck contributors",
   "runtime": "python",

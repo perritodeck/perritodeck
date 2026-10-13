@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.counter",
   "name": "Counters",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Count things with a key press: deaths on stream, laps, cups of coffee. Counts are kept, and can be written to a text file for OBS.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

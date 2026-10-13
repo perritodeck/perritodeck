@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.screenshot",
   "name": "Screenshot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Take a screenshot of the whole screen, an area you pick or the window in front, save it with the date and time in its name, and copy it to the clipboard if you like.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

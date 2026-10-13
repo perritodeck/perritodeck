@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.uptime",
   "name": "Is it up?",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shows whether your servers and web services answer: a web address, a host and port, or just a host name.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

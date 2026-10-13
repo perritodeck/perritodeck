@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.http",
   "name": "HTTP requests",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Call a web address when a key is pressed or a slider moves: webhooks, REST APIs, smart plugs.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

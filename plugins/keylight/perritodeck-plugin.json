@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.keylight",
   "name": "Elgato Key Light",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Turn lights for Elgato Key Light, Key Light Air and Ring Light on and off, and set their brightness and shade of white, over your network.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

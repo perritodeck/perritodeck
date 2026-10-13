@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.weather",
   "name": "Weather",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Current weather and today's forecast for any place, from Open-Meteo. Free, no account needed.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

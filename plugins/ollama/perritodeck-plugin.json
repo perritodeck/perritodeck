@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.ollama",
   "name": "Ollama",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Load, unload and pull local AI models in Ollama, and ask one a question from a key.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.clipboard",
   "name": "Clipboard snippets",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Paste a saved piece of text with one press, and keep numbered slots you can save the clipboard into and paste back later.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

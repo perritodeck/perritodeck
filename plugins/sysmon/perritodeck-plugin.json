@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.sysmon",
   "name": "System monitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shows CPU, memory, disk, network, GPU, temperatures, uptime and battery on keys and sliders, updated every 2 seconds.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

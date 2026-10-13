@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.proxmox",
   "name": "Proxmox VE",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Start, shut down and watch Proxmox virtual machines and containers.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.gitlab",
   "name": "GitLab",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Run, retry and watch GitLab CI/CD pipelines; count open merge requests and issues. Works with gitlab.com and your own GitLab.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

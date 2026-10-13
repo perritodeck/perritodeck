@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.truenas",
   "name": "TrueNAS",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Watch TrueNAS pools, alerts and apps, start and stop apps, and run scrubs and backup tasks.",
   "author": "PerritoDeck contributors",
   "runtime": "python",

@@ -1,7 +1,7 @@
 {
   "id": "dev.perritodeck.timer",
   "name": "Timers",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Countdown timers, stopwatches and a Pomodoro timer on your keys. They keep going if the app restarts.",
   "author": "PerritoDeck contributors",
   "runtime": "python",
