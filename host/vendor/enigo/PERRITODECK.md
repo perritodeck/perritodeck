@@ -24,6 +24,12 @@ Windows:
   (classic edit controls, Tk) got two line breaks or two tabs. `"\r\n"` is one Return and a
   lone `'\r'` is a Return; upstream sent no key for `'\r'` but a U+000D character, so a
   CRLF line end could come out as three line breaks.
+- `src/win/win_impl.rs` (`queue_key`): when `MapVirtualKeyExW(.., MAPVK_VK_TO_VSC_EX)`
+  returns a scan code with the `0xE0` prefix (the Windows and Menu keys, media, volume and
+  browser keys), the key is sent with `KEYEVENTF_EXTENDEDKEY` and the one-byte scan code,
+  as a keyboard sends it. Upstream put the prefix in `wScan` without the flag, so programs
+  that read scan codes from a low-level hook saw a non-extended key. Keys are still
+  delivered by virtual key, so this changes nothing for ordinary apps.
 
 Build:
 

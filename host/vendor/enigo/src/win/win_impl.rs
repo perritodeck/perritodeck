@@ -458,7 +458,7 @@ impl Enigo {
                 "This should never happen. There is a bug in the implementation".to_string(),
             ));
         };
-        let scan = Enigo::translate_key(vk.0, MAPVK_VK_TO_VSC_EX)?; // Translate virtual key to scan code
+        let mut scan = Enigo::translate_key(vk.0, MAPVK_VK_TO_VSC_EX)?; // Translate virtual key to scan code
 
         let mut keyflags = KEYBD_EVENT_FLAGS::default();
 
@@ -470,6 +470,15 @@ impl Enigo {
 
         if Enigo::is_extended_key(vk) {
             keyflags |= KEYEVENTF_EXTENDEDKEY;
+        }
+        // PerritoDeck: MAPVK_VK_TO_VSC_EX puts an extended key's 0xE0 prefix in the high byte
+        // (0xE05B for VK_LWIN, 0xE022 for VK_MEDIA_PLAY_PAUSE). A keyboard sends those as the
+        // extended flag and the one-byte scan code, so send them the same way; programs that
+        // read scan codes (low-level hooks such as PowerToys or AutoHotkey) saw a plain key.
+        // Pause's 0xE1 prefix has no flag and is left alone.
+        if scan & 0xFF00 == 0xE000 {
+            keyflags |= KEYEVENTF_EXTENDEDKEY;
+            scan &= 0x00FF;
         }
 
         if direction == Direction::Click || direction == Direction::Press {
