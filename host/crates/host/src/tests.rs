@@ -1258,6 +1258,14 @@ async fn the_bridge_keeps_working_after_a_new_token_or_port() {
 }
 
 #[test]
+fn usb_needs_a_host_listening_where_adb_arrives() {
+    assert!(crate::usb_reaches("0.0.0.0".parse().unwrap()));
+    assert!(crate::usb_reaches("::".parse().unwrap()));
+    assert!(crate::usb_reaches("127.0.0.1".parse().unwrap()));
+    assert!(!crate::usb_reaches("192.168.1.60".parse().unwrap()));
+}
+
+#[test]
 fn plugins_declare_their_values() {
     let manifest = perritodeck_plugins::Manifest::parse(
         &serde_json::json!({

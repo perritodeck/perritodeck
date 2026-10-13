@@ -120,6 +120,12 @@ pub fn default_data_dir() -> Result<PathBuf> {
         .context("could not find a settings folder for this user")
 }
 
+/// Whether tablets on a USB cable reach a host listening on `listen`: adb's tunnel
+/// arrives at 127.0.0.1, so it takes every address or the loopback one.
+pub fn usb_reaches(listen: IpAddr) -> bool {
+    listen.is_unspecified() || listen.is_loopback()
+}
+
 /// The live values installed plugins declare, as the deck matches them:
 /// `plugin:<id>:<value>`, with a trailing `:` for values that take an argument.
 pub fn declared_plugin_values(plugins: &[PluginInfo]) -> HashSet<String> {
@@ -766,7 +772,18 @@ impl Host {
             spawn_focus_watch(shared.clone());
         }
         let usb_devices = usb::UsbDevices::default();
-        let usb_available = opts.usb && !opts.insecure && usb::find_adb().is_some();
+        // adb reverse leads the tablet to 127.0.0.1 on this computer, which a host
+        // listening on one other address (the CLI's --listen) doesn't answer.
+        let usb_reachable = usb_reaches(opts.listen);
+        if opts.usb && !opts.insecure && !usb_reachable {
+            info!(
+                "tablets on USB can't connect: the host listens on {} only, and adb's \
+                 tunnel arrives at 127.0.0.1",
+                opts.listen
+            );
+        }
+        let usb_available =
+            opts.usb && !opts.insecure && usb_reachable && usb::find_adb().is_some();
         if usb_available {
             usb::spawn(addr.port(), usb_devices.clone());
         }
