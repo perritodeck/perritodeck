@@ -261,6 +261,103 @@ async fn quiet_host(dir: &std::path::Path) -> Host {
     Host::start(opts).await.unwrap()
 }
 
+/// The integrations.toml tests share the warning's log callsite. Run alongside a test
+/// without a log subscriber, the capturing test can see tracing cache "nobody listens"
+/// for it and lose the line, so they take turns.
+static INTEGRATIONS_TOML: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A typo in integrations.toml turns OBS, Home Assistant and Companion off; the app
+/// says why instead of "None set up".
+#[tokio::test]
+async fn a_mistake_in_integrations_toml_is_reported() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        integrations_path(dir.path()),
+        "[obs]\npasword = \"hunter2\"\n\n[home_assistant]\nurl = \"http://ha:8123\"\ntoken = \"t\"\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    let status = host.status();
+    assert!(status.integrations.is_empty());
+    let e = status.integrations_error.expect("the mistake is kept");
+    assert!(e.starts_with("line 2: unknown field `pasword`"), "{e}");
+    assert!(!e.contains("hunter2"), "{e}");
+    let json = serde_json::to_value(host.status()).unwrap();
+    assert_eq!(json["integrationsError"], e.as_str());
+    let report = host.diagnostics(None);
+    assert!(report.contains("integrations.toml has a mistake and is ignored"));
+    assert!(!report.contains("hunter2"));
+
+    // Fixed: the next start has no mistake to report.
+    std::fs::write(
+        integrations_path(dir.path()),
+        "[obs]\npassword = \"hunter2\"\n",
+    )
+    .unwrap();
+    drop(host);
+    let host = quiet_host(dir.path()).await;
+    assert_eq!(host.status().integrations, ["OBS"]);
+    assert_eq!(host.status().integrations_error, None);
+}
+
+/// toml quotes a value of the wrong kind, such as a password typed without quotes.
+/// The mistake goes to Settings, the command line, the log and diagnostics; the
+/// password goes nowhere.
+#[tokio::test]
+async fn a_mistake_in_integrations_toml_never_shows_a_password() {
+    #[derive(Clone, Default)]
+    struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Log {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let log = Log::default();
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer({
+                let log = log.clone();
+                move || log.clone()
+            })
+            .finish(),
+    );
+    // A callsite another test reached first may still be cached as uninteresting.
+    tracing::callsite::rebuild_interest_cache();
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        integrations_path(dir.path()),
+        "[obs]\npassword = 12345678\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    let e = host
+        .status()
+        .integrations_error
+        .expect("the mistake is kept");
+    assert_eq!(e, "line 2: wrong kind of value, expected a string");
+    let logged = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    assert!(logged.contains(&e), "{logged}");
+    for (place, text) in [
+        ("status", serde_json::to_string(&host.status()).unwrap()),
+        ("log", logged),
+        ("diagnostics", host.diagnostics(None)),
+        (
+            "offline diagnostics",
+            diagnostics::offline(dir.path(), Path::new(&host.status().profile_path)).render(),
+        ),
+    ] {
+        assert!(!text.contains("12345678"), "{place}: {text}");
+    }
+}
+
 #[tokio::test]
 async fn profiles_create_copy_rename_delete() {
     let dir = tempfile::tempdir().unwrap();
@@ -637,6 +734,15 @@ async fn first_party_plugins_install_from_the_catalog() {
         .catalog
         .iter()
         .any(|c| c.manifest.id == "dev.perritodeck.http" && c.installed));
+    // The bundled plugins' shared MIT LICENSE comes along.
+    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    assert_eq!(
+        std::fs::read_to_string(
+            std::path::Path::new(&view.folder).join("dev.perritodeck.http/LICENSE")
+        )
+        .unwrap(),
+        std::fs::read_to_string(catalog.join("LICENSE")).unwrap()
+    );
     assert!(host.install_from_catalog("nope").is_err());
 }
 

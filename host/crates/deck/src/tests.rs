@@ -671,6 +671,97 @@ slider = { type = "plugin", plugin = "dev.x", action = "dim", settings = { lamp 
         .any(|m| matches!(m, Message::SetValue(v) if v.value == 87)));
 }
 
+/// A profile whose follows are written as in a title, with braces, as the OBS
+/// plugin's README once showed them.
+fn braced_follows(name: &str) -> String {
+    format!(
+        r##"
+schema_version = 1
+name = "{name}"
+[grid]
+cols = 2
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+follow = " {{plugin:dev.perritodeck.obs:recording}} "
+states = [{{ title = "Rec" }}, {{ title = "On air" }}]
+[[pages.keys]]
+at = [0, 1]
+title = "Music"
+slider = {{ type = "plugin", plugin = "dev.perritodeck.obs", action = "volume", follow = "{{plugin:dev.perritodeck.obs:volume:Desktop Audio}}" }}
+"##
+    )
+}
+
+/// Follows written with braces work the same as plain ones, whether the profile is
+/// the first one or loaded later.
+#[tokio::test]
+async fn follows_typed_with_braces_still_follow() {
+    let profile = braced_follows;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(&profile("first")).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys),
+    );
+    let wanted = [
+        "plugin:dev.perritodeck.obs:recording",
+        "plugin:dev.perritodeck.obs:volume:Desktop Audio",
+    ];
+    assert_eq!(deck.live_tokens(), wanted);
+    let key = |deck: &Deck, id: &str| deck.profile_by_id(id).unwrap().pages[0].keys.clone();
+    let k = key(&deck, "default");
+    assert_eq!(k[0].follow.as_deref(), Some(wanted[0]));
+    assert!(
+        matches!(&k[1].slider, Some(SliderSpec::Plugin { follow: Some(f), .. }) if f == "volume:Desktop Audio")
+    );
+
+    deck.load_profile("second", Profile::parse(&profile("second")).unwrap(), None);
+    let k = key(&deck, "second");
+    assert_eq!(k[0].follow.as_deref(), Some(wanted[0]));
+    deck.assign("tab", Some("second"));
+    deck.connected("tab", Grid { cols: 2, rows: 1 }, hello().screen, &[]);
+    sent.take();
+    deck.set_live([(wanted[0].to_string(), "on".to_string())]);
+    deck.tick();
+    let msgs = sent.take();
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::SetTitle(t) if t.key_index == 0 && t.title == "On air")),
+        "the toggle follows the value: {msgs:?}"
+    );
+}
+
+/// The profile watcher skips a file whose content is already loaded (the app reloads
+/// the deck itself after saving). Braced follows are tidied when a profile loads, so
+/// the comparison has to tidy too, or every save would redraw the tablets twice.
+#[test]
+fn a_loaded_profile_with_braced_follows_counts_as_unchanged() {
+    let parse = |name: &str| Profile::parse(&braced_follows(name)).unwrap();
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        parse("first"),
+        ".",
+        Arc::new(Sent::default()),
+        Executor::new(keys.clone(), keys),
+    );
+    deck.load_profile("second", parse("second"), None);
+    assert_ne!(
+        deck.profile_by_id("second"),
+        Some(parse("second")),
+        "tidied"
+    );
+    assert!(deck.is_current("default", &parse("first")));
+    assert!(deck.is_current("second", &parse("second")));
+    // A real change, or a profile that isn't loaded, still counts.
+    assert!(!deck.is_current("second", &parse("renamed")));
+    assert!(!deck.is_current("third", &parse("second")));
+}
+
 #[derive(Default)]
 struct FakeCompanion(Mutex<Vec<String>>);
 

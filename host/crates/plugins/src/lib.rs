@@ -362,6 +362,21 @@ impl PluginHost {
 
     /// Copy a plugin folder into the plugins folder and start it. Returns its id.
     pub fn install_from(self: &Arc<Self>, src: &Path) -> Result<String, String> {
+        self.install(src, None)
+    }
+
+    /// The same for a plugin that ships with PerritoDeck. If it has no licence file of
+    /// its own, `licence` (the MIT LICENSE the bundled plugins share, when it's there)
+    /// is copied in with it, so the installed copy still says how it may be used.
+    pub fn install_bundled(
+        self: &Arc<Self>,
+        src: &Path,
+        licence: Option<&Path>,
+    ) -> Result<String, String> {
+        self.install(src, licence.filter(|l| l.is_file()))
+    }
+
+    fn install(self: &Arc<Self>, src: &Path, licence: Option<&Path>) -> Result<String, String> {
         let text = std::fs::read_to_string(src.join(MANIFEST)).map_err(|_| {
             format!(
                 "{} has no {MANIFEST}; that isn't a PerritoDeck plugin.",
@@ -380,6 +395,10 @@ impl PluginHost {
             remove_folder(&dest).map_err(|e| format!("Couldn't replace the old version: {e}"))?;
         }
         copy_dir(src, &dest).map_err(|e| format!("Couldn't copy the plugin: {e}"))?;
+        if let Some(licence) = licence.filter(|_| !has_licence_file(&dest)) {
+            std::fs::copy(licence, dest.join("LICENSE"))
+                .map_err(|e| format!("Couldn't copy the plugin's licence: {e}"))?;
+        }
         // An updated plugin is a new manifest, so scan restarts it.
         drop(busy);
         self.scan();
@@ -609,6 +628,41 @@ fn copy_dir(src: &Path, dest: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether a plugin folder has a licence file of its own at the top: LICENSE, LICENCE
+/// or COPYING in any case, maybe with a qualifier and a text extension (LICENSE-MIT,
+/// LICENSE.md, COPYING.txt). The same rule as the online catalogue's zips.
+pub fn has_licence_file(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            e.file_type().is_ok_and(|t| t.is_file())
+                && e.file_name().to_str().is_some_and(is_licence_name)
+        })
+    })
+}
+
+fn is_licence_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) => (stem, Some(ext)),
+        None => (name.as_str(), None),
+    };
+    if ext.is_some_and(|e| !matches!(e, "md" | "markdown" | "txt" | "text" | "rst")) {
+        return false;
+    }
+    let Some(rest) = ["license", "licence", "copying"]
+        .iter()
+        .find_map(|word| stem.strip_prefix(word))
+    else {
+        return false;
+    };
+    // Qualifiers: "-mit", "-apache-2"… each a dash and letters or digits.
+    rest.is_empty()
+        || rest.strip_prefix('-').is_some_and(|q| {
+            q.split('-')
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric()))
+        })
 }
 
 /// Delete a plugin's folder. On Windows a process that was just ended can keep a file

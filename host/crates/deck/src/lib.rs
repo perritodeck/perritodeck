@@ -25,7 +25,7 @@ use perritodeck_protocol::{
 use perritodeck_render::Animation;
 use tracing::{info, warn};
 
-pub use templates::{render_title, tokens, truthy};
+pub use templates::{follow_name, render_title, tokens, truthy};
 
 /// Values for `{name}`s in titles (and toggles that follow them), kept up to date by
 /// the host: `cpu`, `mem`, `ha:<entity>`, `obs:recording`, …
@@ -148,6 +148,29 @@ struct Slot {
     reload_error: Option<String>,
     live: LiveValues,
     declared: DeclaredValues,
+}
+
+/// Follows typed as in a title (`{obs:recording}`) work too, and a plugin slider's
+/// may repeat `plugin:<its plugin>:` in front of the value.
+fn tidy_follows(mut profile: Profile) -> Profile {
+    for key in profile.pages.iter_mut().flat_map(|p| p.keys.iter_mut()) {
+        key.follow = key
+            .follow
+            .take()
+            .map(|f| follow_name(&f).to_owned())
+            .filter(|f| !f.is_empty());
+        if let Some(SliderSpec::Plugin { plugin, follow, .. }) = &mut key.slider {
+            *follow = follow
+                .take()
+                .map(|f| {
+                    let name = follow_name(&f);
+                    let own = format!("plugin:{plugin}:");
+                    name.strip_prefix(own.as_str()).unwrap_or(name).to_owned()
+                })
+                .filter(|f| !f.is_empty());
+        }
+    }
+    profile
 }
 
 impl Slot {
@@ -296,7 +319,12 @@ impl Deck {
         let mut slots = HashMap::new();
         slots.insert(
             default_id.to_owned(),
-            Slot::new(profile, base_dir.into(), live.clone(), declared.clone()),
+            Slot::new(
+                tidy_follows(profile),
+                base_dir.into(),
+                live.clone(),
+                declared.clone(),
+            ),
         );
         Arc::new(Self {
             state: Mutex::new(State {
@@ -814,6 +842,17 @@ impl Deck {
         self.lock().slots.get(id).map(|s| s.profile.clone())
     }
 
+    /// Whether `profile`, as read from its file, is what's loaded for `id` already, so
+    /// loading it again would change nothing. Compared as `load_profile` keeps it, with
+    /// follows tidied.
+    pub fn is_current(&self, id: &str, profile: &Profile) -> bool {
+        let tidied = tidy_follows(profile.clone());
+        self.lock()
+            .slots
+            .get(id)
+            .is_some_and(|s| s.profile == tidied)
+    }
+
     /// Ids of every loaded profile, sorted.
     pub fn profile_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = self.lock().slots.keys().cloned().collect();
@@ -855,6 +894,7 @@ impl Deck {
     /// Add a profile, or replace it after its file changed, and redraw every device
     /// showing it. `base_dir` (for icons) defaults to the existing one.
     pub fn load_profile(&self, id: &str, profile: Profile, base_dir: Option<PathBuf>) {
+        let profile = tidy_follows(profile);
         self.bump();
         let mut st = self.lock();
         let pages = profile.pages.len();

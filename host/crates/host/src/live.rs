@@ -32,6 +32,8 @@ pub fn spawn(deck: Arc<Deck>, integrations: Option<Arc<dyn Integrations>>) {
                 let pct = sys.used_memory() as f64 / sys.total_memory().max(1) as f64 * 100.0;
                 values.push(("mem".to_owned(), format!("{pct:.0}%")));
             }
+            // Shown straight away: Home Assistant or OBS may take a while to answer.
+            deck.set_live(std::mem::take(&mut values));
             for t in &tokens {
                 let value = if let Some(entity) = t.strip_prefix("ha:") {
                     Some(home_assistant(integrations.as_deref(), entity).await)
@@ -79,17 +81,23 @@ async fn obs(obs: Option<&dyn Integrations>, what: &str) -> String {
     let Some(obs) = obs else {
         return UNKNOWN.into();
     };
-    let (request, field) = match what {
-        "recording" => ("GetRecordStatus", "outputActive"),
-        "streaming" => ("GetStreamStatus", "outputActive"),
-        "scene" => ("GetCurrentProgramScene", "currentProgramSceneName"),
+    // `currentProgramSceneName` is deprecated in favour of `sceneName` (obs-websocket
+    // 5.3+); either will do.
+    let (request, fields): (_, &[&str]) = match what {
+        "recording" => ("GetRecordStatus", &["outputActive"]),
+        "streaming" => ("GetStreamStatus", &["outputActive"]),
+        "scene" => (
+            "GetCurrentProgramScene",
+            &["currentProgramSceneName", "sceneName"],
+        ),
         _ => return UNKNOWN.into(),
     };
     match obs.obs_request(request, json!({})).await {
-        Ok(resp) => match &resp[field] {
-            Value::Bool(true) => "on".into(),
-            Value::Bool(false) => "off".into(),
-            v => display(v),
+        Ok(resp) => match fields.iter().map(|f| &resp[f]).find(|v| !v.is_null()) {
+            Some(Value::Bool(true)) => "on".into(),
+            Some(Value::Bool(false)) => "off".into(),
+            Some(v) => display(v),
+            None => UNKNOWN.into(),
         },
         Err(_) => UNKNOWN.into(),
     }
@@ -110,7 +118,8 @@ mod tests {
     use super::*;
     use perritodeck_actions::{ActionError, BoxFuture, ObsAction, Outcome};
 
-    struct Fake;
+    /// What `GetCurrentProgramScene` answers.
+    struct Fake(Value);
     impl Integrations for Fake {
         fn obs<'a>(&'a self, _: &'a ObsAction) -> BoxFuture<'a, Result<Outcome, ActionError>> {
             Box::pin(async { Ok(Outcome::Ok) })
@@ -131,7 +140,7 @@ mod tests {
             Box::pin(async move {
                 Ok(match req {
                     "GetRecordStatus" => json!({ "outputActive": true }),
-                    "GetCurrentProgramScene" => json!({ "currentProgramSceneName": "Gameplay" }),
+                    "GetCurrentProgramScene" => self.0.clone(),
                     _ => return Err(ActionError::NotConfigured("OBS".into())),
                 })
             })
@@ -151,7 +160,8 @@ mod tests {
 
     #[tokio::test]
     async fn values_from_home_assistant_and_obs() {
-        let f: &dyn Integrations = &Fake;
+        let fake = Fake(json!({ "currentProgramSceneName": "Gameplay" }));
+        let f: &dyn Integrations = &fake;
         assert_eq!(home_assistant(Some(f), "sensor.outside").await, "4.5 °C");
         assert_eq!(home_assistant(Some(f), "light.desk").await, "on");
         assert_eq!(
@@ -164,5 +174,14 @@ mod tests {
         assert_eq!(obs(Some(f), "scene").await, "Gameplay");
         assert_eq!(obs(Some(f), "streaming").await, UNKNOWN);
         assert_eq!(obs(Some(f), "nonsense").await, UNKNOWN);
+    }
+
+    #[tokio::test]
+    async fn the_scene_comes_from_either_field() {
+        // An obs-websocket without the deprecated field.
+        let newer = Fake(json!({ "sceneName": "Just Chatting", "sceneUuid": "u" }));
+        assert_eq!(obs(Some(&newer), "scene").await, "Just Chatting");
+        let neither = Fake(json!({}));
+        assert_eq!(obs(Some(&neither), "scene").await, UNKNOWN);
     }
 }

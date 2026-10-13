@@ -84,7 +84,7 @@ pub fn watch_profiles(dir: PathBuf, deck: Arc<Deck>) -> notify::Result<notify::R
                     // The desktop app reloads the deck itself right after saving; don't
                     // redraw every tablet a second time for the same content.
                     Ok(profile)
-                        if deck.profile_by_id(&id).as_ref() == Some(&profile)
+                        if deck.is_current(&id, &profile)
                             && deck.reload_error_of(&id).is_none() => {}
                     Ok(profile) => {
                         info!("{} changed", path.display());

@@ -56,13 +56,59 @@ fn default_companion_port() -> u16 {
 
 impl Config {
     /// Read `integrations.toml`; a missing file means nothing is configured.
+    ///
+    /// A mistake in it is described in one line, e.g. "line 3: unknown field
+    /// `pasword`, …", without the excerpt of the file toml adds or any value from the
+    /// file (either may show a password). The message goes to Settings, the
+    /// command line and the log.
     pub fn load(path: &Path) -> Result<Self, String> {
         match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display())),
+            Ok(text) => toml::from_str(&text).map_err(|e| {
+                let message = without_values(e.message());
+                match e.span() {
+                    Some(span) => {
+                        let before = text.get(..span.start).unwrap_or(&text);
+                        format!("line {}: {message}", before.matches('\n').count() + 1)
+                    }
+                    None => message,
+                }
+            }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(format!("{}: {e}", path.display())),
+            Err(e) => Err(format!("it can't be read ({e})")),
         }
     }
+}
+
+/// toml's message for a mistake, minus the value it quotes for a value of the wrong
+/// kind ("invalid type: integer `12345678`, expected a string"): a password typed
+/// without quotes would show. Only the kind of mistake and what was expected are kept.
+fn without_values(message: &str) -> String {
+    let message = message.trim();
+    let quoting = [
+        ("invalid type:", "wrong kind of value"),
+        ("invalid value:", "wrong value"),
+        ("unknown variant", "not one of the choices"),
+    ];
+    let Some(kind) = quoting
+        .iter()
+        .find_map(|(start, kind)| message.starts_with(start).then_some(*kind))
+    else {
+        return message.to_owned();
+    };
+    // The value comes first and may itself contain ", expected"; what serde expected
+    // comes last and never does.
+    let expected = match message.rfind(", expected ") {
+        Some(at) => &message[at + ", expected ".len()..],
+        None => return kind.to_owned(),
+    };
+    let expected = if expected.starts_with("struct ") {
+        "a table"
+    } else if expected == "u16" {
+        "a whole number from 0 to 65535"
+    } else {
+        expected
+    };
+    format!("{kind}, expected {expected}")
 }
 
 /// The host's integrations, ready to hand to the action executor.
@@ -167,6 +213,55 @@ mod tests {
         assert_eq!((c.host.as_str(), c.port), ("10.0.0.5", 16622));
         std::fs::write(&path, "[obz]\n").unwrap();
         assert!(Config::load(&path).unwrap_err().contains("obz"));
+    }
+
+    #[test]
+    fn mistakes_name_the_line_but_never_show_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.toml");
+        std::fs::write(
+            &path,
+            "[obs]\nurl = \"ws://127.0.0.1:4455\"\npasword = \"hunter2\"\n",
+        )
+        .unwrap();
+        let e = Config::load(&path).unwrap_err();
+        assert!(e.starts_with("line 3: unknown field `pasword`"), "{e}");
+        assert!(!e.contains("hunter2"), "{e}");
+        assert!(!e.contains('\n'), "{e}");
+
+        // toml quotes a value of the wrong kind, such as a password without quotes.
+        for (file, secret, says) in [
+            (
+                "[obs]\npassword = 12345678\n",
+                "12345678",
+                "line 2: wrong kind of value, expected a string",
+            ),
+            (
+                "[home_assistant]\nurl = \"http://ha:8123\"\ntoken = 998877\n",
+                "998877",
+                "line 3: wrong kind of value, expected a string",
+            ),
+            (
+                "[obs]\npassword = true\n",
+                "true",
+                "line 2: wrong kind of value, expected a string",
+            ),
+            (
+                "obs = \"s3cret, expected 7\"\n",
+                "s3cret",
+                "line 1: wrong kind of value, expected a table",
+            ),
+            (
+                "[companion]\nport = 99999\n",
+                "99999",
+                "line 2: wrong value, expected a whole number from 0 to 65535",
+            ),
+        ] {
+            std::fs::write(&path, file).unwrap();
+            let e = Config::load(&path).unwrap_err();
+            assert_eq!(e, says);
+            assert!(!e.contains(secret), "{e}");
+        }
     }
 
     #[tokio::test]

@@ -277,6 +277,10 @@ pub struct HostStatus {
     pub profile_path: String,
     pub profiles_dir: String,
     pub integrations: Vec<String>,
+    /// The mistake in `integrations.toml`, if it has one; the file is then ignored, so
+    /// OBS, Home Assistant and Companion are all off until it's fixed and the app
+    /// restarts.
+    pub integrations_error: Option<String>,
     pub paused: bool,
     /// False where the desktop doesn't tell apps which app is in front (Wayland).
     pub auto_switch_supported: bool,
@@ -487,6 +491,7 @@ pub struct Host {
     pub deck: Arc<Deck>,
     insecure: bool,
     integrations: Vec<String>,
+    integrations_error: Option<String>,
     shared: Arc<Shared>,
     plugins: Arc<perritodeck_plugins::PluginHost>,
     plugin_catalog: Option<PathBuf>,
@@ -603,11 +608,14 @@ impl Host {
             }
             });
         }
-        let integrations_config = perritodeck_integrations::Config::load(&integrations_path(&dir))
-            .unwrap_or_else(|e| {
-                warn!("ignoring integrations.toml: {e}");
-                Default::default()
-            });
+        let (integrations_config, integrations_error) =
+            match perritodeck_integrations::Config::load(&integrations_path(&dir)) {
+                Ok(config) => (config, None),
+                Err(e) => {
+                    warn!("ignoring integrations.toml: {e}");
+                    (Default::default(), Some(e))
+                }
+            };
         let companion_config = integrations_config.companion.clone();
         let builtins = perritodeck_integrations::Builtins::new(integrations_config);
         let mut integrations: Vec<String> = builtins
@@ -808,6 +816,7 @@ impl Host {
             deck,
             insecure: opts.insecure,
             integrations,
+            integrations_error,
             shared,
             history: Default::default(),
             executor: test_executor,
@@ -858,6 +867,7 @@ impl Host {
             profile_path: self.profile_path.display().to_string(),
             profiles_dir: self.profiles_dir.display().to_string(),
             integrations: self.integrations.clone(),
+            integrations_error: self.integrations_error.clone(),
             paused: self.deck.paused(),
             auto_switch_supported: focus::supported(),
             usb_devices: usb.forwarded.iter().cloned().collect(),
@@ -1327,6 +1337,10 @@ impl Host {
         sections.push(sd);
 
         let mut integrations = Section::new("Integrations");
+        if self.integrations_error.is_some() {
+            // Settings names the mistake; the report only says the file is ignored.
+            integrations.line("integrations.toml has a mistake and is ignored");
+        }
         let tokens = self.deck.live_tokens();
         for (name, prefix) in [("OBS", "obs:"), ("Home Assistant", "ha:")] {
             let state = if !self.integrations.iter().any(|i| i == name) {
@@ -1577,14 +1591,16 @@ impl Host {
         out
     }
 
-    /// Install (or update) a plugin that ships with the app.
+    /// Install (or update) a plugin that ships with the app. The bundled plugins share
+    /// one MIT LICENSE, next to their folders; a plugin without its own gets a copy.
     pub fn install_from_catalog(&self, id: &str) -> Result<String, String> {
         let (_, folder) = self
             .catalog_entries()
             .into_iter()
             .find(|(m, _)| m.id == id)
             .ok_or_else(|| format!("{id} doesn't ship with this version."))?;
-        self.plugins.install_from(&folder)
+        let licence = self.plugin_catalog.as_ref().map(|d| d.join("LICENSE"));
+        self.plugins.install_bundled(&folder, licence.as_deref())
     }
 
     /// What the online catalogue offers. Blocks on the network; call it off the UI thread.

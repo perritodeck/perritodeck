@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use perritodeck_actions::{ActionError, BoxFuture, Outcome, PluginRunner};
 use perritodeck_core::{pairing::PairingStore, HostIdentity};
 use perritodeck_host::{
     default_profile_path, devices_path, integrations_path,
@@ -82,7 +83,8 @@ enum Command {
     },
     /// Run one action now, for testing, e.g.
     /// `perritodeck-host action '{"type":"hotkey","keys":"Ctrl+Alt+T"}'`.
-    /// Waits 3 seconds first so you can focus the target window.
+    /// Waits 3 seconds first so you can focus the target window. OBS and Home
+    /// Assistant actions use integrations.toml; plugin actions need the running host.
     Action {
         /// Action as JSON (see host/crates/actions).
         json: String,
@@ -104,18 +106,47 @@ fn profile_path(cli: &Cli, dir: &Path) -> PathBuf {
         .unwrap_or_else(|| default_profile_path(dir))
 }
 
-async fn run_action(json: &str, delay_secs: u64) -> Result<()> {
+/// Plugins run inside a running host, so `action` can't run their actions.
+struct NoPlugins;
+
+impl PluginRunner for NoPlugins {
+    fn run_plugin<'a>(
+        &'a self,
+        _plugin: &'a str,
+        _action: &'a str,
+        _settings: &'a serde_json::Value,
+    ) -> BoxFuture<'a, Result<Outcome, ActionError>> {
+        Box::pin(async {
+            Err(ActionError::Integration {
+                service: "Plugins".into(),
+                reason: "plugin actions only run in the running host; use \"Try it\" in the \
+                         app's editor, or press the key"
+                    .into(),
+            })
+        })
+    }
+}
+
+async fn run_action(dir: &Path, json: &str, delay_secs: u64) -> Result<()> {
     use perritodeck_actions::{
         system::{EnigoInput, OpenSystem},
-        ActionSpec, Executor, Outcome,
+        ActionSpec, Executor,
     };
     let spec: ActionSpec = serde_json::from_str(json).context("not a valid action")?;
     Executor::validate(&spec)?;
+    // OBS and Home Assistant as the host sets them up, from integrations.toml.
+    let integrations = perritodeck_integrations::Config::load(&integrations_path(dir))
+        .unwrap_or_else(|e| {
+            eprintln!("integrations.toml has a mistake, so OBS and Home Assistant are off: {e}");
+            Default::default()
+        });
     if delay_secs > 0 {
         println!("running in {delay_secs}s — switch to the target window…");
         tokio::time::sleep(Duration::from_secs(delay_secs)).await;
     }
-    let ex = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem));
+    let ex = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem))
+        .with_integrations(perritodeck_integrations::Builtins::new(integrations))
+        .with_plugins(Arc::new(NoPlugins));
     match ex.run(&spec).await? {
         Outcome::Ok => println!("ok"),
         Outcome::Alert(a) => println!("alert: {a}"),
@@ -181,7 +212,9 @@ async fn main() -> Result<()> {
                 .await
                 .map_err(anyhow::Error::msg);
         }
-        Some(Command::Action { json, delay_secs }) => return run_action(json, *delay_secs).await,
+        Some(Command::Action { json, delay_secs }) => {
+            return run_action(&dir, json, *delay_secs).await
+        }
         Some(Command::Devices) => {
             print_devices(&PairingStore::open(&devices_path(&dir))?);
             return Ok(());
@@ -325,6 +358,11 @@ fn print_banner(host: &Host) {
         "  PerritoDeck host v{} on {}",
         status.version, status.host_name
     );
+    if let Some(e) = &status.integrations_error {
+        println!(
+            "  integrations.toml has a mistake, so OBS, Home Assistant and Companion are off: {e}"
+        );
+    }
     if status.insecure {
         println!(
             "  INSECURE development mode: ws://{}  (emulator: 10.0.2.2:{port})",

@@ -238,6 +238,66 @@ async fn install_and_remove() {
     assert!(!root.path().join("plugins/test.copy").exists());
 }
 
+/// Plugins that ship with PerritoDeck share one MIT LICENSE; an installed copy of one
+/// carries it unless it has a licence of its own. Other plugins never get it.
+#[tokio::test(flavor = "multi_thread")]
+async fn bundled_plugins_carry_the_shared_licence() {
+    let root = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let licence = src.path().join("LICENSE");
+    std::fs::write(&licence, "MIT License\n").unwrap();
+    let plain = write_plugin(src.path(), "test.plain", "exec", "missing", None);
+    let own = write_plugin(src.path(), "test.own", "exec", "missing", None);
+    std::fs::write(own.join("LICENSE-Apache.md"), "Apache\n").unwrap();
+    let other = write_plugin(src.path(), "test.other", "exec", "missing", None);
+    let host = PluginHost::start(root.path().join("plugins"), "1", Arc::new(|_, _| {}));
+    let installed = |id: &str| root.path().join("plugins").join(id);
+
+    host.install_bundled(&plain, Some(&licence)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(installed("test.plain").join("LICENSE")).unwrap(),
+        "MIT License\n"
+    );
+    host.install_bundled(&own, Some(&licence)).unwrap();
+    assert!(!installed("test.own").join("LICENSE").exists());
+    assert!(installed("test.own").join("LICENSE-Apache.md").exists());
+    // No shared licence to copy, or a plugin that doesn't ship with PerritoDeck.
+    host.install_bundled(&other, Some(&src.path().join("nope")))
+        .unwrap();
+    assert!(!installed("test.other").join("LICENSE").exists());
+    host.install_from(&other).unwrap();
+    assert!(!installed("test.other").join("LICENSE").exists());
+    assert_eq!(host.list().len(), 3);
+}
+
+#[test]
+fn licence_files_are_recognised_like_the_catalogue_does() {
+    for name in [
+        "LICENSE",
+        "licence",
+        "COPYING",
+        "LICENSE.md",
+        "License.txt",
+        "LICENSE-MIT",
+        "license-apache-2.rst",
+        "COPYING.text",
+    ] {
+        assert!(is_licence_name(name), "{name}");
+    }
+    for name in [
+        "license_check.py",
+        "copying.py",
+        "licenses.json",
+        "licenses",
+        "LICENSE-",
+        "LICENSE.MIT",
+        "license.tar.gz",
+        "MYLICENSE",
+    ] {
+        assert!(!is_licence_name(name), "{name}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_plugin_being_removed_or_updated_isnt_started_again_by_a_scan() {
     let root = tempfile::tempdir().unwrap();

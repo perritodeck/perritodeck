@@ -74,6 +74,15 @@ pub fn tokens(title: &str) -> impl Iterator<Item = &str> {
         .filter(|n| !n.is_empty() && !matches!(*n, "time" | "time_s" | "date"))
 }
 
+/// A value to follow, as typed: the braces a title puts around it are left off, so
+/// `{obs:recording}` follows `obs:recording`.
+pub fn follow_name(typed: &str) -> &str {
+    let t = typed.trim();
+    t.strip_prefix('{')
+        .and_then(|t| t.strip_suffix('}'))
+        .map_or(t, str::trim)
+}
+
 /// Does a live value mean "on"? For toggles that follow something.
 pub fn truthy(value: &str) -> bool {
     matches!(
@@ -95,6 +104,19 @@ pub fn truthy(value: &str) -> bool {
 mod tests {
     use super::*;
     use chrono::Utc;
+
+    #[test]
+    fn follow_names_lose_their_braces() {
+        assert_eq!(follow_name("obs:recording"), "obs:recording");
+        assert_eq!(follow_name(" {obs:recording} "), "obs:recording");
+        assert_eq!(
+            follow_name("{ plugin:dev.perritodeck.obs:muted:Mic/Aux }"),
+            "plugin:dev.perritodeck.obs:muted:Mic/Aux"
+        );
+        assert_eq!(follow_name("{}"), "");
+        // Only a matching pair is taken off.
+        assert_eq!(follow_name("{obs:scene"), "{obs:scene");
+    }
 
     #[test]
     fn replaces_known_tokens_only() {
