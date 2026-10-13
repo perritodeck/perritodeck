@@ -285,6 +285,12 @@ fn function_key(n: u8) -> Result<enigo::Key, ActionError> {
 
 impl InputBackend for EnigoInput {
     fn chord(&self, chord: &Chord) -> Result<(), ActionError> {
+        // Win+L from SendInput doesn't lock: Windows handles that chord itself, below the
+        // input that apps see. LockWorkStation is the supported way to lock.
+        #[cfg(windows)]
+        if chord.modifiers == [Modifier::Meta] && chord.key == Key::Char('l') {
+            return win::lock();
+        }
         let (modifiers, key) = resolve(chord)?;
         // On Windows a character no key on the layout types is sent as text, down and up
         // in one go, so holding it would type it twice. Everything else is a real key.
@@ -324,13 +330,17 @@ impl InputBackend for EnigoInput {
     }
 }
 
-/// The Windows calls hotkeys need: the keyboard layout of the window in front.
+/// The Windows calls hotkeys need: the keyboard layout of the window in front, and locking.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod win {
-    use windows::Win32::UI::{
-        Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW},
-        WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
+    use super::ActionError;
+    use windows::Win32::{
+        System::Shutdown::LockWorkStation,
+        UI::{
+            Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW},
+            WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
+        },
     };
 
     /// `VkKeyScanExW` for `c` on the keyboard layout of the window in front, the one that
@@ -347,6 +357,13 @@ mod win {
             let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
             VkKeyScanExW(units[0], GetKeyboardLayout(thread))
         }
+    }
+
+    /// Lock the computer, as Win+L does on a real keyboard.
+    pub fn lock() -> Result<(), ActionError> {
+        // SAFETY: no arguments; it only asks Windows to show the lock screen.
+        unsafe { LockWorkStation() }
+            .map_err(|e| ActionError::Input(format!("couldn't lock the computer: {e}")))
     }
 }
 
