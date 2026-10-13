@@ -742,7 +742,8 @@ pub fn run_mcp_bridge(args: &[String]) -> i32 {
     }
 }
 
-pub fn run() {
+/// Log to the console and to files in the data folder's `logs` folder.
+fn init_logging() {
     let logs = data_dir().ok();
     let mut log = logging::LogOptions::new(logs.as_deref().map(logging::logs_dir));
     log.detailed = logs
@@ -755,10 +756,13 @@ pub fn run() {
             file.display()
         );
     }
+}
 
+pub fn run() {
     let result = tauri::Builder::default()
         // Must come first: a second launch focuses this one instead.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            info!("PerritoDeck was opened again: showing the window");
             show_window(app)
         }))
         .plugin(tauri_plugin_opener::init())
@@ -768,6 +772,10 @@ pub fn run() {
             Some(vec![HIDDEN_ARG]),
         ))
         .setup(|app| {
+            // Not before: a second launch exits while the app is built (single-instance,
+            // above), and would otherwise write a startup line into this one's log, or
+            // even start a new file under it.
+            init_logging();
             let host = start_host(app).map(Arc::new);
             match &host {
                 Ok(h) => {
@@ -879,6 +887,8 @@ pub fn run() {
             })
         });
     if let Err(e) = result {
+        // Building failed, so setup never ran to start the log.
+        init_logging();
         error!("PerritoDeck couldn't start: {e}");
         std::process::exit(1);
     }
