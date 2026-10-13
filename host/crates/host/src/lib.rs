@@ -609,7 +609,7 @@ impl Host {
             // Plugins hear which of their values profiles show (e.g. `up:<host>`).
             let (deck, plugins) = (deck.clone(), plugins.clone());
             tokio::spawn(async move {
-                let mut every = tokio::time::interval(Duration::from_secs(2));
+                let mut every = poll_timer(Duration::from_secs(2));
                 loop {
                     every.tick().await;
                     plugins.watch(&deck.live_tokens());
@@ -1872,6 +1872,15 @@ fn unique_id(base: &str, taken: impl Fn(&str) -> bool) -> String {
         .expect("unbounded")
 }
 
+/// A timer for a background loop that ticks every `period`. After a slow round, or
+/// waking from sleep (Windows' clock counts the time asleep), it skips the ticks it
+/// missed; tokio's default would run them all back to back, thousands after a night.
+pub(crate) fn poll_timer(period: Duration) -> tokio::time::Interval {
+    let mut timer = tokio::time::interval(period);
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    timer
+}
+
 /// Feed server events to the deck, keep live titles ticking, and tell subscribers.
 fn spawn_event_loop(
     shared: Arc<Shared>,
@@ -1880,8 +1889,7 @@ fn spawn_event_loop(
     let animator = shared.deck.clone();
     tokio::spawn(async move {
         // Animated (GIF) keys; cheap when there are none.
-        let mut every = tokio::time::interval(Duration::from_millis(40));
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut every = poll_timer(Duration::from_millis(40));
         loop {
             every.tick().await;
             animator.animate();
@@ -1889,7 +1897,7 @@ fn spawn_event_loop(
     });
     let ticker = shared.deck.clone();
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        let mut tick = poll_timer(Duration::from_secs(1));
         loop {
             tick.tick().await;
             ticker.tick();
@@ -1898,7 +1906,7 @@ fn spawn_event_loop(
     let sliders = shared.deck.clone();
     tokio::spawn(async move {
         // Keep sliders in step with changes made on the computer.
-        let mut every = tokio::time::interval(Duration::from_secs(3));
+        let mut every = poll_timer(Duration::from_secs(3));
         loop {
             every.tick().await;
             sliders.poll_sliders().await;
@@ -1907,7 +1915,7 @@ fn spawn_event_loop(
     let watched = shared.clone();
     tokio::spawn(async move {
         let mut seen = watched.deck.revision();
-        let mut every = tokio::time::interval(Duration::from_millis(200));
+        let mut every = poll_timer(Duration::from_millis(200));
         loop {
             every.tick().await;
             let now = watched.deck.revision();
@@ -2006,7 +2014,7 @@ fn is_us(app: &str) -> bool {
 /// Poll which app is in front and switch profiles when it changes.
 fn spawn_focus_watch(shared: Arc<Shared>) {
     tokio::spawn(async move {
-        let mut every = tokio::time::interval(Duration::from_millis(700));
+        let mut every = poll_timer(Duration::from_millis(700));
         let mut last: Option<String> = None;
         loop {
             every.tick().await;

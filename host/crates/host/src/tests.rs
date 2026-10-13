@@ -1096,3 +1096,22 @@ async fn detailed_logs_are_a_saved_setting() {
     assert!(AppSettings::load(&settings_path(dir.path())).detailed_logs);
     assert!(host.status().logs_dir.ends_with("logs"));
 }
+
+#[tokio::test]
+async fn background_loops_skip_the_ticks_they_missed() {
+    let mut timer = poll_timer(Duration::from_millis(50));
+    timer.tick().await;
+    // A round that took ten periods, as after a slow call or a night asleep.
+    std::thread::sleep(Duration::from_millis(500));
+    let mut ticks = 0;
+    let window = tokio::time::sleep(Duration::from_millis(30));
+    tokio::pin!(window);
+    loop {
+        tokio::select! {
+            _ = timer.tick() => ticks += 1,
+            _ = &mut window => break,
+        }
+    }
+    // Catching up would tick about ten times at once.
+    assert!(ticks <= 2, "{ticks} ticks");
+}

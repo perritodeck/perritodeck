@@ -15,7 +15,7 @@ pub(crate) const UNKNOWN: &str = "–";
 pub fn spawn(deck: Arc<Deck>, integrations: Option<Arc<dyn Integrations>>) {
     tokio::spawn(async move {
         let mut sys = sysinfo::System::new();
-        let mut every = tokio::time::interval(EVERY);
+        let mut every = crate::poll_timer(EVERY);
         loop {
             every.tick().await;
             let tokens = deck.live_tokens();
