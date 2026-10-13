@@ -166,6 +166,14 @@ fn resolve(chord: &Chord) -> Result<(Vec<Modifier>, enigo::Key), ActionError> {
     Ok((chord.modifiers.clone(), main_key(chord.key)?))
 }
 
+/// Whether a chord is Win+L, which on Windows locks the computer. Sent through SendInput it
+/// doesn't: Windows handles that chord itself, below the input apps see, so the host calls
+/// LockWorkStation instead, the supported way to lock.
+#[cfg(any(windows, test))]
+fn locks_the_computer(chord: &Chord) -> bool {
+    chord.modifiers == [Modifier::Meta] && chord.key == Key::Char('l')
+}
+
 /// A hotkey character on Windows, where apps see virtual keys and the keyboard layout
 /// decides which key types which character. `vk_scan` is `VkKeyScanExW` for the layout of
 /// the window in front.
@@ -294,10 +302,8 @@ fn function_key(n: u8) -> Result<enigo::Key, ActionError> {
 
 impl InputBackend for EnigoInput {
     fn chord(&self, chord: &Chord) -> Result<(), ActionError> {
-        // Win+L from SendInput doesn't lock: Windows handles that chord itself, below the
-        // input that apps see. LockWorkStation is the supported way to lock.
         #[cfg(windows)]
-        if chord.modifiers == [Modifier::Meta] && chord.key == Key::Char('l') {
+        if locks_the_computer(chord) {
             return win::lock();
         }
         let (modifiers, key) = resolve(chord)?;
@@ -631,6 +637,18 @@ mod input_tests {
         assert!(err.contains("current keyboard layout"), "{err}");
         // A shift state other than Shift, Ctrl and Alt (here Hankaku) can't be pressed.
         assert!(on_layout('ア', &[], 0x0841).is_err());
+    }
+
+    #[test]
+    fn win_l_locks_the_computer() {
+        let locks = |s: &str| locks_the_computer(&s.parse().unwrap());
+        for s in ["win+l", "Win + L", "super+L", "Cmd+l", "l+win"] {
+            assert!(locks(s), "{s}");
+        }
+        // Only Win+L itself: with another modifier, or without Win, it's an ordinary key.
+        for s in ["ctrl+win+l", "win+shift+l", "l", "alt+l", "win+k"] {
+            assert!(!locks(s), "{s}");
+        }
     }
 
     /// The real lookup, with what gives the same answer on every keyboard layout.
