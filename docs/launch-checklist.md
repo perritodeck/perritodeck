@@ -42,12 +42,10 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   git log -p --all | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | sort | uniq -c | sort -rn
   git log -p --all | grep -oiE '(/Users/|/home/|C:\\+Users\\+)[A-Za-z0-9._-]+' | sort | uniq -c
   ```
-- [ ] **CI screenshot branches** (`ci/e2e-api22`, `ci/e2e-api34`, `ci/e2e-fire7`,
-  `ci/e2e-firehd10`) hold emulator screenshots, `logcat.txt`, `host.log` and `gradle.txt`.
-  They're clean, but they're noise in a public repo. E2E no longer pushes them: its
-  screenshots and logs are workflow artifacts on each run's summary page. Delete the
-  branches before launch **(maintainer)**:
-  `git push origin --delete ci/e2e-api22 ci/e2e-api34 ci/e2e-fire7 ci/e2e-firehd10`.
+- [x] **CI screenshot branches** (`ci/e2e-api22`, `ci/e2e-api34`, `ci/e2e-fire7`,
+  `ci/e2e-firehd10`), which held emulator screenshots and logs, were deleted on GitHub on
+  2026-10-13. E2E no longer pushes them: its screenshots and logs are workflow artifacts
+  on each run's summary page.
 - If something personal is ever found: rewrite with
   [`git filter-repo`](https://github.com/newren/git-filter-repo) **before** going public
   (afterwards, forks and caches keep the old objects):
@@ -70,9 +68,13 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   `plugins/truenas/test_plugin.py` (fake API key, commit `24f1632`), and an emulator
   network key in `logcat.txt` on `ci/e2e-api34` (commit `7f02fcb`). Their fingerprints
   are in `.gitleaksignore`, so a re-run doesn't report them again.
-- [ ] Re-run before launch: `gitleaks git --log-opts="--all" .` (about 146 commits have
-  landed since the 2026-10-11 run). gitleaks isn't installed locally: install it or run
-  it in a workflow **(maintainer)**. A pattern sweep on 2026-10-13 (`ghp_`,
+- [x] Re-run on 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks.
+  Three new false positives, all in `.gitleaksignore` with a note: the made-up
+  `deviceSecret` in `hello-network-failed.json` and the iOS test that checks a fixture's,
+  and a hotkey example in `host/README.md`.
+- [ ] Re-run once more right before flipping visibility:
+  `gitleaks git --log-opts="--all" .` (gitleaks is installed with winget,
+  `Gitleaks.Gitleaks`). A pattern sweep on 2026-10-13 (`ghp_`,
   `github_pat_`, `AKIA`, `-----BEGIN`, `xoxb-`, `AIza`, `sk-`, `glpat-` over every added
   line) found nothing; the `password=` and `api_key=` hits are test values, placeholders or
   environment-variable reads.
