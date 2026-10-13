@@ -35,26 +35,34 @@ impl EnigoInput {
         self.with(|_| Ok(()))
     }
 
+    /// Run `f` with the keyboard, connecting first if need be. Everything goes through
+    /// [`blocking`]: besides input that takes a while itself (a held key, paced text), any
+    /// input waits here for the keyboard while another key's text is still being typed.
     fn with<T>(
         &self,
         f: impl FnOnce(&mut Enigo) -> Result<T, ActionError>,
     ) -> Result<T, ActionError> {
-        let mut guard = self
-            .enigo
-            .lock()
-            .map_err(|_| ActionError::Input("input backend poisoned".into()))?;
-        if guard.is_none() {
-            // Connect on a plain thread: on Wayland enigo talks to the desktop portal with
-            // its own async runtime, which must not run inside one of tokio's workers.
-            let e = std::thread::spawn(|| Enigo::new(&Settings::default()))
-                .join()
-                .map_err(|_| {
-                    ActionError::Input("the keyboard backend crashed while starting".into())
-                })?
-                .map_err(|e| ActionError::Input(format!("cannot connect to the keyboard: {e}")))?;
-            *guard = Some(e);
-        }
-        f(guard.as_mut().expect("initialised above"))
+        blocking(|| {
+            let mut guard = self
+                .enigo
+                .lock()
+                .map_err(|_| ActionError::Input("input backend poisoned".into()))?;
+            if guard.is_none() {
+                // Connect on a plain thread: on Wayland enigo talks to the desktop portal
+                // with its own async runtime, which must not run inside one of tokio's
+                // workers.
+                let e = std::thread::spawn(|| Enigo::new(&Settings::default()))
+                    .join()
+                    .map_err(|_| {
+                        ActionError::Input("the keyboard backend crashed while starting".into())
+                    })?
+                    .map_err(|e| {
+                        ActionError::Input(format!("cannot connect to the keyboard: {e}"))
+                    })?;
+                *guard = Some(e);
+            }
+            f(guard.as_mut().expect("initialised above"))
+        })
     }
 }
 
@@ -62,9 +70,10 @@ fn input_err(e: impl std::fmt::Display) -> ActionError {
     ActionError::Input(e.to_string())
 }
 
-/// Run input work that waits (a held key, paced text) without stalling the async runtime:
-/// on tokio's multi-thread runtime the worker first hands its other tasks to another
-/// thread. Elsewhere (no runtime, or a single-threaded one) it just runs.
+/// Run input work that waits (a held key, paced text, or the keyboard busy with another
+/// key's text) without stalling the async runtime: on tokio's multi-thread runtime the
+/// worker first hands its other tasks to another thread. Elsewhere (no runtime, or a
+/// single-threaded one) it just runs.
 fn blocking<T>(f: impl FnOnce() -> T) -> T {
     use tokio::runtime::{Handle, RuntimeFlavor};
     match Handle::try_current() {
@@ -299,14 +308,14 @@ impl InputBackend for EnigoInput {
         } else {
             Some(KEY_HOLD)
         };
-        blocking(|| self.with(|e| press_chord(&modifiers, key, hold, |k, d| e.key(k, d))))
+        self.with(|e| press_chord(&modifiers, key, hold, |k, d| e.key(k, d)))
     }
 
     fn text(&self, text: &str) -> Result<(), ActionError> {
         if cfg!(windows) {
             // A character at a time: Windows 11 Notepad and other WinUI text boxes drop
             // and repeat characters sent in one burst.
-            blocking(|| self.with(|e| type_paced(text, CHAR_PACE, |piece| e.text(piece))))
+            self.with(|e| type_paced(text, CHAR_PACE, |piece| e.text(piece)))
         } else {
             self.with(|e| e.text(text).map_err(input_err))
         }
@@ -512,6 +521,37 @@ mod input_tests {
         });
         assert!(result.is_err());
         assert_eq!(sent, 2);
+    }
+
+    #[test]
+    fn input_waiting_for_the_keyboard_leaves_the_runtime_free() {
+        // One worker thread, so anything that blocks it stops every other task.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            // A long text holds the keyboard, as `EnigoInput::with` does...
+            let keyboard = std::sync::Arc::new(Mutex::new(()));
+            let (started, typing) = tokio::sync::oneshot::channel();
+            let k = keyboard.clone();
+            let text = tokio::spawn(async move {
+                blocking(|| {
+                    let _held = k.lock().unwrap();
+                    let _ = started.send(());
+                    std::thread::sleep(Duration::from_secs(1));
+                });
+            });
+            typing.await.unwrap();
+            // ...a media key waits for it...
+            let k = keyboard.clone();
+            let media = tokio::spawn(async move { blocking(|| drop(k.lock().unwrap())) });
+            // ...and other tasks still run in the meantime.
+            tokio::spawn(async {}).await.unwrap();
+            assert!(!text.is_finished(), "the other task waited for the text");
+            text.await.unwrap();
+            media.await.unwrap();
+        });
     }
 
     /// `windows_char` with a fixed `VkKeyScanExW` answer.

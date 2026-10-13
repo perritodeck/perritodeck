@@ -28,6 +28,10 @@ pub const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 10_000;
 pub const MAX_COMMAND_TIMEOUT_MS: u64 = 10 * 60_000;
 /// Multi- and random actions may nest, but not without limit.
 pub const MAX_NESTING: usize = 4;
+/// The most characters a `text` action types. Plenty for a signature, a canned reply or a
+/// short snippet, and still a bounded wait: on Windows, where text goes a character every
+/// 15 ms, it takes 30 s, can't be stopped, and other keys' typing and hotkeys wait for it.
+pub const MAX_TEXT_CHARS: usize = 2_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
@@ -175,6 +179,8 @@ pub enum ActionError {
     DelayTooLong(u64),
     #[error("timeout of {0} ms exceeds the {MAX_COMMAND_TIMEOUT_MS} ms limit")]
     TimeoutTooLong(u64),
+    #[error("text of {0} characters exceeds the {MAX_TEXT_CHARS} character limit")]
+    TextTooLong(usize),
     #[error("input failed: {0}")]
     Input(String),
     // Quoted plainly, not with `{:?}`, which doubles every backslash in a Windows path.
@@ -454,6 +460,12 @@ fn validate_at(spec: &ActionSpec, depth: usize) -> Result<(), ActionError> {
         }
         ActionSpec::Hotkey { keys } => {
             keys.parse::<Chord>()?;
+        }
+        ActionSpec::Text { text } => {
+            let chars = text.chars().count();
+            if chars > MAX_TEXT_CHARS {
+                return Err(ActionError::TextTooLong(chars));
+            }
         }
         ActionSpec::OpenUrl { url } => check_url(url)?,
         ActionSpec::HomeAssistant { service, .. } => {

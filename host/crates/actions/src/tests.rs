@@ -266,6 +266,30 @@ fn limits() {
     ));
 }
 
+#[tokio::test]
+async fn text_is_limited_in_characters() {
+    let text = |s: String| ActionSpec::Text { text: s };
+    // Characters, not bytes: the limit in two-byte characters is fine.
+    assert!(Executor::validate(&text("é".repeat(MAX_TEXT_CHARS))).is_ok());
+    let long = text("a".repeat(MAX_TEXT_CHARS + 1));
+    let err = Executor::validate(&long).unwrap_err();
+    assert!(matches!(err, ActionError::TextTooLong(n) if n == MAX_TEXT_CHARS + 1));
+    assert!(err.to_string().contains("2000 character limit"), "{err}");
+    // Inside a multi too, and nothing is typed.
+    let (ex, r) = setup();
+    let multi = ActionSpec::Multi {
+        steps: vec![Step {
+            action: long,
+            delay_ms: 0,
+        }],
+    };
+    assert!(matches!(
+        ex.run(&multi).await,
+        Err(ActionError::TextTooLong(_))
+    ));
+    assert!(r.take().is_empty());
+}
+
 #[test]
 fn unknown_fields_are_rejected() {
     assert!(
