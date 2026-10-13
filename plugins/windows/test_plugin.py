@@ -399,12 +399,47 @@ class MacTest(unittest.TestCase):
 
 
 class LaunchWindowsTest(unittest.TestCase):
-    def test_startfile_for_names_and_uris_command_lines_otherwise(self):
-        with mock.patch.object(win.os, "startfile", create=True) as startfile, mock.patch.object(win.subprocess, "Popen") as popen:
-            win.launch("spotify:", platform="win32")
-            win.launch('"C:\\Tools\\app.exe" --profile work', platform="win32")
-        startfile.assert_called_once_with("spotify:")
-        self.assertEqual(popen.call_args.args[0], '"C:\\Tools\\app.exe" --profile work')
+    def setUp(self):
+        # Programs for the user go through the SDK, so they outlive the plugin's job
+        # object and start in their own folder (tested in sdk-python).
+        patcher = mock.patch.object(win, "open_for_user")
+        self.open_for_user = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(win, "start_for_user")
+        self.start_for_user = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_names_and_uris_open_like_a_double_click_command_lines_start(self):
+        win.launch("spotify:", platform="win32")
+        win.launch('"C:\\Tools\\app.exe" --profile work', platform="win32")
+        self.open_for_user.assert_called_once_with("spotify:")
+        self.start_for_user.assert_called_once_with('"C:\\Tools\\app.exe" --profile work')
+
+    def test_a_name_the_shell_doesnt_know_runs_as_a_command(self):
+        self.open_for_user.side_effect = OSError("[WinError 2] not found")
+        win.launch("obs64", platform="win32")
+        self.start_for_user.assert_called_once_with("obs64")
+
+    def test_a_file_that_wont_open_is_an_error(self):
+        self.open_for_user.side_effect = OSError("[WinError 1155] no app is associated")
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "my file.unknownext")
+            open(path, "w").close()
+            with self.assertRaisesRegex(OSError, "1155"):
+                win.launch(path, platform="win32")
+            self.open_for_user.assert_called_once_with(path)
+        self.start_for_user.assert_not_called()
+
+    def test_focus_starts_a_program_found_on_path(self):
+        b = win.WindowsBackend.__new__(win.WindowsBackend)
+        b.api = mock.Mock()
+        b.api.list_windows.return_value = []
+        found = "C:\\Windows\\System32\\charmap.exe"
+        with mock.patch.object(win, "backend", return_value=b), \
+                mock.patch.object(win.sys, "platform", "win32"), \
+                mock.patch.object(win.shutil, "which", return_value=found):
+            self.assertIsNone(win.focus({"app": "charmap"}))
+        self.start_for_user.assert_called_once_with([found])
 
 
 if __name__ == "__main__":

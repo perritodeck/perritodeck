@@ -24,15 +24,13 @@ import sys
 import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from perritodeck_plugin import Plugin  # noqa: E402
+from perritodeck_plugin import Plugin, open_for_user, start_for_user  # noqa: E402
 
 plugin = Plugin()
 NOTHING = "–"
 TIMEOUT = 4  # seconds for any one helper program
 POLL_SECONDS = 2
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-DETACHED_PROCESS = 0x00000008
-CREATE_NEW_PROCESS_GROUP = 0x00000200
 
 # id: what the window system calls it; app: process name; cls: window class (Linux).
 Window = collections.namedtuple("Window", "id pid app title cls")
@@ -97,33 +95,25 @@ def run(args, timeout=TIMEOUT, check=True):
     return out.stdout
 
 
-def spawn(args, shell=False):
-    """Start a program and let it run on after us, with none of our pipes."""
-    kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
-    if sys.platform == "win32":
-        kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
-    return subprocess.Popen(args, shell=shell, **kwargs)
-
-
 def launch(command, platform=None):
     """Open an app from the "command to open it" field.
 
     A plain name or a path to a file is opened the way double-clicking would
     (Windows: ShellExecute, so "spotify:" and App Paths names work too; macOS:
-    open -a). Anything else is run as a command line."""
+    open -a). Anything else is run as a command line. Either way the app keeps
+    running when the plugin stops, and starts in its own folder (see the SDK's
+    open_for_user and start_for_user)."""
     platform = platform or sys.platform
     command = command.strip()
     if platform == "win32":
         if os.path.exists(command) or " " not in command:
             try:
-                os.startfile(command)  # noqa: S606 (the user's own launch command)
+                open_for_user(command)
                 return
             except OSError:
                 if os.path.exists(command):
                     raise
-        spawn(command)  # CreateProcess parses the command line itself
+        start_for_user(command)  # CreateProcess parses the command line itself
         return
     if platform == "darwin":
         if command.endswith(".app") or ("/" not in command and " " not in command):
@@ -132,7 +122,7 @@ def launch(command, platform=None):
         if os.path.exists(command):
             run(["open", command])
             return
-    spawn(shlex.split(command))
+    start_for_user(shlex.split(command))
 
 
 # --- Linux helpers -------------------------------------------------------------
@@ -542,7 +532,7 @@ class MacBackend(Backend):
     def show_desktop(self):
         for path in MISSION_CONTROL:
             if os.path.exists(path):
-                spawn([path, "1"])  # Mission Control's own "show desktop"
+                start_for_user([path, "1"])  # Mission Control's own "show desktop"
                 return
         raise RuntimeError("couldn't find Mission Control to show the desktop")
 
@@ -817,7 +807,7 @@ def focus(settings):
         return None
     found = shutil.which(app)
     if found:
-        spawn([found])
+        start_for_user([found])
         return None
     if isinstance(b, NoBackend):
         raise RuntimeError(b.why())
