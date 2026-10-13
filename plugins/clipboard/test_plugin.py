@@ -182,21 +182,28 @@ class WindowsTest(Base):
             self.assertIsNone(clip.WindowsClipboard().get())
 
     def test_set_goes_through_a_utf8_file(self):
+        # A profile folder can contain ’, which ends a '…' string in PowerShell just
+        # like ', so the file's path goes in the environment, not the script.
+        data = os.path.join(self.tmp.name, "Team’s 'data'")
+        os.makedirs(data)
         seen = {}
 
         def fake(args, **kwargs):
             script = base64.b64decode(args[-1]).decode("utf-16-le")
-            path = script.split("'", 2)[1].replace("''", "'")
+            path = kwargs["env"]["PERRITODECK_CLIP_FILE"]
             with open(path, encoding="utf-8", newline="") as f:
                 seen["text"] = f.read()
-            seen["script"] = script
+            seen["script"], seen["path"] = script, path
             return done()
 
-        with mock.patch.object(clip.subprocess, "run", side_effect=fake):
+        with mock.patch.object(clip.plugin, "_data_dir", data), mock.patch.object(clip.subprocess, "run", side_effect=fake):
             clip.WindowsClipboard().set("naïve 'quote'\r\nnext")
         self.assertEqual(seen["text"], "naïve 'quote'\r\nnext")
+        self.assertEqual(os.path.dirname(seen["path"]), data)
+        self.assertNotIn(data, seen["script"])
+        self.assertIn("$env:PERRITODECK_CLIP_FILE", seen["script"])
         self.assertIn("Set-Clipboard", seen["script"])
-        self.assertEqual([f for f in os.listdir(self.tmp.name) if f.startswith("clip-")], [])  # cleaned up
+        self.assertEqual([f for f in os.listdir(data) if f.startswith("clip-")], [])  # cleaned up
 
     def test_key_plan(self):
         self.assertEqual(

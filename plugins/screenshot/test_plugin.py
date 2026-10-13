@@ -84,13 +84,18 @@ class FolderTest(Base):
 
 
 class WindowsTest(Base):
-    def test_script_quotes_the_path(self):
-        script = shot.windows_script("window", "C:\\Users\\o'neil\\Pictures\\a.png", True)
-        self.assertIn("$path = 'C:\\Users\\o''neil\\Pictures\\a.png'", script)
-        self.assertIn("$copy = $true", script)
-        self.assertIn("$mode = 'window'", script)
+    def test_path_goes_in_the_environment(self):
+        # PowerShell ends a '…' string at any of these, so the path is never in the script.
+        path = "C:\\Users\\user's\\Team\u2019s \u2018shots\u2019 \u201a\u201b $env:x `n\\a.png"
+        env = shot.windows_env("window", path, True)
+        self.assertEqual(env["PERRITODECK_SHOT_PATH"], path)
+        self.assertEqual(env["PERRITODECK_SHOT_MODE"], "window")
+        self.assertEqual(env["PERRITODECK_SHOT_COPY"], "1")
+        self.assertEqual(shot.windows_env("screen", path, False)["PERRITODECK_SHOT_COPY"], "0")
+        self.assertIn("PATH", {k.upper() for k in env})  # the rest of the environment is kept
+        self.assertIn("$path = $env:PERRITODECK_SHOT_PATH", shot.WINDOWS_SCRIPT)
         with self.assertRaises(ValueError):
-            shot.windows_script("region", "x", False)
+            shot.windows_env("region", "x", False)
 
     def test_parse_ps(self):
         self.assertEqual(shot.parse_ps('noise\n{"ok":true,"width":10}\r\n'), {"ok": True, "width": 10})
@@ -105,8 +110,11 @@ class WindowsTest(Base):
         args = run.call_args.args[0]
         self.assertEqual(args[:4], ["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta"])
         script = base64.b64decode(args[-1]).decode("utf-16-le")
-        self.assertIn("$mode = 'screen'", script)
-        self.assertIn("CopyFromScreen", script)
+        self.assertEqual(script, shot.WINDOWS_SCRIPT)
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["PERRITODECK_SHOT_MODE"], "screen")
+        self.assertEqual(env["PERRITODECK_SHOT_COPY"], "1")
+        self.assertEqual(os.path.dirname(env["PERRITODECK_SHOT_PATH"]), self.out)
         self.assertTrue(self.last().startswith("Screenshot "))
 
     def test_capture_error(self):

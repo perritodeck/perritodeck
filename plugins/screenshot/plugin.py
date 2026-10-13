@@ -151,12 +151,17 @@ def remembered():
 
 # --- Windows ---------------------------------------------------------------------------
 
-# Windows PowerShell 5.1. $mode, $path and $copy are prepended by windows_script().
+# Windows PowerShell 5.1. The mode, file and copy flag come in environment variables
+# (see windows_env), so no path ever has to be quoted into the script: PowerShell ends
+# a '…' string at ‘ ’ ‚ ‛ as well as at ', and folder names can contain those.
 # The process must be DPI aware before System.Windows.Forms loads, or CopyFromScreen
 # sees scaled-down coordinates on a 125 %/150 % display. Prints one line of JSON.
 WINDOWS_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$mode = $env:PERRITODECK_SHOT_MODE
+$path = $env:PERRITODECK_SHOT_PATH
+$copy = $env:PERRITODECK_SHOT_COPY -eq '1'
 function Out-Json($data) {
     $json = ConvertTo-Json -InputObject $data -Compress
     $json = [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
@@ -210,15 +215,11 @@ public static class PerritoShot {
 """
 
 
-def ps_quote(text):
-    return "'" + text.replace("'", "''") + "'"
-
-
-def windows_script(mode, path, copy):
+def windows_env(mode, path, copy):
+    """This process's environment plus the variables WINDOWS_SCRIPT reads."""
     if mode not in ("screen", "window"):
         raise ValueError(f"unknown mode {mode}")
-    head = f"$mode = '{mode}'\n$path = {ps_quote(path)}\n$copy = ${'true' if copy else 'false'}\n"
-    return head + WINDOWS_SCRIPT
+    return dict(os.environ, PERRITODECK_SHOT_MODE=mode, PERRITODECK_SHOT_PATH=path, PERRITODECK_SHOT_COPY="1" if copy else "0")
 
 
 def parse_ps(stdout, stderr=""):
@@ -241,8 +242,8 @@ def windows_capture(mode, path, copy):
         # Windows' own snipping overlay. It can't be told where to save.
         spawn(["explorer.exe", "ms-screenclip:"])
         return "Pick an area: Windows puts it on the clipboard, not in the folder"
-    script = windows_script(mode, path, copy)
-    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    env = windows_env(mode, path, copy)
+    encoded = base64.b64encode(WINDOWS_SCRIPT.encode("utf-16-le")).decode("ascii")
     try:
         out = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded],
@@ -252,6 +253,7 @@ def windows_capture(mode, path, copy):
             encoding="utf-8",
             errors="replace",
             timeout=TIMEOUT,
+            env=env,
             creationflags=CREATE_NO_WINDOW,
         )
     except subprocess.TimeoutExpired:

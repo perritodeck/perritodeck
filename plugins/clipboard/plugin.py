@@ -78,7 +78,9 @@ def feed(args, text):
 # --- Windows ---------------------------------------------------------------------
 
 # Windows PowerShell 5.1. Text goes through a UTF-8 file and comes back as base64,
-# so no console code page can garble it and no command line gets too long.
+# so no console code page can garble it and no command line gets too long. The
+# file's path comes in an environment variable, so it never has to be quoted into
+# the script: PowerShell ends a '…' string at ‘ ’ ‚ ‛ as well as at '.
 WINDOWS_GET = r"""
 $ErrorActionPreference = 'Stop'
 $t = Get-Clipboard -Raw
@@ -87,7 +89,7 @@ if ($null -ne $t) { [Console]::Out.Write([Convert]::ToBase64String([Text.Encodin
 
 WINDOWS_SET = r"""
 $ErrorActionPreference = 'Stop'
-$t = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
+$t = [IO.File]::ReadAllText($env:PERRITODECK_CLIP_FILE, [Text.Encoding]::UTF8)
 if ($t.Length -eq 0) {
     Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.Clipboard]::Clear()
@@ -97,9 +99,11 @@ if ($t.Length -eq 0) {
 """
 
 
-def powershell(script):
+def powershell(script, env=None):
+    """Run a script; `env` adds environment variables for it to read."""
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-    return run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded])
+    full_env = dict(os.environ, **env) if env else None
+    return run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Sta", "-EncodedCommand", encoded], env=full_env)
 
 
 class WindowsClipboard:
@@ -114,7 +118,7 @@ class WindowsClipboard:
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(text.encode("utf-8"))
-            powershell("$path = '" + path.replace("'", "''") + "'\n" + WINDOWS_SET)
+            powershell(WINDOWS_SET, env={"PERRITODECK_CLIP_FILE": path})
         finally:
             try:
                 os.remove(path)
