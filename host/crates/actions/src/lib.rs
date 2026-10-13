@@ -542,9 +542,10 @@ pub(crate) async fn run_command(
     let program = launch::unquote(program);
     let build = |p: &std::ffi::OsStr| {
         let mut cmd = Command::new(p);
+        // Only the error output is used, for the alert.
         cmd.args(args)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
         if let Some(dir) = cwd {
@@ -556,36 +557,94 @@ pub(crate) async fn run_command(
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         cmd
     };
-    let child = spawn_found(program, build).map_err(|source| ActionError::Spawn {
+    let mut child = spawn_found(program, build).map_err(|source| ActionError::Spawn {
         program: program.to_owned(),
         source,
     })?;
+    #[cfg(windows)]
+    let tree = launch::CommandTree::adopt(&child);
+    let stderr = child.stderr.take().and_then(|e| ErrorOutput::read(e).ok());
     let limit = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_COMMAND_TIMEOUT_MS));
-    match tokio::time::timeout(limit, child.wait_with_output()).await {
-        Err(_) => Ok(Outcome::Alert(format!(
-            "timed out after {} s",
-            limit.as_secs_f32()
-        ))),
-        Ok(Err(e)) => Ok(Outcome::Alert(format!("failed: {e}"))),
-        Ok(Ok(out)) if out.status.success() => Ok(Outcome::Ok),
-        Ok(Ok(out)) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let first = stderr
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("")
-                .trim();
-            let code = out
-                .status
-                .code()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "signal".into());
-            Ok(Outcome::Alert(if first.is_empty() {
-                format!("exit {code}")
-            } else {
-                format!("exit {code}: {first}")
-            }))
+    // The program's exit is what counts, not its output closing: a program it started
+    // (`cmd /c start "" notepad`) inherits the pipe and can hold it open for hours.
+    let status = match tokio::time::timeout(limit, child.wait()).await {
+        Err(_) => {
+            // Dropping the child ends it; on Windows the tree ends what it started too.
+            #[cfg(windows)]
+            if let Some(tree) = &tree {
+                tree.end();
+            }
+            return Ok(Outcome::Alert(format!(
+                "timed out after {} s",
+                limit.as_secs_f32()
+            )));
         }
+        Ok(Err(e)) => return Ok(Outcome::Alert(format!("failed: {e}"))),
+        Ok(Ok(status)) => status,
+    };
+    if status.success() {
+        return Ok(Outcome::Ok);
+    }
+    let stderr = match stderr {
+        Some(e) => e.text(Duration::from_millis(250)).await,
+        None => String::new(),
+    };
+    let first = stderr
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    let code = status
+        .code()
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "signal".into());
+    Ok(Outcome::Alert(if first.is_empty() {
+        format!("exit {code}")
+    } else {
+        format!("exit {code}: {first}")
+    }))
+}
+
+/// A command's error output, read on a thread of its own. The alert shows only the
+/// first line, so only the first few KiB are kept; the rest is read and dropped, so a
+/// chatty program never stalls on a full pipe. Not tokio's pipe reader: when a program
+/// the command started holds the pipe open, the read waits for it, and tokio's runtime
+/// waits for such reads when it shuts down, so quitting the host would hang.
+struct ErrorOutput {
+    kept: Arc<std::sync::Mutex<Vec<u8>>>,
+    done: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl ErrorOutput {
+    const KEEP: usize = 4096;
+
+    fn read(pipe: tokio::process::ChildStderr) -> std::io::Result<ErrorOutput> {
+        use std::io::Read;
+        #[cfg(windows)]
+        let mut file = std::fs::File::from(pipe.into_owned_handle()?);
+        #[cfg(unix)]
+        let mut file = std::fs::File::from(pipe.into_owned_fd()?);
+        let kept = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (tx, done) = tokio::sync::oneshot::channel();
+        let keep = kept.clone();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = file.read(&mut buf) {
+                let mut kept = keep.lock().unwrap_or_else(|e| e.into_inner());
+                let room = Self::KEEP.saturating_sub(kept.len());
+                kept.extend_from_slice(&buf[..n.min(room)]);
+            }
+            let _ = tx.send(());
+        });
+        Ok(ErrorOutput { kept, done })
+    }
+
+    /// What has arrived, after waiting up to `grace` for the rest: whatever the program
+    /// wrote before it exited is still in the pipe.
+    async fn text(self, grace: Duration) -> String {
+        let _ = tokio::time::timeout(grace, self.done).await;
+        let kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        String::from_utf8_lossy(&kept).into_owned()
     }
 }
 

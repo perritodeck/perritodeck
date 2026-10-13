@@ -266,6 +266,71 @@ pub(crate) async fn shell_execute(program: &str, args: &[String]) -> Result<(), 
     }
 }
 
+/// A Command's process and the processes it starts, so a timeout can end them all. For
+/// `npm` or a `.cmd` script the process is `cmd.exe` and the program doing the work is
+/// its child, which ending `cmd.exe` alone leaves running, invisibly. Unlike the
+/// plugins' [`crate::job::ProcessTree`], dropping it ends nothing: an app the command
+/// starts on purpose (`cmd /c start "" notepad`) keeps running after a normal finish.
+#[cfg(windows)]
+pub(crate) struct CommandTree(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl CommandTree {
+    /// Put `child`, and what it starts from now on, in a job object. `None` when Windows
+    /// refuses; a timeout then ends only the process itself, as before.
+    pub(crate) fn adopt(child: &tokio::process::Child) -> Option<CommandTree> {
+        use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW};
+        let process = child.raw_handle()?;
+        // SAFETY: plain Win32 calls. The job handle is owned by the returned tree, which
+        // closes it, or closed here on failure; `process` is the live child's handle.
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return None;
+            }
+            let tree = CommandTree(job);
+            if AssignProcessToJobObject(tree.0, process) == 0 {
+                tracing::debug!(
+                    "couldn't put the command in a job object: {}",
+                    std::io::Error::last_os_error()
+                );
+                return None;
+            }
+            Some(tree)
+        }
+    }
+
+    /// End every process still in the tree.
+    pub(crate) fn end(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        // SAFETY: the handle is ours and open until drop.
+        unsafe {
+            TerminateJobObject(self.0, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl Drop for CommandTree {
+    fn drop(&mut self) {
+        // SAFETY: the handle is ours and closed only here. Without
+        // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE this leaves the processes running.
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+// SAFETY: a job handle is a kernel handle, usable from any thread.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+unsafe impl Send for CommandTree {}
+#[cfg(windows)]
+#[allow(unsafe_code)]
+unsafe impl Sync for CommandTree {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

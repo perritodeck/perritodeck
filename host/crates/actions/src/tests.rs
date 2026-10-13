@@ -422,6 +422,65 @@ mod windows_commands {
         ));
     }
 
+    /// A folder with `start.cmd`, which starts `slow.cmd` and returns, and `slow.cmd`,
+    /// which writes `marker.txt` after about 2 s. `start.cmd` waits `wait` seconds
+    /// after starting it (ping's `-n` counts from 1).
+    fn scripts(wait: u32) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("start.cmd"),
+            format!(
+                "@start \"\" /b \"%~dp0slow.cmd\"\r\n@ping -n {} 127.0.0.1 >nul\r\n",
+                wait + 1
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("slow.cmd"),
+            "@ping -n 3 127.0.0.1 >nul\r\n@echo done>\"%~dp0marker.txt\"\r\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    async fn marker_after(dir: &std::path::Path, secs: u64) -> bool {
+        let marker = dir.join("marker.txt");
+        for _ in 0..secs * 10 {
+            if marker.exists() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        marker.exists()
+    }
+
+    #[tokio::test]
+    async fn a_command_that_starts_a_program_finishes_when_it_exits() {
+        let (ex, _) = setup();
+        let dir = scripts(0);
+        let start = dir.path().join("start.cmd");
+        // slow.cmd inherits the error pipe and holds it for 2 s; the key mustn't wait.
+        let began = std::time::Instant::now();
+        let run = command(start.to_str().unwrap(), &[], Some(1500));
+        assert_eq!(ex.run(&run).await.unwrap(), Outcome::Ok);
+        assert!(began.elapsed().as_millis() < 1500, "{:?}", began.elapsed());
+        // And what it started keeps running.
+        assert!(marker_after(dir.path(), 6).await);
+    }
+
+    #[tokio::test]
+    async fn a_timeout_ends_what_the_command_started() {
+        let (ex, _) = setup();
+        let dir = scripts(5);
+        let start = dir.path().join("start.cmd");
+        let run = command(start.to_str().unwrap(), &[], Some(500));
+        assert!(
+            matches!(ex.run(&run).await.unwrap(), Outcome::Alert(a) if a.contains("timed out"))
+        );
+        // Ending only cmd.exe would leave slow.cmd to write its marker.
+        assert!(!marker_after(dir.path(), 4).await);
+    }
+
     #[tokio::test]
     async fn a_pasted_quoted_path_runs() {
         let (ex, _) = setup();
