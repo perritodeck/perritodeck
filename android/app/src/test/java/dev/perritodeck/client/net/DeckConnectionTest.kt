@@ -16,8 +16,10 @@ import dev.perritodeck.client.protocol.SetTitle
 import dev.perritodeck.client.protocol.SliderValue
 import dev.perritodeck.client.protocol.Welcome
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -33,6 +35,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
+import java.net.ServerSocket
+import java.security.cert.CertificateException
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -177,6 +182,56 @@ class DeckConnectionTest {
         }
         assertTrue((retrying as ConnState.Connecting).lastError != null)
         conn.disconnect()
+    }
+
+    @Test
+    fun fallsThroughADeadAddressWithoutReportingIt() = runBlocking {
+        // 127.0.0.1 comes first on every connect, and without a USB cable it's refused.
+        val deadPort = ServerSocket(0).use { it.localPort }
+        server.enqueue(MockResponse().withWebSocketUpgrade(fakeHost { ws ->
+            ws.send(Codec.encode(Envelope(Message.WelcomeMsg(Welcome("fake", "0", 1, 2000)))))
+        }))
+        val conn = DeckConnection(http, scope)
+        val errors = mutableListOf<String?>()
+        val connected = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(10_000) {
+                conn.state.first { s ->
+                    if (s is ConnState.Connecting) errors += s.lastError
+                    s is ConnState.Connected
+                }
+            }
+        }
+        conn.connect("ws://127.0.0.1:$deadPort", hello, fallbacks = listOf(url()))
+        assertEquals(url(), (connected.await() as ConnState.Connected).url)
+        assertTrue("first pass errors shown: $errors", errors.all { it == null })
+        conn.disconnect()
+    }
+
+    @Test
+    fun anotherComputerOnTheCableIsSkippedNotFatal() = runBlocking {
+        // Stands in for the TLS pin: these addresses present someone else's certificate.
+        val wrongComputer = setOf(1, 2)
+        val pinned = http.newBuilder().addInterceptor { chain ->
+            if (chain.request().url.port in wrongComputer) {
+                throw IOException("pin", CertificateException("someone else"))
+            }
+            chain.proceed(chain.request())
+        }.build()
+        server.enqueue(MockResponse().withWebSocketUpgrade(fakeHost { ws ->
+            ws.send(Codec.encode(Envelope(Message.WelcomeMsg(Welcome("fake", "0", 1, 2000)))))
+        }))
+
+        // The cable leads to a different computer: the network address still gets its turn.
+        val conn = DeckConnection(http, scope)
+        conn.connect("ws://127.0.0.1:1", hello, pinned, fallbacks = listOf(url()))
+        val connected = withTimeout(5_000) { conn.state.first { it is ConnState.Connected || it is ConnState.Failed } }
+        assertEquals(url(), (connected as ConnState.Connected).url)
+        conn.disconnect()
+
+        // The network address itself answering as someone else is still the end of it.
+        conn.connect("ws://127.0.0.1:1", hello, pinned, fallbacks = listOf("ws://192.0.2.1:2"))
+        val failed = withTimeout(5_000) { conn.state.first { it is ConnState.Failed } }
+        assertEquals(DeckConnection.PIN_MISMATCH, (failed as ConnState.Failed).reason)
     }
 
     @Test

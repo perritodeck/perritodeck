@@ -52,6 +52,8 @@ data class PairingLink(
 }
 
 data class HostPort(val host: String, val port: Int) {
+    val url: String get() = "wss://${formatHost(host)}:$port"
+
     companion object {
         /** `1.2.3.4:46710` or `[fe80::1]:46710`. */
         fun parse(s: String): HostPort? {

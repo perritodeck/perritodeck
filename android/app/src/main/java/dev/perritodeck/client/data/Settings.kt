@@ -18,6 +18,14 @@ data class PairedHost(
     val deviceSecret: String,
 ) {
     val url: String get() = "wss://${formatHost(address)}:$port"
+
+    /**
+     * Where to reach this computer, best first: 127.0.0.1, which a USB cable forwards to
+     * the computer (adb reverse) and which is refused at once without one, then the
+     * address discovery just [seen] it at, then the saved one.
+     */
+    fun urls(seen: HostPort? = null): List<String> =
+        listOfNotNull(HostPort(LOCALHOST, seen?.port ?: port).url, seen?.url, url).distinct()
 }
 
 /** Bracket bare IPv6 literals so they form a valid URL. */

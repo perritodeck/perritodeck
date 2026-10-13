@@ -1,6 +1,7 @@
 package dev.perritodeck.client
 
 import dev.perritodeck.client.data.HostPort
+import dev.perritodeck.client.data.PairedHost
 import dev.perritodeck.client.data.PairingLink
 import dev.perritodeck.client.net.Base64Url
 import dev.perritodeck.client.net.Fingerprint
@@ -89,6 +90,20 @@ class PairingTest {
         val usbOnly = PairingLink.parse("perritodeck://pair?v=1&n=PC&a=127.0.0.1%3A46710&fp=$fp&c=042913")!!
         assertEquals(listOf(usb), usbOnly.candidates)
         assertEquals(usb, usbOnly.addressToSave(usb))
+    }
+
+    @Test
+    fun reconnectsTryTheCableThenTheNewestAddress() {
+        val host = PairedHost(fp, "PC", "192.168.1.60", 46710, "secret")
+        assertEquals(listOf("wss://127.0.0.1:46710", "wss://192.168.1.60:46710"), host.urls())
+        // Discovery saw the computer somewhere new: tried before the saved address.
+        assertEquals(
+            listOf("wss://127.0.0.1:46711", "wss://192.168.1.77:46711", "wss://192.168.1.60:46710"),
+            host.urls(HostPort("192.168.1.77", 46711)),
+        )
+        // Paired over the cable with the computer's Wi-Fi off: 127.0.0.1 once.
+        assertEquals(listOf("wss://127.0.0.1:46710"), host.copy(address = "127.0.0.1").urls())
+        assertEquals("wss://[fd24::5]:46710", HostPort("fd24::5", 46710).url)
     }
 
     @Test

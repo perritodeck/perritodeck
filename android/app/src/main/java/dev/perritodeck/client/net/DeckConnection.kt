@@ -1,5 +1,6 @@
 package dev.perritodeck.client.net
 
+import dev.perritodeck.client.data.isLoopback
 import dev.perritodeck.client.protocol.Codec
 import dev.perritodeck.client.protocol.Decoded
 import dev.perritodeck.client.protocol.Envelope
@@ -34,7 +35,8 @@ import java.util.concurrent.atomic.AtomicLong
 sealed interface ConnState {
     data object Idle : ConnState
     data class Connecting(val url: String, val attempt: Int, val lastError: String?) : ConnState
-    data class Connected(val welcome: Welcome) : ConnState
+    /** [url] is the address that worked. */
+    data class Connected(val welcome: Welcome, val url: String) : ConnState
     /** The host refused us for a reason retrying won't fix (not paired, wrong version, wrong host). */
     data class Failed(val reason: String, val notPaired: Boolean = false) : ConnState
 }
@@ -154,12 +156,22 @@ class DeckConnection(
         var attempt = 0
         var lastError: String? = null
         var first = 0 // index of the address that last worked
+        var everConnected = false
         while (currentCoroutineContext().isActive) {
             attempt++
             val i = (first + attempt - 1) % urls.size
             val url = urls[i]
-            _state.value = ConnState.Connecting(url, attempt, lastError)
-            when (val end = runSession(url, hello, client)) {
+            // On the first pass one address failing isn't news while the next is tried
+            // (127.0.0.1 is refused whenever there's no USB cable).
+            val shownError = if (!everConnected && attempt <= urls.size) null else lastError
+            _state.value = ConnState.Connecting(url, attempt, shownError)
+            var end = runSession(url, hello, client)
+            // Over a USB cable 127.0.0.1 leads to whichever computer the tablet is plugged
+            // into, which needn't be this one. That's no reason to give up on the others.
+            if (end is SessionEnd.Fatal && end.reason == PIN_MISMATCH && urls.size > 1 && isLoopback(hostOf(url))) {
+                end = SessionEnd.Retry(OTHER_COMPUTER_ON_USB, false)
+            }
+            when (end) {
                 is SessionEnd.Fatal -> {
                     _state.value = ConnState.Failed(end.reason, end.notPaired)
                     return
@@ -169,6 +181,7 @@ class DeckConnection(
                     if (end.wasConnected) {
                         attempt = 0
                         first = i
+                        everConnected = true
                     }
                 }
             }
@@ -249,7 +262,7 @@ class DeckConnection(
                         when (val m = msg.msg) {
                             is Message.WelcomeMsg -> {
                                 connected = true
-                                _state.value = ConnState.Connected(m.payload)
+                                _state.value = ConnState.Connected(m.payload, url)
                                 heartbeat?.cancel()
                                 heartbeat = startHeartbeat(ws, m.payload.heartbeatIntervalMs, lastHeard)
                             }
@@ -313,6 +326,11 @@ class DeckConnection(
     }
 
     companion object {
+        const val OTHER_COMPUTER_ON_USB = "The USB cable leads to a different computer."
+
+        private fun hostOf(url: String): String =
+            url.substringAfter("://").substringBefore('/').substringBeforeLast(':').removeSurrounding("[", "]")
+
         const val PIN_MISMATCH =
             "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
 
