@@ -841,6 +841,22 @@ class SignInTest(Base):
         twitch.safe_poll()
         self.assertEqual(len(Fake.state["calls"]), calls)  # nothing more is sent
 
+    def test_a_token_save_waits_for_a_reader_to_let_go(self):
+        # On Windows os.replace fails while another handle has the file open; the save
+        # must wait it out rather than drop a new refresh token.
+        twitch.private_write(twitch.TOKEN_FILE, {"access_token": "old"})
+        path = os.path.join(twitch.plugin.data_dir, twitch.TOKEN_FILE)
+        held = open(path, encoding="utf-8")
+        threading.Timer(0.15, held.close).start()
+        twitch.private_write(twitch.TOKEN_FILE, {"access_token": "new"})
+        self.assertEqual(twitch.read_json(twitch.TOKEN_FILE), {"access_token": "new"})
+
+    def test_a_save_that_never_gets_through_says_so(self):
+        with mock.patch.object(twitch.os, "replace", side_effect=PermissionError("denied")), \
+                mock.patch.object(twitch.time, "sleep"):
+            with self.assertRaises(PermissionError):
+                twitch.replace_file("a.tmp", "a", attempts=3)
+
     def test_sign_out_revokes_the_token(self):
         self.signed_in()
         twitch.plugin.watching = {"live:me"}

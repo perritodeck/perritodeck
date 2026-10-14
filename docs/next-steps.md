@@ -468,7 +468,7 @@ values have only run against a fake Twitch. The plan orders the cases from harml
 risky, marks which are safe on the main channel, and describes a stdio harness with an HTTP
 trace that turns Twitch's real answers into recorded contract fixtures for the unit tests.
 
-The research found bugs that were fixed before the pass (plugin 1.1.2; the plan's §1),
+The research found bugs that were fixed before the pass (plugin 1.1.2 and 1.1.3; the plan's §1),
 among them the `chatters` value calling an endpoint that doesn't exist, EventSub
 reconnecting after WebSocket Pings, no validation at start, Sign out not revoking the
 token (or not winning against an approval on its way), a ban with no duration being

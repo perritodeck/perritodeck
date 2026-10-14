@@ -120,7 +120,20 @@ def save_tokens(tokens):
         os.chmod(tmp, 0o600)
     except OSError:
         pass
-    os.replace(tmp, path)
+    replace_file(tmp, path)
+
+
+def replace_file(tmp, path, attempts=100):
+    """os.replace, retried briefly: on Windows it fails ("Access is denied") while another
+    thread or program has the file open, and a lost save would lose a new refresh token."""
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.02)
 
 
 def forget_tokens():
