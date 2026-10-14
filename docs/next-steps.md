@@ -9,7 +9,8 @@ small pieces, push in batches, and tick items off here as they land.
 
 Items 1–7 are done. Item 8 (going public) and items 9–12 (real-world OBS and Twitch passes,
 signed APKs, the website) come next; items 13–18 collect the rest of the open work by area,
-and the list ends with nice-to-haves.
+and the list ends with nice-to-haves. **The order to do it in, who does what, and the
+decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 
 **Where things stand**
 
