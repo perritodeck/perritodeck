@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import queue
 import socket
 import struct
 import sys
@@ -19,6 +20,9 @@ import plugin as obs  # noqa: E402
 obs.BACKOFF_FIRST = 0.05
 obs.BACKOFF_MAX = 0.2
 obs.CONNECT_WAIT = 0.4
+obs.OUTPUT_EVENT_WAIT = 0.4
+obs.STREAM_START_WAIT = 1.0
+obs.SWITCH_WAIT = 0.4
 # configure() doesn't interrupt a connection attempt that is under way, and a test's
 # configure() can land in one aimed at the previous test's stopped server. Linux refuses
 # that at once; Windows retries the SYN for about 2 s first. So waits that follow
@@ -98,10 +102,20 @@ class FakeObs:
         self.state = {
             "program": "Live", "preview": None, "studio": False, "streaming": False, "recording": False,
             "stream_bytes": 0, "stream_skipped": 0, "available": list(ALL_REQUESTS),
+            "scenes": ["Live"], "groups": [], "paused": False,
+            # Real OBS can pause only a recording with an encoder of its own, and a stream to a
+            # server that isn't there stops about 2 s after starting (0.1 s here).
+            "can_pause": True, "stream_fails": False, "stop_takes": 0.05,
+            # One duration shared by every transition; None for the ones with a fixed length.
+            "transition": "Cut", "duration": 300,
+            "transitions": {"Cut": True, "Fade": False, "Swipe": False, "Stinger": True},
+            "monitors": 2,
         }
         self.handlers = {}
         self.running = True
+        self.steps = queue.Queue()
         threading.Thread(target=self._accept, daemon=True).start()
+        threading.Thread(target=self._run_steps, daemon=True).start()
 
     # -- plumbing --
 
@@ -169,7 +183,8 @@ class FakeObs:
                     f"Sec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: obswebsocket.json\r\n\r\n"
                 ).encode()
             )
-            hello = {"obsStudioVersion": "30.2.2", "obsWebSocketVersion": "5.5.2", "rpcVersion": 1}
+            # obs-websocket 5.5.6's Hello: no OBS version in it (GetVersion has that).
+            hello = {"obsWebSocketVersion": "5.5.2", "rpcVersion": 1}
             if self.password is not None:
                 hello["authentication"] = {"challenge": CHALLENGE, "salt": SALT}
             self.send(conn, {"op": 0, "d": hello})
@@ -229,7 +244,10 @@ class FakeObs:
 
     def on_GetSceneList(self, d):
         return {"currentProgramSceneName": self.state["program"], "currentPreviewSceneName": self.state["preview"],
-                "scenes": [{"sceneName": "Live", "sceneIndex": 0}]}
+                "scenes": [{"sceneName": name, "sceneIndex": i} for i, name in enumerate(self.state["scenes"])]}
+
+    def on_GetGroupList(self, d):
+        return {"groups": list(self.state["groups"])}
 
     def on_GetStudioModeEnabled(self, d):
         return {"studioModeEnabled": self.state["studio"]}
@@ -243,7 +261,7 @@ class FakeObs:
 
     def on_GetRecordStatus(self, d):
         active = self.state["recording"]
-        return {"outputActive": active, "outputPaused": False,
+        return {"outputActive": active, "outputPaused": active and self.state["paused"],
                 "outputTimecode": "01:00:00.000" if active else "00:00:00.000", "outputDuration": 0, "outputBytes": 0}
 
     def on_GetReplayBufferStatus(self, d):
@@ -253,8 +271,138 @@ class FakeObs:
         return {"outputActive": False}
 
     def on_GetCurrentSceneTransition(self, d):
-        return {"transitionName": "Cut", "transitionKind": "cut_transition", "transitionFixed": True,
-                "transitionDuration": None, "transitionConfigurable": False, "transitionSettings": None}
+        # obs-websocket reports no duration for a transition with a fixed length (Cut, Stinger).
+        name = self.state["transition"]
+        fixed = self.state["transitions"][name]
+        return {"transitionName": name, "transitionKind": name.lower() + "_transition", "transitionFixed": fixed,
+                "transitionDuration": None if fixed else self.state["duration"],
+                "transitionConfigurable": not fixed, "transitionSettings": None}
+
+    def on_GetSceneTransitionList(self, d):
+        return {"currentSceneTransitionName": self.state["transition"], "transitions": [
+            {"transitionName": name, "transitionKind": name.lower() + "_transition", "transitionFixed": fixed,
+             "transitionConfigurable": not fixed}
+            for name, fixed in self.state["transitions"].items()]}
+
+    def on_SetCurrentSceneTransition(self, d):
+        name = d.get("transitionName")
+        if name not in self.state["transitions"]:
+            raise Fail(600, "No scene transition was found by that name.")
+        # OBS answers first and switches a moment later, in its window, then says so.
+        self.later(self.then(0.005, "CurrentSceneTransitionChanged", {"transitionName": name}, transition=name))
+
+    def on_SetCurrentSceneTransitionDuration(self, d):
+        # One duration for every transition: OBS takes it even while Cut is current.
+        duration = d["transitionDuration"]
+        self.later(self.then(0.005, "CurrentSceneTransitionDurationChanged", {"transitionDuration": duration},
+                             duration=duration))
+
+    def on_TriggerStudioModeTransition(self, d):
+        if not self.state["studio"]:
+            raise Fail(506)
+        name = self.state["transition"]
+        self.later(self.then(0.005, "SceneTransitionStarted", {"transitionName": name}),
+                   self.then(0.01, "SceneTransitionEnded", {"transitionName": name}))
+
+    def on_GetMonitorList(self, d):
+        return {"monitors": [{"monitorName": f"Monitor {i + 1}", "monitorIndex": i, "monitorWidth": 1920,
+                              "monitorHeight": 1080, "monitorPositionX": 1920 * i, "monitorPositionY": 0}
+                             for i in range(self.state["monitors"])]}
+
+    # Outputs, the way OBS 31 runs them: it answers at once and starts or stops a moment later,
+    # with StreamStateChanged / RecordStateChanged events whose outputActive is true only for
+    # STARTED and RESUMED. While a recording stops, GetRecordStatus still says active.
+
+    def output_event(self, event_type, state, active, delay=0.005, **changes):
+        data = {"outputActive": active, "outputState": "OBS_WEBSOCKET_OUTPUT_" + state}
+        if event_type == "RecordStateChanged":
+            data["outputPath"] = None
+        return self.then(delay, event_type, data, **changes)
+
+    def on_StartStream(self, d):
+        if self.state["streaming"]:
+            raise Fail(500)
+        self._start_stream()
+
+    def on_StopStream(self, d):
+        if not self.state["streaming"]:
+            raise Fail(501)
+        self._stop_stream()
+
+    def on_ToggleStream(self, d):
+        if self.state["streaming"]:
+            self._stop_stream()
+        else:
+            self._start_stream()
+        return {"outputActive": not self.state["streaming"]}
+
+    def _start_stream(self):
+        if self.state["stream_fails"]:
+            self.later(self.output_event("StreamStateChanged", "STARTING", False),
+                       self.output_event("StreamStateChanged", "STOPPED", False, delay=0.1))
+        else:
+            self.later(self.output_event("StreamStateChanged", "STARTING", False),
+                       self.output_event("StreamStateChanged", "STARTED", True, streaming=True))
+
+    def _stop_stream(self):
+        self.later(self.output_event("StreamStateChanged", "STOPPING", False),
+                   self.output_event("StreamStateChanged", "STOPPED", False, delay=self.state["stop_takes"],
+                                     streaming=False))
+
+    def on_StartRecord(self, d):
+        if self.state["recording"]:
+            raise Fail(500)
+        self._start_record()
+
+    def on_StopRecord(self, d):
+        if not self.state["recording"]:
+            raise Fail(501)
+        self._stop_record()
+        return {"outputPath": "/videos/recording.mp4"}
+
+    def on_ToggleRecord(self, d):
+        active = not self.state["recording"]
+        if active:
+            self._start_record()
+        else:
+            self._stop_record()
+        return {"outputActive": active}
+
+    def _start_record(self):
+        self.state["recording"] = True
+        self.later(self.output_event("RecordStateChanged", "STARTING", False),
+                   self.output_event("RecordStateChanged", "STARTED", True))
+
+    def _stop_record(self):
+        self.later(self.output_event("RecordStateChanged", "STOPPING", False),
+                   self.output_event("RecordStateChanged", "STOPPED", False, delay=self.state["stop_takes"],
+                                     recording=False, paused=False))
+
+    def on_PauseRecord(self, d):
+        if self.state["paused"]:
+            raise Fail(502)
+        self._pause_record()
+
+    def on_ResumeRecord(self, d):
+        if not self.state["paused"]:
+            raise Fail(503)
+        self._resume_record()
+
+    def on_ToggleRecordPause(self, d):
+        if self.state["paused"]:
+            self._resume_record()
+        else:
+            self._pause_record()
+
+    def _pause_record(self):
+        # Yes, even with nothing recording or a recording that can't pause; then nothing happens.
+        if self.state["recording"] and self.state["can_pause"]:
+            self.state["paused"] = True
+            self.later(self.output_event("RecordStateChanged", "PAUSED", False))
+
+    def _resume_record(self):
+        self.state["paused"] = False
+        self.later(self.output_event("RecordStateChanged", "RESUMED", True))
 
     def on_GetProfileList(self, d):
         return {"currentProfileName": "Untitled", "profiles": ["Untitled"]}
@@ -275,6 +423,30 @@ class FakeObs:
 
     # -- driving it from tests --
 
+    def then(self, delay, event_type, data, **changes):
+        """A step for later(): after `delay`, change the state and send the event."""
+        def step():
+            time.sleep(delay)
+            self.state.update(changes)
+            self.event(event_type, data)
+        return step
+
+    def later(self, *steps):
+        """Run steps after the answer has gone, one after another, as OBS's window does with
+        the work obs-websocket hands it."""
+        for step in steps:
+            self.steps.put(step)
+
+    def _run_steps(self):
+        while True:
+            step = self.steps.get()
+            if step is None:
+                return
+            try:
+                step()
+            except OSError:
+                pass
+
     def event(self, event_type, data, intent=1):
         for conn in list(self.clients):
             self.send(conn, {"op": 5, "d": {"eventType": event_type, "eventIntent": intent, "eventData": data}})
@@ -294,6 +466,7 @@ class FakeObs:
 
     def stop(self):
         self.running = False
+        self.steps.put(None)
         try:
             self.listener.shutdown(socket.SHUT_RDWR)  # wakes accept(); close() alone may not
         except OSError:
@@ -339,8 +512,23 @@ class PluginTest(unittest.TestCase):
         obs.watching(sorted(values))
         wait_for(lambda: obs.live.jobs.unfinished_tasks == 0, message="watch refresh")
 
+    def resync(self):
+        """OBS switches to the same scene collection again: the plugin reads everything again."""
+        syncs = [t for t, _ in self.server.batched].count("GetVersion")
+        self.server.event("CurrentSceneCollectionChanging", {"sceneCollectionName": "Main"})
+        self.server.event("CurrentSceneCollectionChanged", {"sceneCollectionName": "Main"})
+        wait_for(lambda: [t for t, _ in self.server.batched].count("GetVersion") > syncs, message="the next sync")
+        wait_for(lambda: obs.live.jobs.unfinished_tasks == 0, message="background jobs")
+
     def value(self, key, expected, timeout=2.0):
         wait_for(lambda: self.values.get(key) == expected, timeout, f"{key} == {expected!r} (is {self.values.get(key)!r})")
+
+    def published(self, key):
+        """Every value published for `key` so far, in order."""
+        return [m["value"] for m in list(self.sent) if m.get("event") == "value" and m.get("id") == key]
+
+    def logs(self):
+        return [m["message"] for m in list(self.sent) if m.get("event") == "log"]
 
 
 class AuthAndFramingTest(unittest.TestCase):
@@ -375,10 +563,16 @@ class AuthAndFramingTest(unittest.TestCase):
         self.assertEqual(obs.slider_to_mul(-5), 0.0)
         self.assertEqual(obs.mul_to_slider(3.0), 100)
 
-    def test_split_pair(self):
-        self.assertEqual(obs.split_pair("Gaming/Webcam"), ("Gaming", "Webcam"))
-        self.assertEqual(obs.split_pair("Gaming / Web/cam"), ("Gaming", "Web/cam"))
-        self.assertEqual(obs.split_pair("A/B|Cam"), ("A/B", "Cam"))
+    def test_splits_tries_the_first_bar_then_the_first_slash_then_the_rest(self):
+        self.assertEqual(obs.splits("Gaming/Webcam"), [("Gaming", "Webcam")])
+        self.assertEqual(obs.splits("Gaming / Web/cam"), [("Gaming", "Web/cam"), ("Gaming / Web", "cam")])
+        self.assertEqual(obs.splits("A/B|Cam"), [("A/B", "Cam"), ("A", "B|Cam")])
+        # The README's rule: the first '/' splits, also when the second name has a '|'.
+        self.assertIn(("PD BRB", "PD Odd: A|B"), obs.splits("PD BRB/PD Odd: A|B"))
+        self.assertEqual(obs.splits("A|B/Cam|x"), [("A", "B/Cam|x"), ("A|B", "Cam|x"), ("A|B/Cam", "x")])
+        self.assertEqual(obs.splits("Webcam"), [])
+        self.assertEqual(obs.splits("/Webcam"), [])
+        self.assertEqual(obs.splits("Gaming/ "), [])
 
     def test_manifest_lists_every_value(self):
         here = os.path.dirname(os.path.abspath(__file__))
@@ -471,6 +665,28 @@ class ConnectionTest(PluginTest):
         self.value("preview_scene", obs.UNKNOWN)
         self.assertEqual(self.server.unmasked, 0)
         self.assertEqual(self.server.requests, [], "the initial sync is one batch")
+
+    def test_connect_log_names_obs_and_obs_websocket_versions_once(self):
+        self.connect()
+        expected = f"connected to OBS 30.2.2 (obs-websocket 5.5.2) at {self.server.url}"
+        wait_for(lambda: expected in self.logs(), message="the connect log line")
+        # A scene collection change syncs again, but the connection is the same.
+        self.resync()
+        self.assertEqual([m for m in self.logs() if m.startswith("connected to")], [expected])
+
+    def test_connect_log_without_get_version_names_the_hellos_obs_websocket_version(self):
+        def not_ready(d):
+            raise Fail(207, "OBS is not ready to perform the request.")
+        self.server.handlers["GetVersion"] = not_ready
+        self.connect()
+        expected = f"connected to OBS ? (obs-websocket 5.5.2) at {self.server.url}"
+        wait_for(lambda: expected in self.logs(), message="the connect log line")
+
+    def test_statistics_come_with_the_first_sync(self):
+        self.connect()
+        self.value("fps", "60")
+        self.value("cpu", "3.1")
+        self.value("dropped_frames", "0.3")
 
     def test_not_running(self):
         port = self.server.port
@@ -575,14 +791,9 @@ class ActionTest(PluginTest):
             (obs.studio_mode, {"mode": "toggle"}, [("SetStudioModeEnabled", {"studioModeEnabled": True})]),
             (obs.studio_mode, {"mode": "off"}, [("SetStudioModeEnabled", {"studioModeEnabled": False})]),
             (obs.set_transition, {"transition": "Fade", "duration": "300"},
-             [("SetCurrentSceneTransition", {"transitionName": "Fade"}), ("SetCurrentSceneTransitionDuration", {"transitionDuration": 300})]),
-            (obs.stream, {"mode": "toggle"}, [("ToggleStream", None)]),
-            (obs.stream, {"mode": "start"}, [("StartStream", None)]),
-            (obs.stream, {"mode": "stop"}, [("StopStream", None)]),
-            (obs.record, {}, [("ToggleRecord", None)]),
-            (obs.record, {"mode": "pause-toggle"}, [("ToggleRecordPause", None)]),
-            (obs.record, {"mode": "pause"}, [("PauseRecord", None)]),
-            (obs.record, {"mode": "resume"}, [("ResumeRecord", None)]),
+             [("GetSceneTransitionList", None), ("SetCurrentSceneTransition", {"transitionName": "Fade"}),
+              ("SetCurrentSceneTransitionDuration", {"transitionDuration": 300})]),
+            (obs.set_transition, {"transition": "Swipe"}, [("SetCurrentSceneTransition", {"transitionName": "Swipe"})]),
             (obs.record_split, {}, [("SplitRecordFile", None)]),
             (obs.record_chapter, {"name": "Intro"}, [("CreateRecordChapter", {"chapterName": "Intro"})]),
             (obs.record_chapter, {}, [("CreateRecordChapter", {})]),
@@ -604,7 +815,8 @@ class ActionTest(PluginTest):
             (obs.set_text, {"input": "Title", "text": "Back soon\\nreally"},
              [("SetInputSettings", {"inputName": "Title", "inputSettings": {"text": "Back soon\nreally"}})]),
             (obs.projector, {"what": "program", "monitor": "2"},
-             [("OpenVideoMixProjector", {"monitorIndex": 1, "videoMixType": "OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM"})]),
+             [("GetMonitorList", None),
+              ("OpenVideoMixProjector", {"monitorIndex": 1, "videoMixType": "OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM"})]),
             (obs.projector, {"what": "multiview"}, [("OpenVideoMixProjector", {"videoMixType": "OBS_WEBSOCKET_VIDEO_MIX_TYPE_MULTIVIEW"})]),
             (obs.projector, {"what": "source", "source": "Webcam"}, [("OpenSourceProjector", {"sourceName": "Webcam"})]),
             (obs.profile, {"profile": "Streaming"}, [("SetCurrentProfile", {"profileName": "Streaming"})]),
@@ -632,22 +844,94 @@ class ActionTest(PluginTest):
         self.run_action(obs.switch_scene, {"scene": "Gaming", "where": "program"})
         self.assertEqual(self.server.requests, [("SetCurrentProgramScene", {"sceneName": "Gaming"})])
 
+    def use_transition(self, name, duration=300):
+        """Studio Mode on, with `name` as OBS's current transition."""
+        self.server.state.update(studio=True, transition=name, duration=duration)
+        self.server.event("CurrentSceneTransitionChanged", {"transitionName": name})
+        self.value("transition", name)
+
+    def restored(self, count):
+        wait_for(lambda: len(self.server.requests) == count, message="the transition put back")
+        time.sleep(0.05)  # and nothing more
+        self.assertEqual(len(self.server.requests), count)
+
     def test_transition_with_override_puts_the_old_one_back(self):
-        self.server.handlers["GetCurrentSceneTransition"] = lambda d: {
-            "transitionName": "Cut", "transitionFixed": False, "transitionDuration": 300}
-        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Fade", "duration": 500}))
-        self.assertEqual(self.server.requests, [
+        self.use_transition("Fade", 300)
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Swipe", "duration": 500}))
+        self.assertEqual(self.server.requests[:5], [
             ("GetCurrentSceneTransition", None),
-            ("SetCurrentSceneTransition", {"transitionName": "Fade"}),
+            ("SetCurrentSceneTransition", {"transitionName": "Swipe"}),
+            ("GetCurrentSceneTransition", None),  # once OBS shows Swipe: the duration it shares
             ("SetCurrentSceneTransitionDuration", {"transitionDuration": 500}),
             ("TriggerStudioModeTransition", None),
         ])
-        self.server.event("SceneTransitionEnded", {"transitionName": "Fade"})
-        wait_for(lambda: len(self.server.requests) == 6, message="restore")
-        self.assertEqual(self.server.requests[4:], [
+        self.restored(7)
+        self.assertEqual(self.server.requests[5:], [
+            ("SetCurrentSceneTransition", {"transitionName": "Fade"}),
+            ("SetCurrentSceneTransitionDuration", {"transitionDuration": 300}),
+        ])
+
+    def test_one_off_transition_over_a_fixed_one_puts_the_shared_duration_back(self):
+        # Real OBS reports no duration while Cut is current, but has one, shared by all.
+        self.use_transition("Cut", 300)
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Fade", "duration": 800}))
+        self.restored(7)
+        self.assertEqual(self.server.requests[3:], [
+            ("SetCurrentSceneTransitionDuration", {"transitionDuration": 800}),
+            ("TriggerStudioModeTransition", None),
             ("SetCurrentSceneTransition", {"transitionName": "Cut"}),
             ("SetCurrentSceneTransitionDuration", {"transitionDuration": 300}),
         ])
+        wait_for(lambda: self.server.state["duration"] == 300 and self.server.state["transition"] == "Cut")
+
+    def test_one_off_transition_that_is_already_current_isnt_switched_to(self):
+        self.use_transition("Fade", 300)
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Fade"}))
+        self.restored(2)
+        self.assertEqual(self.server.requests, [("GetCurrentSceneTransition", None), ("TriggerStudioModeTransition", None)])
+        # With a duration, only the duration is set and put back.
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Fade", "duration": 800}))
+        self.restored(4)
+        self.assertEqual(self.server.requests, [
+            ("GetCurrentSceneTransition", None),
+            ("SetCurrentSceneTransitionDuration", {"transitionDuration": 800}),
+            ("TriggerStudioModeTransition", None),
+            ("SetCurrentSceneTransitionDuration", {"transitionDuration": 300}),
+        ])
+
+    def test_one_off_duration_is_left_out_when_obs_doesnt_switch_in_time(self):
+        # Without the one-off transition current, OBS can't say what the shared duration was.
+        self.use_transition("Cut", 300)
+        self.server.handlers["SetCurrentSceneTransition"] = lambda d: None
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Fade", "duration": 800}))
+        self.restored(5)
+        self.assertNotIn("SetCurrentSceneTransitionDuration", [t for t, _ in self.server.requests])
+        self.assertEqual(self.server.state["duration"], 300)
+
+    def test_a_duration_is_left_out_for_a_transition_with_a_fixed_length(self):
+        self.use_transition("Fade", 300)
+        self.assertIsNone(self.run_action(obs.transition_now, {"transition": "Cut", "duration": 500}))
+        self.restored(5)
+        self.assertEqual(self.server.requests, [
+            ("GetCurrentSceneTransition", None),
+            ("SetCurrentSceneTransition", {"transitionName": "Cut"}),
+            ("GetCurrentSceneTransition", None),  # Cut has a fixed length: no duration to set
+            ("TriggerStudioModeTransition", None),
+            ("SetCurrentSceneTransition", {"transitionName": "Fade"}),
+        ])
+        # A duration alone, while Cut is current, changes nothing (and so puts nothing back).
+        wait_for(lambda: self.server.state["transition"] == "Fade")
+        self.use_transition("Cut", 300)
+        self.assertIsNone(self.run_action(obs.transition_now, {"duration": 500}))
+        self.restored(2)
+        self.assertEqual(self.server.requests, [("GetCurrentSceneTransition", None), ("TriggerStudioModeTransition", None)])
+        # Choosing Cut with a duration leaves the shared duration alone too.
+        self.assertIsNone(self.run_action(obs.set_transition, {"transition": "Cut", "duration": 500}))
+        self.assertEqual(self.server.requests, [("GetSceneTransitionList", None),
+                                                ("SetCurrentSceneTransition", {"transitionName": "Cut"})])
+        self.assertEqual(self.server.state["duration"], 300)
+        self.assertIsNone(self.run_action(obs.set_transition, {"transition": "Fade", "duration": 1200}))
+        self.assertEqual(self.server.requests[-1], ("SetCurrentSceneTransitionDuration", {"transitionDuration": 1200}))
 
     def test_transition_outside_studio_mode_warns(self):
         def refuse(d):
@@ -687,6 +971,101 @@ class ActionTest(PluginTest):
         with self.assertRaisesRegex(RuntimeError, "OBS: Not now."):
             self.run_action(obs.virtualcam, {"mode": "start"})
 
+    def test_stream_and_record_actions(self):
+        state = self.server.state
+        cases = [
+            (obs.stream, {"mode": "start"}, "StartStream", lambda: state["streaming"]),
+            (obs.stream, {"mode": "stop"}, "StopStream", lambda: not state["streaming"]),
+            (obs.stream, {"mode": "toggle"}, "ToggleStream", lambda: state["streaming"]),
+            (obs.stream, {}, "ToggleStream", lambda: not state["streaming"]),
+            (obs.record, {"mode": "start"}, "StartRecord", lambda: self.values["recording"] == "on"),
+            (obs.record, {"mode": "pause"}, "PauseRecord", lambda: state["paused"]),
+            (obs.record, {"mode": "resume"}, "ResumeRecord", lambda: not state["paused"]),
+            (obs.record, {"mode": "pause-toggle"}, "ToggleRecordPause", lambda: state["paused"]),
+            (obs.record, {"mode": "pause-toggle"}, "ToggleRecordPause", lambda: not state["paused"]),
+            (obs.record, {"mode": "stop"}, "StopRecord", lambda: not state["recording"]),
+            (obs.record, {}, "ToggleRecord", lambda: self.values["recording"] == "on"),
+            (obs.record, {}, "ToggleRecord", lambda: not state["recording"]),
+        ]
+        for fn, settings, request_type, done in cases:
+            with self.subTest(action=fn.__name__, settings=settings):
+                self.assertIsNone(self.run_action(fn, settings))
+                self.assertEqual(self.server.requests, [(request_type, None)])
+                wait_for(done, message=f"{request_type} to finish")
+
+    def test_pausing_while_nothing_records_says_so(self):
+        # OBS answers PauseRecord and ToggleRecordPause with success while it isn't recording.
+        for mode in ("pause", "pause-toggle", "resume"):
+            with self.subTest(mode):
+                self.assertEqual(self.run_action(obs.record, {"mode": mode}), "OBS isn't recording")
+                self.assertEqual(self.server.requests, [])
+
+    def test_pausing_a_recording_obs_cant_pause_says_why(self):
+        # A recording that uses the stream's encoder: OBS says yes to a pause, and nothing happens.
+        self.server.state["can_pause"] = False
+        self.run_action(obs.record, {"mode": "start"})
+        self.value("recording", "on")
+        for mode, request_type in (("pause", "PauseRecord"), ("pause-toggle", "ToggleRecordPause")):
+            with self.subTest(mode):
+                began = time.monotonic()
+                with self.assertRaisesRegex(RuntimeError, "couldn't pause the recording: pausing needs a recording "
+                                                          r"encoder of its own, not the stream's \(Settings → Output\)"):
+                    self.run_action(obs.record, {"mode": mode})
+                self.assertGreaterEqual(time.monotonic() - began, obs.OUTPUT_EVENT_WAIT)
+                self.assertEqual(self.server.requests, [(request_type, None), ("GetRecordStatus", None)])
+        self.value("record_paused", "off")
+        # It can pause: the PAUSED event answers at once, and pausing again is OBS's warning.
+        self.server.state["can_pause"] = True
+        began = time.monotonic()
+        self.assertIsNone(self.run_action(obs.record, {"mode": "pause"}))
+        self.assertLess(time.monotonic() - began, obs.OUTPUT_EVENT_WAIT)
+        self.assertEqual(self.values["record_paused"], "on")
+        self.assertEqual(self.run_action(obs.record, {"mode": "pause"}), "the recording is already paused")
+
+    def test_a_stream_that_cant_connect_says_so(self):
+        # OBS answers StartStream at once, goes STARTING, then STOPPED when it can't connect.
+        self.server.state["stream_fails"] = True
+        for settings in ({"mode": "start"}, {"mode": "toggle"}):
+            with self.subTest(settings):
+                began = time.monotonic()
+                with self.assertRaisesRegex(RuntimeError, r"^OBS couldn't start the stream: see the message in OBS, "
+                                                          r"or check Settings → Stream$"):
+                    self.run_action(obs.stream, settings)
+                self.assertLess(time.monotonic() - began, obs.STREAM_START_WAIT)
+        self.assertNotIn("on", self.published("streaming"))
+
+        # Still connecting when the wait is over: say so rather than that it worked.
+        def starting(d):
+            self.server.later(self.server.output_event("StreamStateChanged", "STARTING", False))
+        self.server.handlers["StartStream"] = starting
+        began = time.monotonic()
+        self.assertEqual(self.run_action(obs.stream, {"mode": "start"}), "OBS is still connecting to the stream server…")
+        self.assertLess(time.monotonic() - began, obs.STREAM_START_WAIT + 0.5)
+
+    def test_split_and_chapter_while_paused(self):
+        def refuse(comment):
+            def handler(d):
+                raise Fail(702, comment)
+            return handler
+        # What OBS answers while a recording is paused, although splitting and chapters work.
+        self.server.handlers["SplitRecordFile"] = refuse("Verify that file splitting is enabled in the output settings.")
+        self.server.handlers["CreateRecordChapter"] = refuse("Verify that the output being used supports chapter markers.")
+        with self.assertRaisesRegex(RuntimeError, "^OBS: Verify that file splitting is enabled"):
+            self.run_action(obs.record_split, {})
+        self.server.event("RecordStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_STARTED"})
+        self.server.event("RecordStateChanged", {"outputActive": False, "outputState": "OBS_WEBSOCKET_OUTPUT_PAUSED"})
+        self.value("record_paused", "on")
+        self.assertEqual(self.run_action(obs.record_split, {}), "the recording is paused; resume it first")
+        self.assertEqual(self.run_action(obs.record_chapter, {"name": "x"}), "the recording is paused; resume it first")
+
+    def test_projector_on_a_screen_obs_doesnt_have(self):
+        # OBS answers success for a screen it hasn't got and opens nothing.
+        with self.assertRaisesRegex(RuntimeError, "^OBS has no screen 3; it has 2$"):
+            self.run_action(obs.projector, {"what": "program", "monitor": "3"})
+        self.assertEqual(self.server.requests, [("GetMonitorList", None)])
+        self.assertIsNone(self.run_action(obs.projector, {"what": "source", "source": "Cam", "monitor": "1"}))
+        self.assertEqual(self.server.requests[-1], ("OpenSourceProjector", {"monitorIndex": 0, "sourceName": "Cam"}))
+
     def test_refusals_without_a_comment_are_explained_like_the_built_in_obs(self):
         def missing(d):
             raise Fail(600)
@@ -696,6 +1075,13 @@ class ActionTest(PluginTest):
         self.server.handlers["ToggleInputMute"] = missing
         with self.assertRaisesRegex(RuntimeError, "^OBS: there's no source called “Mic”$"):
             self.run_action(obs.mute, {"input": "Mic"})
+        # What real OBS answers for a profile or scene collection it hasn't got: 600, no comment.
+        self.server.handlers["SetCurrentProfile"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS: there's no profile called “Nope”$"):
+            self.run_action(obs.profile, {"profile": "Nope"})
+        self.server.handlers["SetCurrentSceneCollection"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS: there's no scene collection called “Nope”$"):
+            self.run_action(obs.scene_collection, {"collection": "Nope"})
 
         def busy(d):
             raise Fail(604)
@@ -774,6 +1160,10 @@ class ActionTest(PluginTest):
         self.server.handlers["GetSceneItemId"] = slow({"sceneItemId": 7})
         self.server.handlers["GetSceneItemEnabled"] = slow({"sceneItemEnabled": True})
         self.server.handlers["SetCurrentSceneCollection"] = slow({})
+        self.server.handlers["PauseRecord"] = slow({})  # and then no PAUSED: it waits for one too
+        self.server.handlers["GetSceneTransitionList"] = slow({"transitions": []})
+        self.server.event("RecordStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_STARTED"})
+        self.value("recording", "on")
         old = obs.ACTION_DEADLINE
         obs.ACTION_DEADLINE = 0.3
         try:
@@ -785,6 +1175,11 @@ class ActionTest(PluginTest):
                      in self.server.requests, message="the toggle to finish")
             self.assertIn("still switching", self.run_action(obs.scene_collection, {"collection": "Podcast"}))
             wait_for(lambda: ("SetCurrentSceneCollection", {"sceneCollectionName": "Podcast"}) in self.server.requests)
+            for fn, settings in ((obs.record, {"mode": "pause"}), (obs.set_transition, {"transition": "Fade", "duration": 500})):
+                with self.subTest(action=fn.__name__):
+                    began = time.monotonic()
+                    self.assertEqual(self.run_action(fn, settings), obs.STILL_WORKING)
+                    self.assertLess(time.monotonic() - began, 0.6)
         finally:
             obs.ACTION_DEADLINE = old
 
@@ -794,6 +1189,49 @@ class ActionTest(PluginTest):
         self.server.handlers["GetSceneItemId"] = missing
         with self.assertRaisesRegex(RuntimeError, "no source “Cam” in the scene “Live”"):
             self.run_action(obs.source_visibility, {"source": "Cam"})
+
+    def test_source_visibility_missing_scene(self):
+        def missing(d):
+            # Real OBS: the same code for a missing scene as for a missing source.
+            if d["sceneName"] not in self.server.state["scenes"] + self.server.state["groups"]:
+                raise Fail(600, "No source was found by the name of `%s`." % d["sceneName"])
+            raise Fail(600, "No scene items were found in the specified scene by that name or offset.")
+        self.server.handlers["GetSceneItemId"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS has no scene “Nowhere”$"):
+            self.run_action(obs.source_visibility, {"scene": "Nowhere", "source": "Cam"})
+        # Scenes made (or renamed) since connecting count as scenes, and so do groups; a scene
+        # removed since doesn't.
+        self.server.state["scenes"].append("Talk")
+        self.server.event("SceneCreated", {"sceneName": "Talk", "sceneUuid": "u", "isGroup": False})
+        self.server.state["groups"].append("Cams")
+        self.server.event("SceneCreated", {"sceneName": "Cams", "sceneUuid": "g", "isGroup": True})
+        self.server.state["scenes"][0] = "Live R"
+        self.server.event("SceneNameChanged", {"sceneUuid": "u", "oldSceneName": "Live", "sceneName": "Live R"})
+        self.value("scene", "Live R")
+        for scene in ("Talk", "Cams", "Live R"):
+            with self.assertRaisesRegex(RuntimeError, f"^OBS has no source “Cam” in the scene “{scene}”$"):
+                self.run_action(obs.source_visibility, {"scene": scene, "source": "Cam"})
+        with self.assertRaisesRegex(RuntimeError, "^OBS has no scene “Live”$"):
+            self.run_action(obs.source_visibility, {"scene": "Live", "source": "Cam"})
+        self.server.state["scenes"].remove("Talk")
+        self.server.event("SceneRemoved", {"sceneName": "Talk", "sceneUuid": "u", "isGroup": False})
+        with self.assertRaisesRegex(RuntimeError, "^OBS has no scene “Talk”$"):
+            self.run_action(obs.source_visibility, {"scene": "Talk", "source": "Cam"})
+
+    def test_without_the_group_list_a_missing_item_names_the_source(self):
+        # Groups count as scenes. Without OBS's list of them, a name the scene list lacks may
+        # be a group, so the plugin doesn't say the scene is missing.
+        def not_ready(d):
+            raise Fail(207, "OBS is not ready to perform the request.")
+        self.server.handlers["GetGroupList"] = not_ready
+        self.server.state["groups"].append("Cams")
+        self.resync()
+
+        def missing(d):
+            raise Fail(600, "No scene items were found in the specified scene by that name or offset.")
+        self.server.handlers["GetSceneItemId"] = missing
+        with self.assertRaisesRegex(RuntimeError, "^OBS has no source “Cam” in the scene “Cams”$"):
+            self.run_action(obs.source_visibility, {"scene": "Cams", "source": "Cam"})
 
     def test_filter_toggle(self):
         self.server.handlers["GetSourceFilter"] = lambda d: {"filterEnabled": False, "filterIndex": 0, "filterKind": "x", "filterSettings": {}}
@@ -870,7 +1308,7 @@ class ValueTest(PluginTest):
         self.server.event("RecordStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_STARTED", "outputPath": None})
         self.value("recording", "on")
         self.value("record_paused", "off")
-        self.server.event("RecordStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_PAUSED", "outputPath": None})
+        self.server.event("RecordStateChanged", {"outputActive": False, "outputState": "OBS_WEBSOCKET_OUTPUT_PAUSED", "outputPath": None})
         self.value("record_paused", "on")
         self.server.event("RecordStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_RESUMED", "outputPath": None})
         self.value("record_paused", "off")
@@ -885,6 +1323,121 @@ class ValueTest(PluginTest):
         self.value("transition", "Fade")
         self.server.event("CurrentProfileChanged", {"profileName": "Podcast"})
         self.value("profile", "Podcast")
+
+    def record_event(self, state, active):
+        self.server.event("RecordStateChanged", {"outputActive": active, "outputState": "OBS_WEBSOCKET_OUTPUT_" + state,
+                                                 "outputPath": None})
+
+    def test_a_paused_recording_is_still_recording(self):
+        # OBS sends outputActive false with PAUSED. The recording is on, and its time holds.
+        self.server.state["recording"] = True
+        self.record_event("STARTING", False)
+        self.record_event("STARTED", True)
+        obs.poll()
+        self.value("record_time", "01:00:00")
+        self.value("recording", "on")
+        self.sent.clear()
+        self.record_event("PAUSED", False)
+        self.value("record_paused", "on")
+        self.server.state["paused"] = True
+        obs.poll()  # agrees
+        self.record_event("RESUMED", True)
+        self.value("record_paused", "off")
+        self.assertEqual(self.published("recording"), [], "still on")
+        self.assertEqual(self.published("record_time"), [], "held while paused, not back to 00:00:00")
+
+    def test_a_stopping_output_doesnt_flicker_on_again(self):
+        # While a recording stops, OBS's GetRecordStatus says active for about 1.2 s more. A
+        # poll then mustn't undo the STOPPING event (seen on real OBS: off, on, off).
+        self.server.state["stop_takes"] = 0.5
+        for key, fn in (("recording", obs.record), ("streaming", obs.stream)):
+            with self.subTest(key):
+                self.sent.clear()
+                fn({"mode": "start"})
+                self.value(key, "on")
+                fn({"mode": "stop"})
+                self.value(key, "off")
+                self.assertTrue(self.server.state[key], "OBS is still stopping it")
+                obs.poll()
+                self.assertEqual(self.values[key], "off")
+                self.assertEqual(self.values["record_time"], "00:00:00")
+                wait_for(lambda: not self.server.state[key], message="stopped")
+                obs.poll()
+                self.assertEqual(self.published(key), ["on", "off"])
+
+    def test_an_event_during_a_poll_beats_the_poll(self):
+        # The recording pauses, or finishes stopping, while OBS answers the poll with what it
+        # had: the event is newer, although neither leaves a start or stop under way.
+        self.server.state["recording"] = True
+        self.record_event("STARTED", True)
+        self.value("recording", "on")
+        stale = {"outputActive": True, "outputPaused": False, "outputTimecode": "00:00:05.000"}
+
+        def paused_meanwhile(d):
+            self.record_event("PAUSED", False)
+            return stale
+        self.server.handlers["GetRecordStatus"] = paused_meanwhile
+        obs.poll()
+        self.assertEqual(self.values["record_paused"], "on")
+        self.assertEqual(self.values["recording"], "on")
+
+        self.record_event("RESUMED", True)
+        self.record_event("STOPPING", False)
+        self.value("recording", "off")
+
+        def stopped_meanwhile(d):
+            self.record_event("STOPPED", False)
+            return stale
+        self.server.handlers["GetRecordStatus"] = stopped_meanwhile
+        obs.poll()
+        self.assertEqual(self.values["recording"], "off")
+        self.assertEqual(self.values["record_time"], "00:00:00")
+
+    def test_polling_trusts_obs_again_when_a_stop_never_finishes(self):
+        # A STOPPING with no STOPPED after it holds polling off for UNDER_WAY_FOR, not for good.
+        clock = [100.0]
+        obs.live.clock = lambda: clock[0]
+        self.addCleanup(setattr, obs.live, "clock", time.monotonic)
+        self.server.state["recording"] = True
+        self.record_event("STARTED", True)
+        self.value("recording", "on")
+        self.record_event("STOPPING", False)
+        self.value("recording", "off")  # noted at 100 s
+        clock[0] += obs.UNDER_WAY_FOR - 1
+        obs.poll()
+        self.assertEqual(self.values["recording"], "off")
+        clock[0] += 2
+        obs.poll()
+        self.value("recording", "on")
+        self.value("record_time", "01:00:00")
+
+    def test_a_resync_while_a_recording_stops_keeps_it_off(self):
+        # A scene collection change reads everything again, as a poll does, while a recording
+        # that is stopping still reads as active.
+        self.server.state["recording"] = True
+        self.record_event("STARTED", True)
+        self.value("recording", "on")
+        self.record_event("STOPPING", False)
+        self.value("recording", "off")
+        self.sent.clear()
+        self.resync()
+        self.assertEqual(self.published("recording"), [])
+        self.assertEqual(self.published("record_time"), [])
+
+    def test_a_reconnecting_stream_is_still_streaming(self):
+        # OBS sends outputActive false while the stream reconnects, and once it has.
+        self.server.state["streaming"] = True
+        self.server.event("StreamStateChanged", {"outputActive": True, "outputState": "OBS_WEBSOCKET_OUTPUT_STARTED"})
+        self.value("streaming", "on")
+        obs.poll()
+        self.value("stream_time", "00:01:02")
+        self.sent.clear()
+        for state in ("RECONNECTING", "RECONNECTED"):
+            self.server.event("StreamStateChanged", {"outputActive": False, "outputState": "OBS_WEBSOCKET_OUTPUT_" + state})
+        self.server.event("CurrentProfileChanged", {"profileName": "Podcast"})  # after them
+        self.value("profile", "Podcast")
+        self.assertEqual(self.published("streaming"), [], "still on")
+        self.assertEqual(self.published("stream_time"), [], "not back to 00:00:00")
 
     def test_audio_values_follow_events(self):
         self.server.handlers["GetInputMute"] = lambda d: {"inputMuted": False}
@@ -948,6 +1501,83 @@ class ValueTest(PluginTest):
         self.server.event("InputNameChanged", {"inputUuid": "u", "oldInputName": "Mic", "inputName": "Headset"})
         self.value("muted:Headset", "on")
 
+    def test_renaming_the_live_scene_renames_the_values(self):
+        self.server.handlers["GetCurrentPreviewScene"] = lambda d: {"sceneName": "Live"}
+        self.server.event("StudioModeStateChanged", {"studioModeEnabled": True})
+        self.value("preview_scene", "Live")
+        self.watch("scene_active:Live", "scene_active:Live R", "scene_preview:Live R")
+        self.value("scene_active:Live", "on")
+        self.value("scene_active:Live R", "off")
+        self.server.state.update(program="Live R", preview="Live R", scenes=["Live R"])
+        self.server.event("SceneNameChanged", {"sceneUuid": "u", "oldSceneName": "Live", "sceneName": "Live R"})
+        self.value("scene", "Live R")
+        self.value("preview_scene", "Live R")
+        self.value("scene_active:Live R", "on")
+        self.value("scene_preview:Live R", "on")
+        self.value("scene_active:Live", "off")
+        # Renaming another scene leaves them alone.
+        self.server.event("SceneNameChanged", {"sceneUuid": "v", "oldSceneName": "Other", "sceneName": "Other R"})
+        wait_for(lambda: obs.live.jobs.unfinished_tasks == 0)
+        self.assertEqual(self.values["scene"], "Live R")
+
+    def test_a_renamed_item_no_longer_moves_its_old_names_value(self):
+        ids = {("Live", "Cam"): 7}
+
+        def item_id(d):
+            if (d["sceneName"], d["sourceName"]) not in ids:
+                raise Fail(600, "No scene items were found in the specified scene by that name or offset.")
+            return {"sceneItemId": ids[(d["sceneName"], d["sourceName"])]}
+        self.server.handlers["GetSceneItemId"] = item_id
+        self.server.handlers["GetSceneItemEnabled"] = lambda d: {"sceneItemEnabled": True}
+        self.watch("item_visible:Live/Cam", "item_visible:Live/Cam R")
+        self.value("item_visible:Live/Cam", "on")
+        self.value("item_visible:Live/Cam R", obs.UNKNOWN)
+        ids = {("Live", "Cam R"): 7}  # the same item, renamed in OBS
+        self.server.event("InputNameChanged", {"inputUuid": "u", "oldInputName": "Cam", "inputName": "Cam R"})
+        self.value("item_visible:Live/Cam", obs.UNKNOWN)
+        self.value("item_visible:Live/Cam R", "on")
+        self.server.event("SceneItemEnableStateChanged", {"sceneName": "Live", "sceneUuid": "u", "sceneItemId": 7,
+                                                          "sceneItemEnabled": False})
+        self.value("item_visible:Live/Cam R", "off")
+        self.assertEqual(self.values["item_visible:Live/Cam"], obs.UNKNOWN)
+        # Looking the items up again (as after any change in a scene) keeps the value meanwhile.
+        self.sent.clear()
+        self.server.event("SceneItemCreated", {"sceneName": "Live", "sourceName": "Other", "sceneItemId": 8})
+        wait_for(lambda: [t for t, d in self.server.batched].count("GetSceneItemEnabled") == 3, message="the lookup")
+        wait_for(lambda: obs.live.jobs.unfinished_tasks == 0)
+        self.assertNotIn(obs.UNKNOWN, self.published("item_visible:Live/Cam R"))
+
+    def test_names_with_slashes_and_bars_in_two_name_arguments(self):
+        # Every real name can be written: the plugin asks OBS which split it has.
+        ids = {("Live", "Odd: A|B"): 5, ("Talk/Show|Live", "Cam"): 6, ("Live", "Over/lay"): 9}
+
+        def item_id(d):
+            if (d["sceneName"], d["sourceName"]) not in ids:
+                raise Fail(600, "No source was found by the name of `%s`." % d["sceneName"])
+            return {"sceneItemId": ids[(d["sceneName"], d["sourceName"])]}
+        self.server.handlers["GetSceneItemId"] = item_id
+        self.server.handlers["GetSceneItemEnabled"] = lambda d: {"sceneItemEnabled": d["sceneItemId"] != 6}
+
+        def get_filter(d):
+            if (d["sourceName"], d["filterName"]) != ("Cam", "Blur|Sharp"):
+                raise Fail(600, "No filter was found in the source `Cam` with the name `x`.")
+            return {"filterEnabled": True}
+        self.server.handlers["GetSourceFilter"] = get_filter
+        self.watch("item_visible:Live/Odd: A|B", "item_visible:Live|Odd: A|B", "item_visible:Talk/Show|Live/Cam",
+                   "item_visible:Live|Over/lay", "item_visible:Live/Over/lay", "filter_enabled:Cam/Blur|Sharp")
+        self.value("item_visible:Live/Odd: A|B", "on")  # the README's form: the first '/' splits
+        self.value("item_visible:Live|Odd: A|B", "on")  # the old '|' form still works
+        self.value("item_visible:Talk/Show|Live/Cam", "off")  # a scene with both in its name
+        self.value("item_visible:Live|Over/lay", "on")
+        self.value("item_visible:Live/Over/lay", "on")
+        self.value("filter_enabled:Cam/Blur|Sharp", "on")
+        self.server.event("SceneItemEnableStateChanged", {"sceneName": "Talk/Show|Live", "sceneUuid": "u",
+                                                          "sceneItemId": 6, "sceneItemEnabled": True})
+        self.value("item_visible:Talk/Show|Live/Cam", "on")
+        self.server.event("SourceFilterEnableStateChanged", {"sourceName": "Cam", "filterName": "Blur|Sharp",
+                                                             "filterEnabled": False})
+        self.value("filter_enabled:Cam/Blur|Sharp", "off")
+
     def test_filter_values(self):
         self.server.handlers["GetSourceFilter"] = lambda d: {"filterEnabled": True}
         self.watch("filter_enabled:Cam/Blur")
@@ -996,7 +1626,7 @@ class ValueTest(PluginTest):
         clock = [100.0]
         obs.live.clock = lambda: clock[0]
         self.addCleanup(setattr, obs.live, "clock", time.monotonic)
-        self.assertNotIn("GetStats", [t for t, _ in self.server.batched], "not polled until the timer runs")
+        self.assertEqual([t for t, _ in self.server.batched].count("GetStats"), 1, "only in the initial sync")
         obs.poll()
         self.value("fps", "60")
         self.value("cpu", "3.1")
@@ -1020,7 +1650,7 @@ class ValueTest(PluginTest):
         obs.poll()
         self.value("bitrate", "6000")
         stats = [t for t, _ in self.server.batched if t == "GetStats"]
-        self.assertEqual(len(stats), 3)
+        self.assertEqual(len(stats), 4)  # the initial sync and three polls
 
     def test_polling_does_nothing_when_disconnected(self):
         self.server.stop()

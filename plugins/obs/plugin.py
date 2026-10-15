@@ -34,6 +34,10 @@ CONNECT_TIMEOUT = 4.0  # TCP connect, WebSocket handshake, Hello and Identify
 CONNECT_WAIT = 3.0  # how long an action waits for a connection that is (re)starting
 ACTION_DEADLINE = 8.0  # actions with several requests answer within the host's 10 s
 STILL_WORKING = "OBS is still working on it…"
+OUTPUT_EVENT_WAIT = 2.0  # how long pausing waits for OBS's PAUSED or RESUMED event
+STREAM_START_WAIT = 7.0  # how long starting a stream waits to hear whether it went live
+SWITCH_WAIT = 1.0  # how long a one-off transition waits for OBS to show it as the current one
+UNDER_WAY_FOR = 30.0  # after this long, polling stops waiting for a start or stop to finish
 BACKOFF_FIRST = 0.5
 BACKOFF_MAX = 10.0
 MAX_MESSAGE = 8 << 20  # obs-websocket answers are small; refuse anything bigger
@@ -59,7 +63,7 @@ CLOSE_SESSION_INVALIDATED = 4011
 UNKNOWN_REQUEST_TYPE = 204
 OUTPUT_RUNNING, OUTPUT_NOT_RUNNING, OUTPUT_PAUSED, OUTPUT_NOT_PAUSED = 500, 501, 502, 503
 OUTPUT_DISABLED, STUDIO_MODE_ACTIVE, STUDIO_MODE_NOT_ACTIVE = 504, 505, 506
-RESOURCE_NOT_FOUND, INVALID_RESOURCE_STATE = 600, 604
+RESOURCE_NOT_FOUND, INVALID_RESOURCE_STATE, REQUEST_FAILED = 600, 604, 702
 FRIENDLY = {
     UNKNOWN_REQUEST_TYPE: "this version of OBS doesn't support that; update OBS",
     OUTPUT_RUNNING: "it's already running",
@@ -72,16 +76,19 @@ FRIENDLY = {
     RESOURCE_NOT_FOUND: "it couldn't find that",
     INVALID_RESOURCE_STATE: "it can't do that right now",
 }
+# Request fields that name something OBS may not have, and what that something is called.
+NAMED = (("sceneName", "scene"), ("inputName", "source"), ("sourceName", "source"),
+         ("profileName", "profile"), ("sceneCollectionName", "scene collection"))
 
 
 def friendly(code, data=None):
     """What a refusal OBS sent without a comment means, worded as the host's built-in OBS
-    support words it. A missing scene or source is named when the request names just one."""
+    support words it. What's missing is named when the request names just one thing."""
     if code == RESOURCE_NOT_FOUND and isinstance(data, dict):
-        named = [(k, data[k]) for k in ("sceneName", "inputName", "sourceName") if isinstance(data.get(k), str) and data[k]]
+        named = [(what, data[k]) for k, what in NAMED if isinstance(data.get(k), str) and data[k]]
         if len(named) == 1:
-            key, name = named[0]
-            return f"there's no {'scene' if key == 'sceneName' else 'source'} called “{name}”"
+            what, name = named[0]
+            return f"there's no {what} called “{name}”"
     return FRIENDLY.get(code)
 
 # ---------------------------------------------------------------------------
@@ -499,7 +506,6 @@ class Obs:
             self._exiting = False
             self.last_error = ""
         self._up.set()
-        self.log(f"connected to OBS {self.hello.get('obsStudioVersion', '?')} at {url}")
         if self.on_connect:
             # Requests need this thread to read their answers, so sync elsewhere.
             threading.Thread(target=self._safe, args=(self.on_connect,), daemon=True).start()
@@ -701,11 +707,17 @@ def timecode(tc):
     return (tc or "00:00:00").split(".")[0]
 
 
-def split_pair(arg):
-    """'Scene/Source' (or 'Scene|Source' when a name has a '/') -> ('Scene', 'Source')."""
-    sep = "|" if "|" in arg else "/"
-    first, _, second = arg.partition(sep)
-    return first.strip(), second.strip()
+def splits(arg):
+    """Every way to read 'Scene/Source' or 'Scene|Source' as two names, likeliest first: at
+    the first '|', at the first '/', then at each other '|' or '/'. Names may contain both
+    characters, so the caller asks OBS which of these pairs it has and takes the first."""
+    first = [i for i in (arg.find("|"), arg.find("/")) if i >= 0]
+    pairs = []
+    for i in first + [i for i, c in enumerate(arg) if c in "/|" and i not in first]:
+        pair = (arg[:i].strip(), arg[i + 1:].strip())
+        if all(pair) and pair not in pairs:
+            pairs.append(pair)
+    return pairs
 
 
 FIXED_VALUES = [
@@ -717,6 +729,16 @@ ARG_VALUES = [
     "scene_active", "scene_preview", "muted", "volume", "volume_db", "item_visible", "filter_enabled",
     "input_text", "media_playing",
 ]
+
+# outputState in StreamStateChanged and RecordStateChanged. obs-websocket sends outputActive
+# true only with STARTED and RESUMED, so false with PAUSED (and the reconnect states) although
+# the output is still on.
+STARTING, STARTED = "OBS_WEBSOCKET_OUTPUT_STARTING", "OBS_WEBSOCKET_OUTPUT_STARTED"
+STOPPING, STOPPED = "OBS_WEBSOCKET_OUTPUT_STOPPING", "OBS_WEBSOCKET_OUTPUT_STOPPED"
+PAUSED, RESUMED = "OBS_WEBSOCKET_OUTPUT_PAUSED", "OBS_WEBSOCKET_OUTPUT_RESUMED"
+RECONNECTING, RECONNECTED = "OBS_WEBSOCKET_OUTPUT_RECONNECTING", "OBS_WEBSOCKET_OUTPUT_RECONNECTED"
+STILL_ON = (PAUSED, RECONNECTING, RECONNECTED)
+UNDER_WAY = (STARTING, STOPPING)
 
 
 class Live:
@@ -733,6 +755,8 @@ class Live:
         self.jobs = queue.Queue()
         self.queued = set()
         self.transition_ended = threading.Event()
+        self.changed = threading.Condition(self.lock)  # notified after each event OBS sends
+        self.event_numbers = itertools.count(1)
         self.worker = threading.Thread(target=self._work, name="obs-sync", daemon=True)
         self.worker.start()
         self.reset()
@@ -744,11 +768,15 @@ class Live:
                                          "stream_time", "record_time", "fps", "cpu", "memory", "dropped",
                                          "net_dropped", "bitrate")}
             self.available = None
+            self.scenes = None  # names of the scenes and groups, once known
             self.muted, self.volume, self.texts, self.media = {}, {}, {}, {}
             self.items, self.filters = {}, {}  # arg -> bool/None
             self.item_keys, self.filter_keys = {}, {}  # (scene, item id) / (source, filter) -> {arg}
+            self.outputs = {}  # "stream"/"record" -> (outputState of its latest event, event number, when)
+            self.starts = {}  # "stream"/"record" -> event number of its latest STARTING
             self.last_bytes = None
             self.changing = False
+            self.announced = False
 
     # -- background jobs (anything that sends requests runs here, never on the reader) --
 
@@ -867,29 +895,45 @@ class Live:
 
     def sync(self):
         """Read the whole state once after connecting (one RequestBatch)."""
-        names = ["GetVersion", "GetSceneList", "GetStudioModeEnabled", "GetStreamStatus", "GetRecordStatus",
-                 "GetReplayBufferStatus", "GetVirtualCamStatus", "GetCurrentSceneTransition",
-                 "GetProfileList", "GetSceneCollectionList"]
+        names = ["GetVersion", "GetSceneList", "GetGroupList", "GetStudioModeEnabled", "GetStreamStatus",
+                 "GetRecordStatus", "GetReplayBufferStatus", "GetVirtualCamStatus", "GetCurrentSceneTransition",
+                 "GetProfileList", "GetSceneCollectionList", "GetStats"]
+        with self.lock:
+            before = dict(self.outputs)
         r = dict(zip(names, self.obs.batch([(n, {}) for n in names])))
+        now = self.clock()
 
         def ok(name):
             value = r.get(name)
             return value if isinstance(value, dict) else {}
 
+        # OBS's Hello names only the obs-websocket version; GetVersion has both.
+        version = ok("GetVersion")
+        if not self.announced:  # once per connection (this also runs after a collection change)
+            self.announced = True
+            websocket = version.get("obsWebSocketVersion") or self.obs.hello.get("obsWebSocketVersion") or "?"
+            self.log(f"connected to OBS {version.get('obsVersion') or '?'} (obs-websocket {websocket}) "
+                     f"at {self.obs.url}")
         with self.lock:
             s = self.s
-            if ok("GetVersion"):
-                self.available = set(ok("GetVersion").get("availableRequests") or [])
+            if version:
+                self.available = set(version.get("availableRequests") or [])
             scenes = ok("GetSceneList")
             s["program"] = scenes.get("currentProgramSceneName")
             s["preview"] = scenes.get("currentPreviewSceneName")
+            self.scenes = None
+            if scenes and isinstance(r.get("GetGroupList"), dict):
+                self.scenes = {x.get("sceneName") for x in scenes.get("scenes") or []}
+                self.scenes |= set(ok("GetGroupList").get("groups") or [])
             s["studio"] = ok("GetStudioModeEnabled").get("studioModeEnabled")
             stream, record = ok("GetStreamStatus"), ok("GetRecordStatus")
-            s["streaming"] = stream.get("outputActive")
-            s["recording"] = record.get("outputActive")
-            s["paused"] = record.get("outputPaused")
-            s["stream_time"] = timecode(stream.get("outputTimecode")) if stream else None
-            s["record_time"] = timecode(record.get("outputTimecode")) if record else None
+            if self._settled("stream", before, now):
+                s["streaming"] = stream.get("outputActive")
+                s["stream_time"] = timecode(stream.get("outputTimecode")) if stream else None
+            if self._settled("record", before, now):
+                s["recording"] = record.get("outputActive")
+                s["paused"] = record.get("outputPaused")
+                s["record_time"] = timecode(record.get("outputTimecode")) if record else None
             replay = r.get("GetReplayBufferStatus")
             s["replay"] = replay.get("outputActive") if isinstance(replay, dict) else False
             s["virtualcam"] = ok("GetVirtualCamStatus").get("outputActive")
@@ -898,6 +942,8 @@ class Live:
             s["collection"] = ok("GetSceneCollectionList").get("currentSceneCollectionName")
             if s["streaming"] is False:
                 s["bitrate"] = 0
+            if ok("GetStats"):
+                self._stats(ok("GetStats"))  # rather than "–" until the first poll
             self.publish_all()
         self.refresh_args(missing_only=False)
 
@@ -929,22 +975,30 @@ class Live:
                 if want(self.media, arg):
                     requests.append(("GetMediaInputStatus", {"inputName": arg}))
                     keys.append(("media", arg))
+            # Two names in one argument: ask for each way it splits; the first pair OBS has wins.
             for arg in self.watched("filter_enabled"):
                 if want(self.filters, arg):
-                    source, name = split_pair(arg)
-                    requests.append(("GetSourceFilter", {"sourceName": source, "filterName": name}))
-                    keys.append(("filter", arg))
+                    for source, name in splits(arg):
+                        requests.append(("GetSourceFilter", {"sourceName": source, "filterName": name}))
+                        keys.append(("filter", arg, (source, name)))
             for arg in self.watched("item_visible"):
                 if want(self.items, arg):
-                    scene, source = split_pair(arg)
-                    requests.append(("GetSceneItemId", {"sceneName": scene, "sourceName": source}))
-                    keys.append(("item", arg))
+                    for scene, source in splits(arg):
+                        requests.append(("GetSceneItemId", {"sceneName": scene, "sourceName": source}))
+                        keys.append(("item", arg, (scene, source)))
         if not requests:
             return
         results = self.obs.batch(requests)
         second, second_keys = [], []
+        looked_up = {(kind, arg) for kind, arg, *pair in keys if pair}
+        found = set()
         with self.lock:
-            for (kind, arg), result in zip(keys, results):
+            # Forget where each pair was, even when it's gone now, so events about the item
+            # or filter it used to name (renamed since) don't reach it.
+            for kind, arg in looked_up:
+                for args in (self.filter_keys if kind == "filter" else self.item_keys).values():
+                    args.discard(arg)
+            for (kind, arg, *pair), result in zip(keys, results):
                 good = isinstance(result, dict)
                 if kind == "muted":
                     self.muted[arg] = result.get("inputMuted") if good else None
@@ -954,19 +1008,20 @@ class Live:
                     self.texts[arg] = str((result.get("inputSettings") or {}).get("text", "")) if good else None
                 elif kind == "media":
                     self.media[arg] = (result.get("mediaState") == "OBS_MEDIA_STATE_PLAYING") if good else None
+                elif not good or (kind, arg) in found:
+                    continue  # OBS has no such pair, or an earlier split of the argument won
                 elif kind == "filter":
-                    self.filters[arg] = result.get("filterEnabled") if good else None
-                    self.filter_keys.setdefault(split_pair(arg), set()).add(arg)
-                elif kind == "item":
-                    self.items[arg] = None
-                    if good and result.get("sceneItemId") is not None:
-                        scene, _ = split_pair(arg)
-                        item_id = result["sceneItemId"]
-                        for args in self.item_keys.values():
-                            args.discard(arg)
-                        self.item_keys.setdefault((scene, item_id), set()).add(arg)
-                        second.append(("GetSceneItemEnabled", {"sceneName": scene, "sceneItemId": item_id}))
-                        second_keys.append(arg)
+                    found.add((kind, arg))
+                    self.filters[arg] = result.get("filterEnabled")
+                    self.filter_keys.setdefault(pair[0], set()).add(arg)
+                elif kind == "item" and result.get("sceneItemId") is not None:
+                    found.add((kind, arg))
+                    scene, item_id = pair[0][0], result["sceneItemId"]
+                    self.item_keys.setdefault((scene, item_id), set()).add(arg)
+                    second.append(("GetSceneItemEnabled", {"sceneName": scene, "sceneItemId": item_id}))
+                    second_keys.append(arg)
+            for kind, arg in looked_up - found:
+                (self.filters if kind == "filter" else self.items)[arg] = None
             self.publish_all()
         if second:
             results = self.obs.batch(second)
@@ -977,6 +1032,51 @@ class Live:
 
     def structure_changed(self):
         self.schedule("args-all", lambda: self.refresh_args(missing_only=False))
+
+    # -- waiting for events (from action threads) --
+
+    def wait(self, predicate, timeout):
+        """Wait up to `timeout` seconds for OBS's events to make predicate() true (it runs
+        with the lock held); returns its last answer."""
+        with self.changed:
+            return self.changed.wait_for(predicate, timeout)
+
+    def output_mark(self, output):
+        """Where `output`'s events stand now, for output_since."""
+        with self.lock:
+            last = self.outputs.get(output)
+            return last[1] if last else 0
+
+    def output_since(self, output, mark, started=False):
+        """The outputState of `output`'s latest event if it came after `mark` (from
+        output_mark) or, with started, after a STARTING that came after `mark`; None if
+        there's none yet."""
+        with self.lock:
+            last, since = self.outputs.get(output), mark
+            if started:
+                since = self.starts.get(output, 0)
+                if since <= mark:
+                    return None  # OBS hasn't begun to start it
+            return last[0] if last and last[1] > since else None
+
+    def _output_event(self, output, d):
+        """Note a StreamStateChanged or RecordStateChanged; returns whether the output is on."""
+        state = d.get("outputState")
+        number = next(self.event_numbers)
+        self.outputs[output] = (state, number, self.clock())
+        if state == STARTING:
+            self.starts[output] = number
+        return bool(d.get("outputActive")) or state in STILL_ON
+
+    def _settled(self, output, before, now):
+        """Whether a status read that began when `outputs` was `before` may say if `output`
+        is on. Not after an event about it came during the read (the event is newer), nor
+        while a start or stop OBS announced is under way: a stopping recording still reads
+        as active for a second or so."""
+        last = self.outputs.get(output)
+        if last != before.get(output):
+            return False
+        return last is None or last[0] not in UNDER_WAY or now - last[2] > UNDER_WAY_FOR
 
     # -- events (called on the connection's reader thread: no requests here) --
 
@@ -994,16 +1094,15 @@ class Live:
                 else:
                     self.schedule("preview", self._fetch_preview)
             elif event == "StreamStateChanged":
-                s["streaming"] = bool(d.get("outputActive"))
+                s["streaming"] = self._output_event("stream", d)
                 if not s["streaming"]:
                     s["stream_time"], s["bitrate"], self.last_bytes = "00:00:00", 0, None
             elif event == "RecordStateChanged":
                 state = d.get("outputState")
-                s["recording"] = bool(d.get("outputActive"))
-                if state == "OBS_WEBSOCKET_OUTPUT_PAUSED":
+                s["recording"] = self._output_event("record", d)
+                if state == PAUSED:
                     s["paused"] = True
-                elif state in ("OBS_WEBSOCKET_OUTPUT_RESUMED", "OBS_WEBSOCKET_OUTPUT_STARTED",
-                               "OBS_WEBSOCKET_OUTPUT_STOPPED"):
+                elif state in (RESUMED, STARTED, STOPPED):
                     s["paused"] = False
                 if not s["recording"]:
                     s["record_time"], s["paused"] = "00:00:00", False
@@ -1054,13 +1153,29 @@ class Live:
                 for cache in (self.muted, self.volume, self.texts, self.media):
                     cache.pop(gone, None)
                 self.structure_changed()
-            elif event in ("SceneItemCreated", "SceneItemRemoved", "SceneNameChanged", "SceneRemoved",
-                           "SceneCreated", "InputCreated",
+            elif event == "SceneNameChanged":
+                old, new = d.get("oldSceneName"), d.get("sceneName")
+                for key in ("program", "preview"):
+                    if s[key] == old:
+                        s[key] = new
+                if self.scenes is not None:
+                    self.scenes.discard(old)
+                    self.scenes.add(new)
+                self.structure_changed()
+            elif event in ("SceneCreated", "SceneRemoved"):  # groups too
+                if self.scenes is not None:
+                    if event == "SceneCreated":
+                        self.scenes.add(d.get("sceneName"))
+                    else:
+                        self.scenes.discard(d.get("sceneName"))
+                self.structure_changed()
+            elif event in ("SceneItemCreated", "SceneItemRemoved", "InputCreated",
                            "SourceFilterCreated", "SourceFilterRemoved", "SourceFilterNameChanged"):
                 self.structure_changed()
             else:
                 return
             self.publish_all()
+            self.changed.notify_all()
 
     def _fetch_preview(self):
         try:
@@ -1073,9 +1188,21 @@ class Live:
 
     # -- statistics and timecodes (polled: OBS has no events for them) --
 
+    def _stats(self, stats):
+        s = self.s
+        s["fps"] = stats.get("activeFps")
+        s["cpu"] = stats.get("cpuUsage")
+        s["memory"] = stats.get("memoryUsage")
+        # Frames OBS skipped because rendering or encoding fell behind (its own load).
+        skipped = (stats.get("renderSkippedFrames") or 0) + (stats.get("outputSkippedFrames") or 0)
+        total = (stats.get("renderTotalFrames") or 0) + (stats.get("outputTotalFrames") or 0)
+        s["dropped"] = 100.0 * skipped / total if total else 0
+
     def poll(self):
         if not self.obs.connected or self.changing:
             return
+        with self.lock:
+            before = dict(self.outputs)
         stats, stream, record = self.obs.batch(
             [("GetStats", {}), ("GetStreamStatus", {}), ("GetRecordStatus", {})], drop_on_timeout=True
         )
@@ -1083,19 +1210,14 @@ class Live:
         with self.lock:
             s = self.s
             if isinstance(stats, dict):
-                s["fps"] = stats.get("activeFps")
-                s["cpu"] = stats.get("cpuUsage")
-                s["memory"] = stats.get("memoryUsage")
-                # Frames OBS skipped because rendering or encoding fell behind (its own load).
-                skipped = (stats.get("renderSkippedFrames") or 0) + (stats.get("outputSkippedFrames") or 0)
-                total = (stats.get("renderTotalFrames") or 0) + (stats.get("outputTotalFrames") or 0)
-                s["dropped"] = 100.0 * skipped / total if total else 0
+                self._stats(stats)
             if isinstance(stream, dict):
-                active = bool(stream.get("outputActive"))
+                if self._settled("stream", before, now):
+                    s["streaming"] = bool(stream.get("outputActive"))
+                active = bool(s["streaming"])
                 # Frames the stream output dropped because the network couldn't keep up.
                 skipped, total = stream.get("outputSkippedFrames") or 0, stream.get("outputTotalFrames") or 0
                 s["net_dropped"] = 100.0 * skipped / total if active and total else 0
-                s["streaming"] = active
                 s["stream_time"] = timecode(stream.get("outputTimecode")) if active else "00:00:00"
                 sent = stream.get("outputBytes") or 0
                 if not active:
@@ -1108,9 +1230,10 @@ class Live:
                         s["bitrate"] = 0
                     self.last_bytes = (sent, now)
             if isinstance(record, dict):
-                active = bool(record.get("outputActive"))
-                s["recording"] = active
-                s["paused"] = bool(record.get("outputPaused")) if active else False
+                if self._settled("record", before, now):
+                    s["recording"] = bool(record.get("outputActive"))
+                    s["paused"] = bool(record.get("outputPaused")) and s["recording"]
+                active = bool(s["recording"])
                 s["record_time"] = timecode(record.get("outputTimecode")) if active else "00:00:00"
             self.publish_all()
 
@@ -1236,17 +1359,24 @@ def studio_enabled():
     return studio
 
 
+def recording_now():
+    recording = live.s["recording"] if client.connected else None
+    if recording is None:
+        recording = bool(call("GetRecordStatus").get("outputActive"))
+    return recording
+
+
 def supported(request_type):
     """False when OBS says it doesn't have the request; None when we don't know."""
     available = live.available
     return None if available is None else request_type in available
 
 
-def output_action(mode, requests, doing):
+def output_action(mode, requests, doing, then=None):
     """Run start/stop/toggle (or more) for an output; already-running and not-running
-    are warnings, not errors."""
+    are warnings, not errors. Once OBS has agreed, then(its answer) answers the action."""
     try:
-        call(requests[mode])
+        data = call(requests[mode])
     except ObsError as e:
         if e.code == OUTPUT_RUNNING:
             return f"OBS is already {doing}"
@@ -1259,7 +1389,7 @@ def output_action(mode, requests, doing):
         if e.code == OUTPUT_DISABLED:
             raise RuntimeError(f"that's turned off in OBS's settings ({e.comment or 'output disabled'})") from None
         raise
-    return None
+    return then(data) if then else None
 
 
 # -- actions --
@@ -1280,15 +1410,25 @@ def studio_mode(settings):
     call("SetStudioModeEnabled", {"studioModeEnabled": enable})
 
 
-def _restore_transition(previous, duration_ms):
+def _restore_transition(restore, duration_ms):
+    """Once the one-off transition has played, put back what it changed: the transition and
+    the duration (`restore` holds the old ones)."""
     live.transition_ended.wait(min(duration_ms / 1000.0 + 2.0, 22.0))
     try:
-        if previous.get("transitionName"):
-            client.call("SetCurrentSceneTransition", {"transitionName": previous["transitionName"]})
-        if previous.get("transitionDuration") and not previous.get("transitionFixed"):
-            client.call("SetCurrentSceneTransitionDuration", {"transitionDuration": previous["transitionDuration"]})
+        if restore.get("transitionName"):
+            client.call("SetCurrentSceneTransition", {"transitionName": restore["transitionName"]})
+        if restore.get("transitionDuration"):
+            client.call("SetCurrentSceneTransitionDuration", {"transitionDuration": restore["transitionDuration"]})
     except (NotConnected, TimeoutError, ObsError) as e:
         plugin.log(f"couldn't put the transition back: {e}", "warn")
+
+
+def _switched_to(name):
+    """GetCurrentSceneTransition once OBS shows `name` as the current transition (it agrees
+    to switch a moment before it has), or None if it doesn't within SWITCH_WAIT."""
+    live.wait(lambda: live.s["transition"] == name, SWITCH_WAIT)
+    current = call("GetCurrentSceneTransition")
+    return current if current.get("transitionName") == name else None
 
 
 @plugin.action("transition")
@@ -1299,25 +1439,32 @@ def transition_now(settings):
 
 
 def _transition(name, duration):
-    previous = None
+    restore = {}  # what to put back afterwards
+    previous = playing = {}  # the current transition and the one that plays, as OBS describes them
     if name or duration:
-        previous = call("GetCurrentSceneTransition")
-        if name:
+        previous = playing = call("GetCurrentSceneTransition")
+        if name and name != previous.get("transitionName"):
             call("SetCurrentSceneTransition", {"transitionName": name})
-        if duration:
+            restore["transitionName"] = previous.get("transitionName")
+            playing = (_switched_to(name) or {}) if duration else {}
+        # OBS keeps one duration for all its transitions, and reports none while the current
+        # one has a fixed length (Cut, Stinger), which a duration doesn't change. So a duration
+        # is only set for a transition that has one, and the shared one is noted to put back.
+        if duration and playing.get("transitionDuration") and not playing.get("transitionFixed"):
+            restore["transitionDuration"] = playing["transitionDuration"]
             call("SetCurrentSceneTransitionDuration", {"transitionDuration": int(duration)})
     live.transition_ended.clear()
     try:
         call("TriggerStudioModeTransition")
     except ObsError as e:
-        if previous:
-            _restore_transition(previous, -2000)  # put it back right away
+        if restore:
+            _restore_transition(restore, -2000)  # put it back right away
         if e.code == STUDIO_MODE_NOT_ACTIVE:
             return "Studio Mode is off; there's nothing to transition"
         raise
-    if previous:
-        wait = duration or previous.get("transitionDuration") or 1000
-        threading.Thread(target=_restore_transition, args=(previous, wait), daemon=True).start()
+    if restore:
+        wait = duration or playing.get("transitionDuration") or previous.get("transitionDuration") or 1000
+        threading.Thread(target=_restore_transition, args=(restore, wait), daemon=True).start()
     return None
 
 
@@ -1325,15 +1472,50 @@ def _transition(name, duration):
 def set_transition(settings):
     name = need(settings, "transition", "transition name")
     duration = optional_number(settings, "duration", "duration", 50, 20000)
-    call("SetCurrentSceneTransition", {"transitionName": name})
+    return answer_in_time(lambda: _set_transition(name, duration), STILL_WORKING, f"choosing the transition {name}")
+
+
+def _set_transition(name, duration):
+    fixed = False
     if duration:
+        # OBS keeps one duration for all its transitions. A transition with a fixed length
+        # (Cut, Stinger) doesn't use it, so a duration given with one would only change the
+        # others' for good: leave it out.
+        listed = call("GetSceneTransitionList").get("transitions") or []
+        fixed = any(t.get("transitionName") == name and t.get("transitionFixed") for t in listed)
+    call("SetCurrentSceneTransition", {"transitionName": name})
+    if duration and not fixed:
         call("SetCurrentSceneTransitionDuration", {"transitionDuration": int(duration)})
 
 
 @plugin.action("stream")
 def stream(settings):
     mode = choice(settings, "mode", ("toggle", "start", "stop"), "toggle")
-    return output_action(mode, {"toggle": "ToggleStream", "start": "StartStream", "stop": "StopStream"}, "streaming")
+    began, mark = time.monotonic(), live.output_mark("stream")
+
+    def went_live(data):
+        # ToggleStream answers whether it's starting the stream (outputActive) or stopping it.
+        if mode == "stop" or (mode == "toggle" and not data.get("outputActive")):
+            return None
+        return _stream_started(mark, began)
+
+    return output_action(
+        mode, {"toggle": "ToggleStream", "start": "StartStream", "stop": "StopStream"}, "streaming", went_live
+    )
+
+
+def _stream_started(mark, began):
+    """OBS agrees to start a stream before it connects: one that can't connect goes from
+    STARTING to STOPPED a few seconds later, and only OBS's own window says why."""
+    left = max(0.0, began + STREAM_START_WAIT - time.monotonic())
+    state = live.wait(lambda: live.output_since("stream", mark, started=True), left)
+    if state in (STOPPING, STOPPED):
+        raise RuntimeError("OBS couldn't start the stream: see the message in OBS, or check Settings → Stream")
+    if state is None:
+        if live.output_since("stream", mark) == STARTING:
+            return "OBS is still connecting to the stream server…"
+        return "OBS hasn't started the stream; look for a message in OBS"
+    return None
 
 
 @plugin.action("record")
@@ -1343,7 +1525,33 @@ def record(settings):
         "pause-toggle": "ToggleRecordPause", "pause": "PauseRecord", "resume": "ResumeRecord",
     }
     mode = choice(settings, "mode", tuple(modes), "toggle")
+    if mode in ("pause-toggle", "pause", "resume"):
+        return answer_in_time(lambda: _pause(mode, modes), STILL_WORKING, "pausing or resuming the recording")
     return output_action(mode, modes, "recording")
+
+
+def _pause(mode, modes):
+    # OBS says yes to a pause while nothing records (and "isn't paused" to a resume).
+    if not recording_now():
+        return "OBS isn't recording"
+    if mode == "resume":  # OBS refuses a resume it can't do
+        return output_action(mode, modes, "recording")
+    mark = live.output_mark("record")
+    return output_action(mode, modes, "recording", lambda data: _paused(mark))
+
+
+def _paused(mark):
+    """OBS also says yes to pausing a recording it can't pause (one that uses the stream's
+    encoder); only its PAUSED event (or RESUMED, for a toggle) says it happened."""
+    state = live.wait(lambda: live.output_since("record", mark), OUTPUT_EVENT_WAIT)
+    if state in (PAUSED, RESUMED):
+        return None
+    if state is not None or not call("GetRecordStatus").get("outputActive"):
+        return "OBS isn't recording"  # it stopped meanwhile
+    raise RuntimeError(
+        "OBS couldn't pause the recording: pausing needs a recording encoder of its own, "
+        "not the stream's (Settings → Output)"
+    )
 
 
 def _newer_request(request_type, what, data=None):
@@ -1356,6 +1564,9 @@ def _newer_request(request_type, what, data=None):
             return f"{what} needs OBS 30.2 or newer"
         if e.code == OUTPUT_NOT_RUNNING:
             return "OBS isn't recording"
+        if e.code == REQUEST_FAILED and client.connected and live.s["paused"]:
+            # OBS refuses splits and chapters while paused, with a message about its settings.
+            return "the recording is paused; resume it first"
         raise
     return None
 
@@ -1430,6 +1641,10 @@ def _scene_item(scene, source):
         return call("GetSceneItemId", {"sceneName": scene, "sourceName": source})["sceneItemId"]
     except ObsError as e:
         if e.code == RESOURCE_NOT_FOUND:
+            # The same refusal for a missing scene and a missing source: the scene list says which.
+            scenes = live.scenes if client.connected else None
+            if scenes is not None and scene not in scenes:
+                raise RuntimeError(f"OBS has no scene “{scene}”") from None
             raise RuntimeError(f"OBS has no source “{source}” in the scene “{scene}”") from None
         raise
 
@@ -1591,6 +1806,10 @@ def projector(settings):
     screen = optional_number(settings, "monitor", "screen number", 1, 32)
     data = {}
     if screen is not None:
+        # OBS says yes to a screen it doesn't have, and opens nothing.
+        monitors = call("GetMonitorList").get("monitors") or []
+        if int(screen) - 1 not in [m.get("monitorIndex") for m in monitors]:
+            raise RuntimeError(f"OBS has no screen {int(screen)}; it has {len(monitors)}")
         data["monitorIndex"] = int(screen) - 1
     if what == "source":
         data["sourceName"] = need(settings, "source", "source or scene name")

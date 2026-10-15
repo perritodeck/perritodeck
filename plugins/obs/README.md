@@ -34,10 +34,10 @@ the plugin is talking to OBS.
 |---|---|---|
 | Switch scene | Scene; Switch: *Live, or the preview when Studio Mode is on* / *Always live* / *Always the preview* | `SetCurrentProgramScene` or `SetCurrentPreviewScene` |
 | Studio Mode on or off | Turn on or off / Turn on / Turn off | `SetStudioModeEnabled` |
-| Transition now (Studio Mode) | Transition (optional), duration in ms (optional) | `TriggerStudioModeTransition`. A transition or duration given here is used for this one transition, then the previous one is put back. |
-| Choose the transition | Transition, duration in ms (optional, 50–20000) | `SetCurrentSceneTransition`, `SetCurrentSceneTransitionDuration` |
-| Streaming | Start or stop / Start / Stop | `ToggleStream`, `StartStream`, `StopStream` |
-| Recording | Start or stop / Start / Stop / Pause or resume / Pause / Resume | `ToggleRecord`, `StartRecord`, `StopRecord`, `ToggleRecordPause`, `PauseRecord`, `ResumeRecord` |
+| Transition now (Studio Mode) | Transition (optional), duration in ms (optional) | `TriggerStudioModeTransition`. A transition or duration given here is used for this one transition, then the previous transition and duration are put back. A duration is left out for a transition with a fixed length (Cut, Stinger). |
+| Choose the transition | Transition, duration in ms (optional, 50–20000) | `SetCurrentSceneTransition`, `SetCurrentSceneTransitionDuration`. The duration is left out for a transition with a fixed length (Cut, Stinger): see *Good to know*. |
+| Streaming | Start or stop / Start / Stop | `ToggleStream`, `StartStream`, `StopStream`. Starting waits up to 7 s to hear whether the stream went live, and says so when OBS couldn't connect. |
+| Recording | Start or stop / Start / Stop / Pause or resume / Pause / Resume | `ToggleRecord`, `StartRecord`, `StopRecord`, `ToggleRecordPause`, `PauseRecord`, `ResumeRecord`. Pausing waits up to 2 s for OBS to say the recording paused, and says so when it didn't. |
 | Split the recording into a new file | | `SplitRecordFile` (OBS 30.2+) |
 | Add a chapter marker to the recording | Chapter name (optional) | `CreateRecordChapter` (OBS 30.2+, Hybrid MP4 recordings only) |
 | Replay buffer | Start or stop / Start / Stop / Save the replay | `ToggleReplayBuffer`, `StartReplayBuffer`, `StopReplayBuffer`, `SaveReplayBuffer` |
@@ -52,7 +52,7 @@ the plugin is talking to OBS.
 | Control a media source | Media source; Play or pause / Play / Pause / Play from the start / Stop / Next / Previous | `TriggerMediaInputAction` |
 | Refresh a browser source | Browser source | `PressInputPropertiesButton` with `refreshnocache` |
 | Change the text of a text source | Text source, text (`\n` makes a new line) | `SetInputSettings` with `{"text": …}` (Text GDI+ and FreeType 2) |
-| Open a projector | Program / Preview / Multiview / A source or scene; screen number (blank: a window) | `OpenVideoMixProjector`, `OpenSourceProjector` |
+| Open a projector | Program / Preview / Multiview / A source or scene; screen number (blank: a window) | `OpenVideoMixProjector`, `OpenSourceProjector`. A screen number OBS doesn't have (`GetMonitorList`) is refused: OBS itself would say yes and open nothing. |
 | Switch profile | Profile | `SetCurrentProfile` |
 | Switch scene collection | Scene collection | `SetCurrentSceneCollection` |
 | Send a caption on the stream | Caption | `SendStreamCaption` (CEA-608) |
@@ -60,10 +60,12 @@ the plugin is talking to OBS.
 | Send any request with the slider's value (advanced, **slider**) | Request type, data with `{value}` (0–100) or `{mul}` (the volume multiplier) | e.g. `SetInputVolume` with `{"inputName": "Mic/Aux", "inputVolumeMul": {mul}}`. Mind OBS's ranges: `{value}` is 0–100, which doesn't fit `inputVolumeDb` (-100 to 26) |
 
 "Already streaming", "isn't recording" and similar flash a warning rather than an
-error. When OBS refuses a request, the key shows OBS's own explanation, or a plain one
-when OBS gives none. A replay buffer action while the replay buffer is turned off in
-OBS's settings says so. Names (scenes, sources, filters) must match OBS exactly,
-including capital letters.
+error; so do pausing or resuming while nothing records, and splitting or adding a chapter
+while the recording is paused. When OBS refuses a request, the key shows OBS's own
+explanation, or a plain one when OBS gives none, naming the scene, source, profile or
+scene collection it couldn't find. A replay buffer action while the replay buffer is
+turned off in OBS's settings says so. Names (scenes, sources, filters) must match OBS
+exactly, including capital letters.
 
 ## Values
 
@@ -86,7 +88,7 @@ too.
 | `fps` | Frames per second OBS renders |
 | `cpu` | OBS's CPU use, in % |
 | `memory` | OBS's memory use, in MB |
-| `dropped_frames` | Frames OBS skipped because rendering or encoding fell behind (the computer's load), in % of all frames |
+| `dropped_frames` | Frames OBS skipped because rendering or encoding fell behind (the computer's load), in % of all frames since OBS started |
 | `network_dropped_frames` | Frames the stream dropped because the network couldn't keep up, in % of the frames sent while streaming (`0` when not streaming) |
 | `bitrate` | Stream bitrate in kbps (from the bytes sent between two polls) |
 | `last_response` | The answer to the last *Send any request* (JSON, up to 500 characters) |
@@ -101,9 +103,13 @@ too.
 | `media_playing:<media source>` | `on` while a media source plays |
 
 **Two names in one argument** (`item_visible`, `filter_enabled`): write the scene (or
-source) and the source (or filter) separated by `/`, e.g. `Gaming/Webcam`. The first `/`
-splits them. If the first name contains a `/`, use `|` instead: `Talk/Show|Webcam`.
-Spaces around the separator are ignored.
+source) and the source (or filter) separated by `/`, e.g. `Gaming/Webcam`; `|` works as
+the separator too (`Gaming|Webcam`). Spaces around the separator are ignored. Names that
+contain `/` or `|` themselves need nothing special: the plugin tries each `/` and `|` in
+the argument and uses the split that names something OBS has, so `Talk/Show/Webcam`,
+`Gaming/Cam A|B` and `A|B/Webcam` all work. Should two splits both name something in OBS,
+the one at the first `|` wins, then the one at the first `/`; `Talk/Show|Webcam` picks
+the scene `Talk/Show` that way.
 
 ### Examples
 
@@ -133,10 +139,36 @@ Spaces around the separator are ignored.
   the Pictures folder of this computer (Windows: the Pictures known folder; Linux:
   `XDG_PICTURES_DIR`; macOS: `~/Pictures`).
 - **Transition now** only works in Studio Mode; otherwise it warns.
+- **Transition durations**: OBS keeps one duration for all its transitions. Cut and
+  Stinger have a fixed length and don't use it, but OBS still accepts a new duration while
+  one of them is current, which then quietly becomes Fade's. So a duration given with a
+  fixed-length transition is left out, both for *Transition now* and *Choose the
+  transition*.
+- **Pausing a recording** needs a recording encoder of its own (in OBS: Settings →
+  Output, a recording encoder rather than *Use stream encoder* or *Same as stream*). With
+  the stream's encoder OBS says yes to a pause and keeps recording; the key then says the
+  recording couldn't be paused.
+- **Recording settings** changed over obs-websocket (`SetProfileParameter`, for example
+  with *Send any request*) or in the profile's files: OBS builds the recording output when it
+  loads the profile, so a new recording format, encoder or file-splitting setting takes
+  effect only after the profile is loaded again (switch to another profile and back, or
+  restart OBS). Changes made in OBS's own Settings window apply to the next recording once
+  you click OK.
+- **Splitting the recording** lands on the next keyframe, up to a keyframe interval later
+  (about 8 s with OBS's default at 30 fps). A split asked for less than that before
+  stopping goes into the next recording, whose first file is then nearly empty. Splits
+  need file splitting turned on in OBS's recording settings, and chapters need the Hybrid
+  MP4 format; OBS refuses both while the recording is paused.
+- **Starting a stream** that can't reach the server: OBS tries for a couple of seconds,
+  then shows its own *Failed to connect* window; the key says the stream didn't start.
+- **Quick repeats**: OBS takes a start or stop pressed while it is still starting or
+  stopping that output as done, so pressing a toggle twenty times in two seconds makes two
+  recordings, with no message for the presses it skipped.
 - **Statistics** (`fps`, `cpu`, `memory`, `dropped_frames`, `network_dropped_frames`,
-  `bitrate`, timecodes) are polled every 2 s with one batched request while connected.
-  The host doesn't say which values without an argument are on screen, so this happens
-  whether or not a key shows them.
+  `bitrate`, timecodes) are polled every 2 s with one batched request while connected,
+  and read once on connecting. The host doesn't say which values without an argument are
+  on screen, so this happens whether or not a key shows them. `dropped_frames` is OBS's
+  count since it started, so skips from a busy moment (a profile reload, say) stay in it.
 - If OBS kicks PerritoDeck from its session list, the plugin doesn't reconnect by
   itself (as obs-websocket asks); pressing any OBS key or changing the settings does.
 - Stream markers (as on Twitch) aren't offered: obs-websocket 5 has no request for them.
@@ -151,11 +183,46 @@ Spaces around the separator are ignored.
 The tests run against a fake obs-websocket 5 server (`test_plugin.py`): the WebSocket
 handshake and framing (masking, 16- and 64-bit lengths, fragments, ping/pong, close
 codes), authentication, reconnection, every action's request type and data, events,
-batches and polling. Request, event and field names were checked against the
-official protocol document. Not yet tried against a real OBS:
+batches and polling. Request, event and field names were checked against the official
+protocol document, and the fake does what a real OBS did in the run below: its Hello names
+no OBS version, outputs start and stop a moment after OBS answers, `PAUSED` comes with
+`outputActive` false, a stopping recording still reads as active, a pause OBS can't do
+gets a yes and no event, transitions share one duration.
 
-- the exact error comments OBS returns (shown as they come);
-- `SplitRecordFile` / `CreateRecordChapter` on OBS 30.2+;
-- `SaveSourceScreenshot` file paths with non-ASCII folder names;
-- `InputSettingsChanged` carrying the full text for Text (GDI+) sources;
-- `wss://` through a TLS proxy.
+**Against a real OBS** (2026-10-13, OBS 31.0.3 with obs-websocket 5.5.6 on Windows 11,
+plugin version 1.0.2, the cases in `docs/testing/obs.md`): every action and every value
+was tried, with the plugin talking to OBS directly rather than installed in the desktop
+app. All worked, including `SplitRecordFile` and `CreateRecordChapter` (Hybrid MP4; OBS
+names a blank chapter *Unnamed 2* and so on), screenshots into a new folder with a
+non-ASCII name, and `InputSettingsChanged` carrying the full text for Text (GDI+) as well
+as FreeType 2 sources. The run also found what version 1.0.3 changes: pausing turned
+`recording` off for a moment; `recording` flickered on again while a recording stopped;
+pausing with nothing recording, or with the stream's encoder, showed success; a one-off
+transition over Cut kept its duration for good; renaming the live scene left `scene` on
+the old name; a renamed source's old `item_visible` argument still followed it; a stream
+that couldn't connect showed success; a screen number OBS hasn't got showed success; a
+`Scene/Source` argument split at a `|` in the source's name; a missing profile, scene
+collection or scene was described vaguely; the connect log line said `connected to OBS ?`.
+Those changes are tested against the fake, and a re-check of version 1.0.3 against the same
+OBS on 2026-10-15 confirmed each of them.
+
+What OBS 31 answers, as the key shows it (after `OBS: `): a missing scene or source,
+``No source was found by the name of `Name`.``; a missing transition, *No scene transition
+was found by that name.*; a missing filter, ``No filter was found in the source `Cam` with
+the name `Blur`.``; *No hotkeys were found by that name.*; refreshing a source that isn't a
+browser, *Unable to find a property by that name.*; splitting without file splitting,
+*Verify that file splitting is enabled in the output settings.*; a chapter on an MKV
+recording, *Verify that the output being used supports chapter markers.*; an unknown
+request type, *Your request type is not valid.* OBS gives no words for Studio Mode being
+off, an output that is or isn't running, or a missing profile or scene collection; those
+are the plugin's. Some answers the key puts in the plugin's own words instead: with the
+replay buffer turned off, OBS says *Replay buffer is not available.* and the key says where
+to turn it on; *Show or hide a source* says *OBS has no scene “X”* or *OBS has no source
+“Y” in the scene “X”*.
+A media action on a source that isn't media, and new text for a source that isn't text,
+get a yes from OBS (the second adds a `text` setting to that source).
+
+Not tried yet: a stream that goes live (so `stream_time`, `bitrate`,
+`network_dropped_frames` and captions while streaming), full-screen projectors, groups,
+OBS on another computer, `wss://` through a TLS proxy, and the plugin installed in the
+desktop app (keys following its values, and its values in the editor).
