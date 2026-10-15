@@ -21,7 +21,7 @@ decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 | macOS | Host tests passed and a universal `.dmg` was built in CI once (2026-10-11). Stale since then (over 100 host commits later), and never run on a real Mac |
 | iOS | Never compiled (its one scheduled CI run never started) |
 | Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
-| CI | GitHub Actions hasn't run for the repository since 2026-10-11 (an account matter for the maintainer): nothing since then has been through CI on any OS, and the Release workflow has never run |
+| CI | Every GitHub Actions run since 2026-10-11 has stopped within seconds, before any job started: a billing block the maintainer is leaving until the repo goes public, where Actions are free. Nothing since then has been through CI on any OS, and the Release workflow has never run. Until the flip, checks run locally (Linux in WSL); right after it, every workflow runs once by hand and goes green before the first tag (launch checklist §4) |
 
 Items marked 🖥 need a Windows PC and the test tablet. The rest can be done on any machine.
 **(maintainer)** marks a decision or an action only the maintainer can take.

@@ -24,8 +24,11 @@ mechanics in [releasing](../releasing.md).
   project, delete that record, and attach the domain (with noindex still on).
 - **The OBS real-world pass** has run its plugin path and is finishing the built-in path,
   the error cases and the report ([testing/obs.md](../testing/obs.md)).
-- **GitHub Actions** has failed every run since 2026-10-11 because of a billing block. CI
-  comes back when the repo is public or billing is sorted.
+- **GitHub Actions** has failed every run since 2026-10-11 because of a billing block. The
+  maintainer is leaving it: CI comes back when the repo goes public, where Actions are free.
+  Until then everything is checked locally (Linux in WSL). The first runs after the flip are
+  the first CI since 2026-10-11, and the first on Ubuntu 26 (`ubuntu-latest` moves from
+  2026-10-19). Every workflow has to go green once before the first tag (launch checklist §4).
 
 ## Decisions only the maintainer can make
 

@@ -131,6 +131,13 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   `android`, `tauri`, `rust`, `obs`, `home-assistant`, `fdroid`), social preview image.
 
 ## 5. Protect the repository **(maintainer)**
+- [ ] CI runs again from here: it was blocked by billing from 2026-10-11 until the flip, by
+  the maintainer's choice, because public repositories run Actions free. Run every
+  workflow once by hand (Actions → workflow → Run workflow), the weekly ones included
+  (Linux and macOS host tests, desktop bundles, the real-app test, every emulator, iOS), and
+  get them all green before §7's tag. They're the first runs since 2026-10-11 and the first
+  on Ubuntu 26 (`ubuntu-latest` moves from 2026-10-19), so a failure may be the new image,
+  not the code.
 
 - [ ] **Private vulnerability reporting:** Settings → Code security → Private
   vulnerability reporting → Enable (`SECURITY.md` links to it).

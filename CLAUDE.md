@@ -59,6 +59,9 @@ While the repo is private, Actions minutes are billed (macOS at ten times Linux)
 run only Host tests on Windows, the desktop UI tests, Android, Protocol, Plugins and two
 emulators (API 22, Fire 7). Linux/macOS host tests, desktop bundles, the real-app test and
 the other emulators run weekly (Mondays) or by hand (Actions → workflow → Run workflow).
-Test Linux locally before pushing, and batch pushes. E2E screenshots and logs are workflow
+Test Linux locally before pushing, and batch pushes. Since 2026-10-11 no run starts at all (a
+billing block the maintainer is leaving until the repo goes public, when Actions are free),
+so until the flip every check runs locally: Linux in WSL (`wsl -d Ubuntu`), and the emulator
+tests not at all. E2E screenshots and logs are workflow
 artifacts (`e2e-<run name>`: `api22`, `api34`, `fire7`, `firehd10`) on each run's summary
 page, kept for 30 days.
