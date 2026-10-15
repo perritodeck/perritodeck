@@ -351,7 +351,9 @@ def check_sign_in():
     report("sign-in", None)
     if not _check["told"]:
         _check["told"] = True
-        plugin.log(f"signed in to Twitch as {tokens.get('login') or 'an unknown account'}")
+        # Not "signed in to Twitch as", which a new sign-in logs when it's approved: this
+        # can come while one is waiting, and mustn't read as its outcome.
+        plugin.log(f"the saved Twitch sign-in is for {tokens.get('login') or 'an unknown account'}")
     return True
 
 

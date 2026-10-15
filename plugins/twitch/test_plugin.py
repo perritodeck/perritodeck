@@ -799,14 +799,14 @@ class SignInTest(Base):
             twitch.safe_poll()  # no key shows a Twitch value: it's checked all the same
             self.assertEqual(len(self.validates()), 1)
             self.assertEqual(self.validates()[0][4]["Authorization"], "OAuth access-0")
-            self.assertIn("signed in to Twitch as perritodev", self.logs())
+            self.assertIn("the saved Twitch sign-in is for perritodev", self.logs())
             clock[0] += 3599
             twitch.safe_poll()
             self.assertEqual(len(self.validates()), 1)
             clock[0] += 2
             twitch.safe_poll()
             self.assertEqual(len(self.validates()), 2)
-            self.assertEqual(self.logs().count("signed in to Twitch as perritodev"), 1)  # said once per run
+            self.assertEqual(self.logs().count("the saved Twitch sign-in is for perritodev"), 1)  # said once per run
             # While Twitch can't be reached the sign-in is kept, and checked again a minute later.
             clock[0] += 3601
             with mock.patch.object(twitch, "id_request", side_effect=twitch.TwitchError("couldn't reach Twitch: down")):
@@ -820,6 +820,26 @@ class SignInTest(Base):
             self.assertEqual(len(self.validates()), 3)
             self.assertTrue(any("sign-in: working again" in m for m in self.logs()))
         self.assertFalse(self.helix_calls())
+
+    def test_the_check_at_start_names_the_account_in_its_own_words(self):
+        # It can come while a new sign-in waits for approval (here, a retry after the check
+        # at start failed), so it mustn't say "signed in to Twitch as", the approval's line.
+        self.signed_in()
+        Fake.state["pending_polls"] = 10 ** 6  # nobody approves
+        clock = [1000.0]
+        with mock.patch.object(twitch.time, "monotonic", lambda: clock[0]):
+            with mock.patch.object(twitch, "id_request", side_effect=twitch.TwitchError("couldn't reach Twitch: down")):
+                twitch.safe_poll()  # the check at start fails, and is tried again a minute later
+            with mock.patch.object(twitch, "open_for_user"):
+                twitch.sign_in({})
+            clock[0] += twitch.VALIDATE_RETRY + 1
+            twitch.safe_poll()
+        self.assertEqual(len(self.validates()), 1)  # checked all the same
+        self.assertIn("the saved Twitch sign-in is for perritodev", self.logs())
+        self.assertFalse([m for m in self.logs() if m.startswith("signed in to Twitch as")])
+        attempt = twitch._sign_in["current"]
+        attempt.cancel("test over")
+        self.assertTrue(attempt.done.wait(5))
 
     def test_validation_refreshes_once_then_asks_to_sign_in_again(self):
         self.signed_in()
@@ -1689,6 +1709,9 @@ class EventSubTest(Base):
             # Keys change: everything is tried again at once.
             self.watch("last_raid:me", "last_cheer:me")
             wait_for(lambda: len(self.subs("sess-2")) == 1, message="the cheer subscription")
+            # Not necessarily posted before the cheer's (the test used to assume so, and failed
+            # on a busy machine).
+            wait_for(lambda: len(self.raid_posts()) >= 2, message="the raid tried again")
             self.assertEqual(len(self.raid_posts()), 2)
             time.sleep(0.3)
             self.assertEqual(len(self.ws.conns), 2)  # this one has a subscription: kept
