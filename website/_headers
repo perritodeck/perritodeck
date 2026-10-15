@@ -1,4 +1,4 @@
-# Response headers for Cloudflare Pages (see README.md, "Deploy"). Rules match the request
+# Response headers for Cloudflare Pages (see docs/website.md, "Deploy"). Rules match the request
 # path, and Pages serves pages without ".html", so use /* rather than /*.html. A header set
 # by two matching rules is joined with a comma, which for Content-Security-Policy means two
 # policies that must both pass: keep the one CSP rule below.

@@ -1,0 +1,65 @@
+{
+  "about": [
+    "Plugins the online catalogue marks Experimental. build_catalog.py adds \"experimental\": true and the",
+    "\"tested\" note to their entries in index.json, and shows an Experimental tag and the note on the",
+    "catalogue page. Their manifests, and so their zips, don't change. A plugin is listed when it has only",
+    "been tested against stand-ins for the service or device it works with, or when a run against the real",
+    "one found problems that aren't fixed yet. \"source\" starts with the file in the repository that says",
+    "so; it isn't published. Take a plugin off the list once it works against the real thing, and update",
+    "the tested section of its README at the same time."
+  ],
+  "experimental": {
+    "dev.perritodeck.gitlab": {
+      "tested": "Tested against a stand-in for the GitLab API, not yet with a real GitLab.",
+      "source": "plugins/gitlab/README.md, Tested and untested"
+    },
+    "dev.perritodeck.http": {
+      "tested": "Tested against a test server on the same computer, not yet with real web services.",
+      "source": "docs/next-steps.md item 17 (no README yet)"
+    },
+    "dev.perritodeck.hue": {
+      "tested": "Tested against a stand-in for a Hue Bridge, not yet with real Hue lights.",
+      "source": "plugins/hue/README.md, Not tested yet"
+    },
+    "dev.perritodeck.keylight": {
+      "tested": "Tested against stand-in lights, not yet with a real Key Light or Light Strip.",
+      "source": "plugins/keylight/README.md, Not tested yet"
+    },
+    "dev.perritodeck.mqtt": {
+      "tested": "Tested against a stand-in MQTT broker, not yet with a real one such as Mosquitto.",
+      "source": "docs/next-steps.md item 17 (no README yet)"
+    },
+    "dev.perritodeck.ollama": {
+      "tested": "Tested against a stand-in for Ollama, not yet with a real Ollama.",
+      "source": "plugins/ollama/README.md, Tested and untested"
+    },
+    "dev.perritodeck.proxmox": {
+      "tested": "Tested against a stand-in for the Proxmox VE API, not yet with a real server.",
+      "source": "plugins/proxmox/README.md, Tested and untested"
+    },
+    "dev.perritodeck.spotify": {
+      "tested": "Tested against a stand-in for Spotify, not yet with the real Spotify service.",
+      "source": "plugins/spotify/README.md, Tested and untested"
+    },
+    "dev.perritodeck.truenas": {
+      "tested": "Tested against a stand-in for the TrueNAS API, not yet with a real TrueNAS.",
+      "source": "plugins/truenas/README.md, Tested and untested"
+    },
+    "dev.perritodeck.twitch": {
+      "tested": "Tested against stand-ins for Twitch's sign-in, API and live events, not yet with real Twitch.",
+      "source": "plugins/twitch/README.md, Tested and untested"
+    },
+    "dev.perritodeck.uptime": {
+      "tested": "Tested against test servers on the same computer, not yet with real websites and hosts.",
+      "source": "plugins/uptime/README.md, Not tested yet"
+    },
+    "dev.perritodeck.weather": {
+      "tested": "Tested against a stand-in for Open-Meteo, not yet with the live service.",
+      "source": "plugins/weather/README.md, Not tested yet"
+    },
+    "dev.perritodeck.wol": {
+      "tested": "Tested by catching the wake-up packet on the same computer, not yet by waking a real one.",
+      "source": "plugins/wol/README.md, Not tested yet"
+    }
+  }
+}

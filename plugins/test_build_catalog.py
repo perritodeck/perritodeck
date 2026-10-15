@@ -1,7 +1,11 @@
-"""Tests for build_catalog.py: plugin zips, plugin icons and the catalogue page, plus the
-website's Content-Security-Policy, which the catalogue page shares with every other page."""
+"""Tests for build_catalog.py: plugin zips, plugin icons, Experimental marks and the
+catalogue page, plus the website's Content-Security-Policy, which the catalogue page shares
+with every other page."""
 
+import contextlib
 import glob
+import io
+import json
 import os
 import re
 import tempfile
@@ -17,6 +21,9 @@ ENTRY = {
     "author": "", "url": "dev.example.x-1.2.3.zip", "sha256": "0" * 64, "runtime": "python",
     "actions": ["Do it"], "values": ["Count"], "size": 2048,
 }
+EXPERIMENTAL = dict(
+    ENTRY, id="dev.example.e", name="Edgy", experimental=True, tested="Tested against a stand-in & nothing else."
+)
 
 
 def write(path, text):
@@ -127,6 +134,146 @@ class Icons(unittest.TestCase):
                 bc.copy_icon(self.folder, {"id": "a", "version": "1", "icon": bad}, self.out)
 
 
+def manifests():
+    """{plugin id: plugin folder} for every first-party plugin."""
+    found = {}
+    for path in glob.glob(os.path.join(bc.HERE, "*", "perritodeck-plugin.json")):
+        if os.path.basename(os.path.dirname(path)) in bc.NOT_PLUGINS:
+            continue
+        with open(path, encoding="utf-8") as f:
+            found[json.load(f)["id"]] = os.path.dirname(path)
+    return found
+
+
+# How a plugin's README says it has only met stand-ins: "Not yet tried against a real GitLab
+# instance", or a "## Not tested yet" section that starts "Against a real Hue Bridge".
+UNTRIED = re.compile(
+    r"not yet tried against (a|the) (real|live)\b|^## not tested yet\s+against (a |the )?(real|live)\b", re.I | re.M
+)
+
+
+class Experimental(unittest.TestCase):
+    """Plugins tested only against stand-ins are marked Experimental in index.json and on the
+    page, from catalogue_status.json, without touching their manifests or zips."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = os.path.join(self.tmp.name, "plugins")
+        for plugin_id in ("dev.example.a", "dev.example.b"):
+            manifest = {"id": plugin_id, "name": plugin_id[-1].upper(), "version": "1.0.0", "runtime": "python"}
+            write(os.path.join(self.src, plugin_id, "perritodeck-plugin.json"), json.dumps(manifest))
+            write(os.path.join(self.src, plugin_id, "plugin.py"), "print('hi')\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def status(self, listed):
+        path = os.path.join(self.tmp.name, "status.json")
+        write(path, json.dumps({"about": ["…"], "experimental": listed}))
+        return bc.load_status(path)
+
+    def build(self, out, experimental):
+        out = os.path.join(self.tmp.name, out)
+        with contextlib.redirect_stdout(io.StringIO()):
+            entries = bc.build(self.src, out, experimental)
+        return out, entries
+
+    def test_listed_plugins_are_marked_in_the_index_and_on_the_page_and_their_zips_dont_change(self):
+        notes = self.status({"dev.example.b": {"tested": " Tested against\n a stand-in. ", "source": "its README"}})
+        self.assertEqual(notes, {"dev.example.b": "Tested against a stand-in."})
+        _, plain = self.build("plain", {})
+        out, marked = self.build("marked", notes)
+        with open(os.path.join(out, "index.json"), encoding="utf-8") as f:
+            index = {p["id"]: p for p in json.load(f)["plugins"]}
+        self.assertNotIn("experimental", index["dev.example.a"])
+        self.assertNotIn("tested", index["dev.example.a"])
+        self.assertIs(index["dev.example.b"]["experimental"], True)
+        self.assertEqual(index["dev.example.b"]["tested"], "Tested against a stand-in.")
+        self.assertNotIn("source", index["dev.example.b"])
+        # The same zips with the same hashes: only index.json and the page say Experimental.
+        self.assertEqual([(p["url"], p["sha256"]) for p in plain], [(p["url"], p["sha256"]) for p in marked])
+        with open(os.path.join(out, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn('<span class="tag">Experimental</span></h2>', page)
+        self.assertIn('<p class="tested">Tested against a stand-in.</p>', page)
+
+    def test_a_listed_plugin_that_isnt_in_the_catalogue_stops_the_build(self):
+        with self.assertRaises(SystemExit) as stopped:
+            self.build("out", {"dev.example.gone": "Tested against a stand-in."})
+        self.assertIn("dev.example.gone", str(stopped.exception.code))
+        # Before anything is written, zips included.
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out")))
+
+    def test_every_listed_plugin_needs_a_tested_note(self):
+        for bad in ({}, {"tested": ""}, {"tested": "  "}, {"tested": 3}, "Tested against a stand-in."):
+            with self.subTest(bad), self.assertRaises(SystemExit):
+                self.status({"dev.example.a": bad})
+
+    def test_the_list_maps_plugin_ids_to_notes(self):
+        for bad in (["dev.example.a"], "dev.example.a", None):
+            with self.subTest(bad), self.assertRaises(SystemExit):
+                self.status(bad)
+        path = os.path.join(self.tmp.name, "status.json")
+        write(path, '["dev.example.a"]')
+        with self.assertRaises(SystemExit):
+            bc.load_status(path)
+
+    def test_a_plugin_listed_twice_stops_the_build(self):
+        # json.load alone would keep the second entry and quietly drop the first.
+        path = os.path.join(self.tmp.name, "status.json")
+        write(path, '{"experimental": {"dev.example.a": {"tested": "One."}, "dev.example.a": {"tested": "Two."}}}')
+        with self.assertRaises(SystemExit) as stopped:
+            bc.load_status(path)
+        self.assertIn("dev.example.a", str(stopped.exception.code))
+
+    def test_the_real_list_names_real_plugins_with_a_short_note_and_where_it_comes_from(self):
+        with open(bc.STATUS, encoding="utf-8") as f:
+            listed = json.load(f)["experimental"]
+        self.assertTrue(listed)
+        plugins = manifests()
+        for plugin_id, about in listed.items():
+            with self.subTest(plugin_id):
+                self.assertIn(plugin_id, plugins)
+                self.assertTrue(about.get("source"), "say where the plugin's test status is written down")
+                # It starts with the file in the repository that says so.
+                where = about["source"].split()[0].rstrip(",")
+                self.assertTrue(os.path.isfile(os.path.join(bc.HERE, "..", *where.split("/"))), f"{where} isn't in the repo")
+                self.assertLessEqual(len(about["tested"]), 160, "one short sentence")
+                self.assertTrue(about["tested"].endswith("."))
+        self.assertEqual(sorted(bc.load_status()), sorted(listed))
+
+    def test_a_readme_saying_the_plugin_hasnt_met_the_real_thing_means_experimental(self):
+        # The catalogue mustn't present a plugin as finished when its own README says it has
+        # only been tested against stand-ins.
+        listed = bc.load_status()
+        for plugin_id, folder in sorted(manifests().items()):
+            readme = os.path.join(folder, "README.md")
+            if not os.path.isfile(readme):
+                continue
+            with open(readme, encoding="utf-8") as f:
+                untried = UNTRIED.search(f.read())
+            if untried:
+                with self.subTest(plugin_id, readme_says=untried.group(0)):
+                    self.assertIn(plugin_id, listed)
+
+    def test_the_readme_wording_check_finds_both_ways_of_saying_it(self):
+        for text in (
+            "Tested with a fake server. Not yet tried against a real GitLab instance.",
+            "**Not yet tried against the real Spotify service.**",
+            "## Not tested yet\n\nAgainst a real Hue Bridge: the tests use a fake bridge.",
+            "## Not tested yet\r\n\r\nAgainst the live Open-Meteo service.",
+            "## Not tested yet\n\nAgainst real lights: the tests use fake lights.",
+        ):
+            with self.subTest(text):
+                self.assertTrue(UNTRIED.search(text))
+        for text in (
+            "## Not tested yet\n\nOBS reading the text file.",
+            "Tried against a real OBS 31.",
+        ):
+            with self.subTest(text):
+                self.assertFalse(UNTRIED.search(text))
+
+
 class Inline(HTMLParser):
     """What a page has that `script-src 'self'; style-src 'self'` would block, and the files
     it loads (scripts, stylesheets, icons and images)."""
@@ -152,11 +299,47 @@ class Inline(HTMLParser):
                 self.blocked.append(f"a javascript: link on <{tag}>")
         if tag == "script" and a.get("src"):
             self.loads.append(a["src"])
-        elif tag == "link" and a.get("href"):
+        elif tag == "link" and a.get("href") and (a.get("rel") or "").lower() != "canonical":
+            # A canonical link names the page's own public address; the browser loads nothing.
+            # <meta> tags (Open Graph and the rest) load nothing either.
             self.loads.append(a["href"])
         elif tag in ("img", "source"):
             self.loads += [a["src"]] if a.get("src") else []
             self.loads += [s.split()[0] for s in (a.get("srcset") or "").split(",") if s.strip()]
+
+
+class Head(HTMLParser):
+    """A page's title, canonical link and <meta> tags (by name or property), unescaped."""
+
+    def __init__(self, text):
+        super().__init__()
+        self.title, self.canonical, self.meta, self._in_title = "", None, {}, False
+        self.feed(text)
+        self.close()
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "title":
+            self._in_title = True
+        elif tag == "link" and (a.get("rel") or "").lower() == "canonical":
+            self.canonical = a.get("href")
+        elif tag == "meta" and (a.get("property") or a.get("name")):
+            self.meta[a.get("property") or a.get("name")] = a.get("content")
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+
+
+def png_size(path):
+    with open(path, "rb") as f:
+        head = f.read(24)
+    assert head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR", f"{path} isn't a PNG"
+    return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 
 
 def missing_files(page_dir, loads):
@@ -192,8 +375,45 @@ class Page(unittest.TestCase):
         self.assertIn('data-words="example does things do it count"', html)
         self.assertIn('<div class="finder" hidden>', html)
 
+    def test_experimental_entries_have_a_tag_and_say_what_they_were_tested_against(self):
+        html = bc.page([ENTRY, EXPERIMENTAL])
+        self.assertIn('<h2>Edgy <span class="version">1.2.3</span> <span class="tag">Experimental</span></h2>', html)
+        self.assertIn('<h2>Example <span class="version">1.2.3</span></h2>', html)
+        self.assertIn('<p class="tested">Tested against a stand-in &amp; nothing else.</p>', html)
+        self.assertEqual(html.count('class="tested"'), 1)
+        # Searching for "experimental" finds them.
+        self.assertIn('data-words="edgy does things do it count experimental"', html)
+        # One line under the introduction says what the tag means.
+        self.assertIn('<p class="note"><span class="tag">Experimental</span> plugins have only been tested against', html)
+        self.assertEqual(html.count('<span class="tag">Experimental</span>'), 2)
+
+    def test_without_experimental_plugins_nothing_says_experimental(self):
+        html = bc.page([ENTRY])
+        self.assertNotIn('class="tag"', html)
+        self.assertNotIn('class="tested"', html)
+        self.assertNotIn('class="note"', html)
+
+    def test_the_tag_uses_a_style_the_site_has(self):
+        # The page has no styles of its own (the CSP), so the tag needs the site's .tag rule.
+        with open(os.path.join(WEBSITE, "style.css"), encoding="utf-8") as f:
+            self.assertRegex(f.read(), r"(?m)^\.tag\s*\{")
+
+    def test_the_page_has_its_address_and_the_sites_link_preview(self):
+        # What Website checks on every other page, at the address the catalogue is published on.
+        head = Head(bc.page([ENTRY]))
+        self.assertEqual(head.canonical, "https://perritodeck.dev/plugins/")
+        self.assertEqual(head.meta["og:url"], head.canonical)
+        self.assertEqual(head.meta["og:title"], head.title)
+        self.assertEqual(head.meta["og:description"], head.meta["description"])
+        with open(os.path.join(WEBSITE, "index.html"), encoding="utf-8") as f:
+            home = Head(f.read())
+        for shared in ("og:type", "og:site_name", "og:image", "og:image:width", "og:image:height", "og:image:alt", "twitter:card"):
+            with self.subTest(shared):
+                self.assertIsNotNone(home.meta.get(shared))
+                self.assertEqual(head.meta.get(shared), home.meta[shared])
+
     def test_the_page_has_no_inline_code_and_loads_only_the_websites_own_files(self):
-        page = Inline(bc.page([ENTRY]))
+        page = Inline(bc.page([ENTRY, EXPERIMENTAL]))
         self.assertEqual(page.blocked, [])
         for url in ("../style.css", "../catalogue.css", "../catalogue.js"):
             self.assertIn(url, page.loads)
@@ -261,6 +481,42 @@ class Website(unittest.TestCase):
             with self.subTest(url):
                 self.assertTrue(url.startswith(("/", "https://")), url)
 
+    def test_every_page_has_its_address_and_a_link_preview(self):
+        # The canonical link, og:url and sitemap.xml all use the address Pages serves a page
+        # on: https://perritodeck.dev, no ".html", folders ending in "/". The preview image is
+        # an absolute URL too, so it's checked here rather than as something the page loads.
+        site = "https://perritodeck.dev/"
+        with open(os.path.join(WEBSITE, "sitemap.xml"), encoding="utf-8") as f:
+            sitemap = re.findall(r"<loc>([^<]+)</loc>", f.read())
+        expected = {site + "plugins/"}  # the generated catalogue page
+        for path, text in self.pages():
+            rel = os.path.relpath(path, WEBSITE).replace(os.sep, "/")
+            head = Head(text)
+            with self.subTest(rel):
+                if rel == "404.html":  # served at any address, so it has none of its own
+                    self.assertIsNone(head.canonical)
+                    continue
+                url = site + re.sub(r"\.html$", "", re.sub(r"(^|/)index\.html$", r"\1", rel))
+                expected.add(url)
+                self.assertEqual(head.canonical, url)
+                self.assertEqual(head.meta.get("og:url"), url)
+                self.assertEqual(head.meta.get("og:title"), head.title)
+                self.assertEqual(head.meta.get("og:description"), head.meta.get("description"))
+                self.assertEqual(head.meta.get("og:type"), "website")
+                self.assertEqual(head.meta.get("og:site_name"), "PerritoDeck")
+                self.assertEqual(head.meta.get("twitter:card"), "summary_large_image")
+                self.assertTrue(head.meta.get("og:image:alt"))
+                image = head.meta.get("og:image") or ""
+                self.assertTrue(image.startswith(site + "img/"), image)
+                local = os.path.join(WEBSITE, *image[len(site):].split("/"))
+                self.assertTrue(os.path.isfile(local), image)
+                self.assertEqual(
+                    (head.meta.get("og:image:width"), head.meta.get("og:image:height")),
+                    tuple(str(n) for n in png_size(local)),
+                )
+        self.assertEqual(sorted(sitemap), sorted(expected), "sitemap.xml should list every page once")
+        self.assertEqual(len(sitemap), len(set(sitemap)))
+
     def test_there_is_one_strict_policy(self):
         with open(os.path.join(WEBSITE, "_headers"), encoding="utf-8") as f:
             policies = [line.split(":", 1)[1].strip() for line in f if line.strip().startswith("Content-Security-Policy:")]
@@ -271,6 +527,35 @@ class Website(unittest.TestCase):
         self.assertIn("style-src 'self';", policy)
         for loose in ("unsafe-", "sha256-", "nonce-", "*", "http:", "https:", "data:"):
             self.assertNotIn(loose, policy)
+
+    def test_the_folder_holds_only_files_the_site_serves(self):
+        # Cloudflare publishes every file under website/, so a README, notes or a script there
+        # would be live at https://perritodeck.dev/<name>. They go in docs/website.md and scripts/.
+        served = {".html", ".css", ".js", ".png", ".webp", ".ico", ".svg", ".woff2"}
+        named = {"_headers", "_redirects", "robots.txt", "sitemap.xml"}
+
+        def unpublishable(root):
+            for folder, subfolders, files in os.walk(root):
+                if folder == root and "plugins" in subfolders:
+                    subfolders.remove("plugins")  # build_catalog.py's output, git-ignored
+                for name in files:
+                    rel = os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/")
+                    if name in (".DS_Store", "Thumbs.db"):  # git-ignored, so never published
+                        continue
+                    if name in named or os.path.splitext(name)[1].lower() in served:
+                        continue
+                    if re.fullmatch(r"fonts/LICENSE-[\w-]+\.txt", rel):  # the OFL travels with the fonts
+                        continue
+                    yield rel
+
+        self.assertEqual(sorted(unpublishable(WEBSITE)), [], "this would be published; see docs/website.md")
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel in ("index.html", "img/og.png", "fonts/LICENSE-x.txt", "_headers", "plugins/index.json",
+                        "README.md", "notes.txt", "img/og-image.py", "guide/LICENSE-x.txt"):
+                write(os.path.join(tmp, *rel.split("/")), "")
+            self.assertEqual(
+                sorted(unpublishable(tmp)), ["README.md", "guide/LICENSE-x.txt", "img/og-image.py", "notes.txt"]
+            )
 
 
 if __name__ == "__main__":

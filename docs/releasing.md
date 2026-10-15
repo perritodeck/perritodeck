@@ -74,8 +74,8 @@ Cost: 7 Linux (6 when nothing is published), 2 Windows (2× rate) and 2 macOS (1
 ### 7. Publish
 - [ ] Open the draft. Check the asset list (the APK must not be `-unsigned`), check that the certificate SHA-256 in the notes is the one on the download page, try the installers on each OS and the APK on a tablet, and compare a couple of checksums.
 - [ ] Press **Publish release**.
-- [ ] The website needs no upload once it's on Cloudflare Pages as `website/README.md` sets it up: every push to `main` that touches `website/` or `plugins/` redeploys it and builds the plugin catalogue as part of the deploy. That includes the release commit from step 4, which bumped the links in `download.html`. From that push until **Publish release**, the live download page links to files that don't exist yet and return 404, so tag and publish promptly. If the site is ever served without that build step, unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into `website/plugins/` before deploying.
-- [ ] First release only: work through "Launch day" under "Deploy" in `website/README.md`, then commit and push to `main` so Pages redeploys.
+- [ ] The website needs no upload once it's on Cloudflare Pages as [`docs/website.md`](website.md) sets it up: every push to `main` that touches `website/` or `plugins/` redeploys it and builds the plugin catalogue as part of the deploy. That includes the release commit from step 4, which bumped the links in `download.html`. From that push until **Publish release**, the live download page links to files that don't exist yet and return 404, so tag and publish promptly. If the site is ever served without that build step, unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into `website/plugins/` before deploying.
+- [ ] First release only: work through "Launch day" under "Deploy" in `docs/website.md`, then commit and push to `main` so Pages redeploys.
 - [ ] Stores: F-Droid picks up new tags by itself once listed; IzzyOnDroid picks up the APK; upload the `play-bundle` artifact to Play; update the Flathub and AUR recipes (`packaging/README.md`).
 
 ## Signing secrets (none are set yet)

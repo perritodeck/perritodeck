@@ -15,6 +15,8 @@
 .none { color: var(--ink-soft); padding: 28px 0; border-top: 1px solid var(--line); }
 .plugin h2 { font-size: 1.45rem; margin: 0 0 6px; max-width: none; }
 .version { font: 400 0.95rem/1 var(--body); color: var(--ink-soft); }
+/* The Experimental tag (style.css's .tag) in the body font, not the heading's. */
+.plugin h2 .tag { font: 700 0.78rem/1 var(--body); vertical-align: 0.15em; }
 .plugin p { color: var(--ink-soft); }
 .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 32px; margin: 4px 0 14px; }
 .columns h3 { font-size: 1rem; margin: 0 0 4px; }

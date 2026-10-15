@@ -50,3 +50,13 @@ Each zip carries this folder's MIT [LICENSE](LICENSE), unless the plugin has a l
 file of its own at the top of its folder: `LICENSE`, `LICENCE` or `COPYING`, optionally
 with a qualifier and a text extension, such as `LICENSE-MIT`, `LICENSE.md` or
 `COPYING.txt`. Tests (`test_*` files), caches and `node_modules` are left out.
+
+Plugins listed in [`catalogue_status.json`](catalogue_status.json) are marked
+**Experimental** in `index.json` (`"experimental": true` and a one-line `"tested"` note)
+and on the catalogue page: they have only been tested against stand-ins for the service
+or device they work with, or a run against the real one found problems not fixed yet.
+Their manifests and zips don't change. Take a plugin off the list once it works against
+the real thing, and update the tested section of its README at the same time. The build
+stops if the list names a plugin that isn't here, or names one twice, and
+`test_build_catalog.py` fails if a README says its plugin hasn't been tried against the
+real thing and the plugin isn't listed.

@@ -110,7 +110,7 @@ cd android && ./gradlew assembleDebug
 | [`ios/`](ios/) | Perrito for iPhone and iPad (SwiftUI), not yet built |
 | [`protocol/`](protocol/) | Wire protocol: JSON schema and golden fixtures |
 | [`plugins/`](plugins/) | Plugin SDKs and first-party plugins (MIT) |
-| [`website/`](website/) | [perritodeck.dev](https://perritodeck.dev) and the user guide |
+| [`website/`](website/) | [perritodeck.dev](https://perritodeck.dev) and the user guide ([how it's built and deployed](docs/website.md)) |
 | [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md), [roadmap](docs/plan/), [security model](docs/SECURITY.md) |
 
 ## Plugins
