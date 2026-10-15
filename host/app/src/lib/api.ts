@@ -59,6 +59,8 @@ export const api = {
   onlinePlugins: () => call<OnlineEntry[]>("list_online_plugins"),
   installOnlinePlugin: (id: string) => call<string>("install_online_plugin", { id }),
   openReleasePage: (url: string) => call<void>("open_release_page", { url }),
+  /** The licence texts the installer carries, or the notices on GitHub without them. */
+  openLicences: () => call<void>("open_licences"),
   openProfileFile: (id?: string) => call<void>("open_profile_file", { id: id ?? null }),
   openDataFolder: () => call<void>("open_data_folder"),
   openLogsFolder: () => call<void>("open_logs_folder"),

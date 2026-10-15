@@ -338,6 +338,10 @@
             <div class="what">
               <strong>{o.name}</strong> <span class="version">{o.version}</span>
               <span class="desc">{o.description}</span>
+              <!-- Marked in the catalogue (plugins/catalogue_status.json), with what it was tested against. -->
+              {#if o.experimental}
+                <span class="experimental"><span class="tag">Experimental</span> {o.tested || "It may not work as described yet."}</span>
+              {/if}
               {#if o.author}<span class="status">By {o.author}</span>{/if}
             </div>
             {#if installing === o.id}
@@ -395,6 +399,17 @@
   .desc { color: var(--ink-soft); font-size: 0.9rem; }
   .status { font-size: 0.85rem; color: var(--ink-soft); }
   .status.bad { color: var(--danger); }
+  .experimental { font-size: 0.85rem; color: var(--ink-soft); }
+  .tag {
+    display: inline-block;
+    margin-right: 4px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
   .dot {
     flex: none;
     width: 10px;

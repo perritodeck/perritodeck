@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { McpSettings, McpView, NetworkHint, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { McpSettings, McpView, NetworkHint, OnlineEntry, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -613,6 +613,10 @@ export const mock = {
       case "open_release_page":
         this.opened.push(String(args?.url));
         return out(undefined);
+      case "open_licences":
+        if (this.licencesError) throw this.licencesError;
+        this.opened.push("licences");
+        return out(undefined);
       case "restart_app":
         this.restarted = true;
         return out(undefined);
@@ -696,10 +700,22 @@ export const mock = {
   stopping: null as Promise<unknown> | null,
   /** The online catalogue; a string is an error. */
   onlineIndex: [
-    { id: "dev.example.weather", name: "Weather", version: "1.2.0", description: "Today's weather on a key.", author: "Example", url: "w.zip", sha256: "00" },
-    { id: "dev.perritodeck.http", name: "HTTP requests", version: "1.1.0", description: "Call a web address.", author: "PerritoDeck contributors", url: "h.zip", sha256: "00" },
-  ] as { id: string; name: string; version: string; description: string; author: string; url: string; sha256: string }[] | string,
+    { id: "dev.example.weather", name: "Weather", version: "1.2.0", description: "Today's weather on a key.", author: "Example", url: "w.zip", sha256: "00", experimental: false },
+    {
+      id: "dev.perritodeck.http",
+      name: "HTTP requests",
+      version: "1.1.0",
+      description: "Call a web address.",
+      author: "PerritoDeck contributors",
+      url: "h.zip",
+      sha256: "00",
+      experimental: true,
+      tested: "Tested against a test server on the same computer, not yet with real web services.",
+    },
+  ] as Omit<OnlineEntry, "installed" | "update">[] | string,
   opened: [] as string[],
+  /** What open_licences fails with, if anything. */
+  licencesError: null as string | null,
   exported: [] as string[],
   accessibility: null as boolean | null,
   setReloadError(msg: string | null) {

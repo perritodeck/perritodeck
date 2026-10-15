@@ -315,6 +315,10 @@ export interface OnlineEntry {
   author: string;
   url: string;
   sha256: string;
+  /** Only tested against stand-ins for what it works with, or known to have problems with the real thing. */
+  experimental: boolean;
+  /** What an experimental plugin was tested against, in a sentence. */
+  tested?: string;
   /** The installed version, if any. */
   installed: string | null;
   /** The catalogue has a newer version. */

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { copyText } from "../lib/clipboard";
+  import { licencesUrl } from "../lib/licences";
   import type { HostStatus, McpSettings, McpView, Network, Update } from "../lib/types";
 
   let { status, onchange }: { status: HostStatus; onchange: () => void | Promise<void> } = $props();
@@ -15,6 +16,8 @@
   let checkUpdates = $state<boolean | null>(null);
   let checking = $state(false);
   let checked = $state<{ update: Update | null } | null>(null);
+  /** Why the licences didn't open, if they didn't. */
+  let licencesProblem = $state<string | null>(null);
   let detailedLogs = $state<boolean | null>(null);
   /** What was just copied, to say "Copied" next to it. */
   let copied = $state<string | null>(null);
@@ -113,6 +116,18 @@
         checking = false;
       }
     });
+  }
+
+  /** The licence texts online, for when the app can't open them itself. */
+  const notices = $derived(licencesUrl(status.version, import.meta.env.DEV));
+
+  async function openLicences() {
+    licencesProblem = null;
+    try {
+      await api.openLicences();
+    } catch (e) {
+      licencesProblem = String(e).replace(/\.$/, "");
+    }
   }
 
   async function run(f: () => Promise<void>) {
@@ -391,7 +406,19 @@
 
   <dt>Version</dt>
   <dd>
-    <span>{status.version}</span>
+    <span class="row">
+      <span>{status.version}</span>
+      <button class="link" onclick={openLicences}>Open-source licences</button>
+    </span>
+    {#if licencesProblem !== null}
+      <small role="status">
+        Couldn't open the licences: {licencesProblem}. Read them at <span class="mono selectable">{notices}</span>
+      </small>
+      <span class="row">
+        <button class="btn quiet" onclick={() => copy("licences", notices)}>Copy link</button>
+        {#if copied === "licences"}<span role="status">Copied</span>{/if}
+      </span>
+    {/if}
     {#if checkUpdates !== null}
       <label class="check">
         <input
@@ -475,6 +502,14 @@
   .check { display: flex; align-items: center; gap: 8px; }
   .check input { width: 17px; height: 17px; accent-color: var(--apricot-deep); }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--apricot-deep);
+    font-size: 0.9rem;
+    text-decoration: underline;
+  }
   .port {
     width: 8ch;
     font: inherit;

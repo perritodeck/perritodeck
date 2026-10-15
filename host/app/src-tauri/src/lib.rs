@@ -260,6 +260,34 @@ fn open_release_page(handle: AppHandle, url: String) -> Res<()> {
         .map_err(|e| e.to_string())
 }
 
+/// The licence texts online, for a build that doesn't carry the file (`tauri dev`, a
+/// local `tauri build`).
+const LICENCES_ONLINE: &str =
+    "https://github.com/perritodeck/perritodeck/blob/main/THIRD_PARTY_NOTICES.md";
+/// The licence texts' name in the resource folder (release.yml's `bundle.resources`).
+/// host/app/tests/licences.spec.ts reads this line to check the two agree.
+const LICENCES_FILE: &str = "third-party-licenses.txt";
+
+/// Settings → "Open-source licences": `third-party-licenses.txt`, which release.yml puts
+/// in the app's resource folder, or the notices on GitHub when this build doesn't have it.
+/// The window adds "Couldn't open the licences" and the link to any error.
+#[tauri::command]
+fn open_licences(handle: AppHandle) -> Res<()> {
+    let file = handle
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join(LICENCES_FILE))
+        .filter(|f| f.is_file());
+    let opened = match file {
+        Some(file) => handle
+            .opener()
+            .open_path(file.to_string_lossy(), None::<&str>),
+        None => handle.opener().open_url(LICENCES_ONLINE, None::<&str>),
+    };
+    opened.map_err(|e| e.to_string())
+}
+
 /// "Restart now", after a change that needs it (the port, the network). Quits like
 /// Quit does; the exit handler in [`run`] then starts the app again.
 #[tauri::command]
@@ -913,6 +941,7 @@ pub fn run() {
             check_for_updates,
             restart_app,
             open_release_page,
+            open_licences,
             list_online_plugins,
             install_online_plugin,
             list_sd_plugins,

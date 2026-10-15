@@ -1,6 +1,21 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 const mock = (page: Page, js: string) => page.evaluate(js);
+
+test("the rail shows the app icon", async ({ page }) => {
+  await page.goto("/");
+  // Each rect and group with its attributes sorted, so the markup's style doesn't matter,
+  // and without the class Svelte adds to scope the styles.
+  const shapes = (svg: string) =>
+    [...svg.matchAll(/<(rect|g)\b([^>]*)>/g)].map(([, tag, attrs]) =>
+      [tag, ...[...attrs.matchAll(/([\w-]+)="([^"]*)"/g)].filter(([, k]) => k !== "class").map(([, k, v]) => `${k}=${v}`).sort()].join(" "),
+    );
+  const master = readFileSync(new URL("../../../docs/assets/icon-master-rounded.svg", import.meta.url), "utf8");
+  const icon = page.locator(".brand svg");
+  await expect(icon).toHaveAttribute("viewBox", "0 0 1024 1024");
+  expect(shapes(await icon.evaluate((e) => e.outerHTML))).toEqual(shapes(master));
+});
 
 test("shows the profile as a deck", async ({ page }) => {
   await page.goto("/");
@@ -667,6 +682,26 @@ test.describe("getting help and AI assistants", () => {
     await expect.poll(async () => (await mock(page)).detailedLogs).toBe(true);
   });
 
+  test("opens the open-source licences, or says where they are online", async ({ page }) => {
+    // The test server is a dev build, so it links the notices on main (licences.spec.ts has a release's link).
+    const notices = "https://github.com/perritodeck/perritodeck/blob/main/THIRD_PARTY_NOTICES.md";
+    await page.getByRole("button", { name: "Open-source licences" }).click();
+    await expect.poll(async () => (await mock(page)).opened).toEqual(["licences"]);
+    await expect(page.getByText(notices)).toHaveCount(0);
+    // No program opens the file the app carries.
+    await page.evaluate(() => ((window as any).__perritoMock.licencesError = "No program is set to open .txt files."));
+    await page.getByRole("button", { name: "Open-source licences" }).click();
+    const note = page.getByRole("status").filter({ hasText: notices });
+    await expect(note).toHaveText(`Couldn't open the licences: No program is set to open .txt files. Read them at ${notices}`);
+    await page.getByRole("button", { name: "Copy link" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+    expect(await clipboard(page)).toBe(notices);
+    await page.evaluate(() => ((window as any).__perritoMock.licencesError = null));
+    await page.getByRole("button", { name: "Open-source licences" }).click();
+    await expect.poll(async () => (await mock(page)).opened).toEqual(["licences", "licences"]);
+    await expect(note).toHaveCount(0);
+  });
+
   test("the MCP server is off until turned on, and each permission is separate", async ({ page }) => {
     const enabled = page.getByLabel("Let AI assistants use PerritoDeck");
     await expect(enabled).not.toBeChecked();
@@ -864,6 +899,24 @@ test.describe("plugins", () => {
     await expect(online.getByText("Added")).toHaveCount(2);
     const installed = page.locator("section", { has: page.getByRole("heading", { name: "Installed" }) });
     await expect(installed.getByText("Weather", { exact: true })).toBeVisible();
+  });
+
+  test("marks experimental plugins in the online catalogue, with what they were tested against", async ({ page }) => {
+    // An entry marked experimental without a note, which build_catalog.py doesn't make.
+    await page.evaluate(() => {
+      const m = (window as any).__perritoMock;
+      m.onlineIndex.push({ id: "dev.example.lamp", name: "Lamp", version: "0.1.0", description: "A lamp.", author: "", url: "l.zip", sha256: "00", experimental: true });
+    });
+    await page.getByRole("button", { name: "Plugins" }).click();
+    const online = page.locator("section", { has: page.getByRole("heading", { name: "More plugins online" }) });
+    await online.getByRole("button", { name: "Look online" }).click();
+    const http = online.getByRole("listitem").filter({ hasText: "HTTP requests" });
+    await expect(http.getByText("Experimental", { exact: true })).toBeVisible();
+    await expect(http).toContainText("Experimental Tested against a test server on the same computer, not yet with real web services.");
+    const weather = online.getByRole("listitem").filter({ hasText: "Weather" });
+    await expect(weather).toBeVisible();
+    await expect(weather.getByText("Experimental")).toHaveCount(0);
+    await expect(online.getByRole("listitem").filter({ hasText: "Lamp" })).toContainText("Experimental It may not work as described yet.");
   });
 
   test("a slider sends its value to a plugin", async ({ page }) => {

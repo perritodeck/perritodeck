@@ -5,10 +5,12 @@
 //! { "version": 1,
 //!   "plugins": [ { "id": "dev.example.weather", "name": "Weather", "version": "1.2.0",
 //!                  "description": "…", "author": "…",
-//!                  "url": "dev.example.weather-1.2.0.zip", "sha256": "…" } ] }
+//!                  "url": "dev.example.weather-1.2.0.zip", "sha256": "…",
+//!                  "experimental": true, "tested": "…" } ] }
 //! ```
 //!
 //! `url` may be relative to the index. A download whose hash doesn't match is refused.
+//! `experimental` and `tested` are optional.
 
 use std::{
     io::Read,
@@ -40,6 +42,13 @@ pub struct OnlinePlugin {
     pub author: String,
     pub url: String,
     pub sha256: String,
+    /// Only tested against stand-ins for what it works with, or known to have problems
+    /// with the real thing (plugins/catalogue_status.json).
+    #[serde(default)]
+    pub experimental: bool,
+    /// What an experimental plugin was tested against, in a sentence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tested: String,
 }
 
 #[derive(Deserialize)]
@@ -236,6 +245,26 @@ pub(crate) mod tests {
         );
         assert!(allowed("https://x") && allowed("http://127.0.0.1:8000/i.json"));
         assert!(!allowed("http://example.com/i.json") && !allowed("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn experimental_plugins_say_what_they_were_tested_against() {
+        let plugins = parse_index(
+            br#"{"version":1,"plugins":[
+                {"id":"a.b","name":"A","version":"1.0.0","url":"a.zip","sha256":"00",
+                 "experimental":true,"tested":"Tested against a stand-in for A."},
+                {"id":"c.d","name":"C","version":"1.0.0","url":"c.zip","sha256":"00"}]}"#,
+        )
+        .unwrap();
+        assert!(plugins[0].experimental);
+        assert_eq!(plugins[0].tested, "Tested against a stand-in for A.");
+        assert!(!plugins[1].experimental && plugins[1].tested.is_empty());
+        // What the window gets: `tested` only when there is a note.
+        let json = serde_json::to_value(&plugins).unwrap();
+        assert_eq!(json[0]["experimental"], true);
+        assert_eq!(json[0]["tested"], "Tested against a stand-in for A.");
+        assert_eq!(json[1]["experimental"], false);
+        assert!(json[1].get("tested").is_none(), "{json}");
     }
 
     #[test]
