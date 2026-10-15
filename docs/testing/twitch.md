@@ -29,7 +29,7 @@ channel, and what a harness can do unattended. It's for the maintainer and contr
 ## 1. Fixed before this pass: re-check these
 
 The research for this plan found these bugs, and they were fixed before the pass (plugin
-1.1.2), tested only against the fakes. Each has a case below. If a case fails, the bug
+1.1.2, and 1.1.3 for the last row), tested only against the fakes. Each has a case below. If a case fails, the bug
 goes back on the list in `docs/next-steps.md`.
 
 | Bug | Re-check in |
@@ -47,6 +47,7 @@ goes back on the list in `docs/next-steps.md`.
 | One invalid channel name among the live values could blank them all, because the names share one `GET /users` request and Twitch refuses the whole batch. Names that can't be Twitch names are now left out of that request, and when Twitch refuses a batch all the same the plugin asks about the names one at a time, so only the bad name's values show the placeholder | B8 |
 | Pressing Sign out while an approval was on its way (Twitch had approved, the plugin was still asking which account it is) left the plugin signed in again, with `tokens.json` back | A15 |
 | When Twitch refused every wanted subscription (a mod-only `channel.follow` where T isn't a moderator, or an outage), the backoff didn't hold: Twitch closes a session with no subscription after 10 s, and the plugin reconnected and posted again about every 12 s. Now it closes such a session itself and opens a new one only when the next try is due | L10 |
+| On Windows, saving `tokens.json` failed ("Access is denied") whenever another thread was reading it at that moment, and a failed save right after a refresh lost Twitch's new single-use refresh token. The save now waits briefly for the reader (Spotify's token save got the same fix) | A10 |
 
 Known and **not** being fixed now; record what happens:
 - A session reconnect closes the old connection without reading what's left on it, so an
@@ -238,7 +239,7 @@ public client ID instead is an open decision in `docs/next-steps.md`.
 | J4 | `reward` on a reward made on twitch.tv | "Twitch only lets the app that made a reward change it or its redemptions; …" (confirms the real 403) | Yes | Auto |
 | J5 | V redeems twice; `redemption`: fulfil, then reject and refund | `last_redemption` "V: PerritoDeck test"; `reward_pending` 2 → 1 → 0; V refunded on the second; then "no redemptions waiting" | Caution | Semi |
 | J6 | A duplicate title; a 50-character title | Record Twitch's duplicate error; the title is cut to 45 | Caution | Auto |
-| J7 | Remove the test reward | There's no delete action. Try the dashboard (it may not delete app-made rewards); otherwise a one-off `DELETE /channel_points/custom_rewards` script with the same client ID, run by the maintainer | Caution | Semi |
+| J7 | Remove the test reward | There's no delete action. Try the dashboard (it may not delete app-made rewards); otherwise `plugins/tools/twitch_cleanup.py` with the same client ID, run by the maintainer (§4) | Caution | Semi |
 
 ### K. Polls and predictions (Affiliate or Partner only)
 
@@ -313,25 +314,76 @@ Shield Mode during a real stream, AutoMod changes while live, raids.
    `test_refused_subscriptions_wait_when_twitch_closes_unused_sessions`, and the ban and
    label defaults).
    Extend them with the recorded contract fixtures from item 3.
-2. **A stdio harness.** It starts `plugin.py` the way the host does
-   ([plugins/PROTOCOL.md](../../plugins/PROTOCOL.md): `hello` with the settings, `watch`,
-   `run`; it reads `result`, `value` and `log`), with `PERRITODECK_PLUGIN_DATA` in a test
-   folder. It runs §3 in the order above and writes a JSON pass/fail report. Read-only
-   stages run unattended once a person has signed in. It stops for a yes before every step
-   with a public effect (chat, announcements, title changes, clips).
-   For the "unknown user" cases (B1, G4) it makes up a name that is valid in form (random
-   letters and digits, 4 to 25 long) and checks with `GET /users` that no account has it
-   before using it, so a ban can never hit a real stranger.
-3. **An HTTP trace and recorder.** A wrapper imports the plugin and patches `urllib` to log
-   requests and answers with tokens redacted. `ID_URL`, `HELIX_URL` and `EVENTSUB_URL` can
-   be overridden the way the tests already do, with no change to the plugin. The logs give
-   call counts, the validation rhythm and real error bodies. Turn them into **recorded
-   contract fixtures** for the fake server, so the unit tests use Twitch's real answers
-   (ads formats, the snooze answer, 403 wording, `delay` without a moderator id).
+2. **The stdio harness exists:** `plugins/tools/twitch_live_test.py`
+   ([plugins/tools/README.md](../../plugins/tools/README.md)). It starts `plugin.py` the way
+   the host does ([plugins/PROTOCOL.md](../../plugins/PROTOCOL.md): `hello` with the settings,
+   `watch`, `run`; it reads `result`, `value` and `log`), with `PERRITODECK_PLUGIN_DATA` in a
+   test folder of its own, never the real data folder. It runs §3 in the order above and
+   writes a JSON pass/fail report. Read-only stages run unattended once a person has signed
+   in; the harness shows the device code and waits, and never enters credentials. A sign-in
+   approved by another account, or not approved in time, is signed out at once (the
+   plugin's Sign out cancels the attempt and revokes the token). It stops for a typed yes
+   before every case with a public effect (chat, announcements, title and category changes,
+   clips, markers, raids, moderation, ads, polls, predictions, rewards), listing each action
+   and the channel it acts in. It checks that the signed-in account is T (`tokens.json` and
+   `GET /users`) before anything risky. Before the first risky case it looks V and R up on
+   Twitch (both must exist, and V must follow T), shows their IDs and creation dates, and
+   asks for a typed yes that these are the test accounts. It moderates only V in T's
+   channel, so F2 and G9 (in R's channel) stay manual, though it checks V and R before
+   showing their steps too. With `--main-channel <M>` it refuses
+   moderation, chat modes, Shield Mode, AutoMod, clearing chat, warnings and raids whenever
+   the broadcaster is M, including the by-hand steps of F2, G9 and H3. A case that stops early puts back what it changed: V unbanned, mod
+   and VIP removed, chat modes and Shield Mode off, AutoMod back, the raid cancelled.
+   For the "unknown user" cases (B1, G4) it makes up a name that is valid in form (16 random
+   letters and digits) and checks with `GET /users` that no account has it before using it,
+   so a ban can never hit a real stranger.
+
+   ```
+   py -3 plugins/tools/twitch_live_test.py --dry-run-fake
+   $env:PERRITODECK_TWITCH_CLIENT_ID = "<your app's client ID>"
+   py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --viewer <V> --raid-target <R> --main-channel <M>
+   py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --only B --auto-only
+   py -3 plugins/tools/twitch_live_test.py --broadcaster <M> --main-channel <M> --no-skip-affiliate --only I,J,K
+   ```
+
+   The first command runs every case the fakes from `test_plugin.py` can answer, answering
+   yes by itself; a live run never does. Sections I, J and K are reported as "needs an
+   Affiliate channel" unless `--no-skip-affiliate` is given. The Affiliate channel is usually
+   M, so with `--no-skip-affiliate` every other case with a public effect is refused unless
+   `--only` names it by its ID, and `--main-channel` is required. A8 and M1 run at the end of stage 11 (M1 not in the
+   background, because only one plugin process can hold a sign-in); the tools README lists
+   where else the harness differs from §3. `--soak-minutes`, `--validate-minutes` (A8) and
+   `--l10-minutes` set the long cases.
+3. **The HTTP trace and recorder exist:** `plugins/tools/twitch_trace.py`. The harness runs
+   the plugin under it by default (`--no-trace` runs `plugin.py` itself). It imports the
+   plugin and patches `urllib` to log every request and answer to a JSONL file in the test
+   folder. Tokens, device codes and the Authorization header are redacted; the client ID
+   stays. `ID_URL`, `HELIX_URL` and `EVENTSUB_URL` are overridden the way the tests already
+   do, with no change to the plugin.
+
+   ```
+   py -3 plugins/tools/twitch_trace.py summary <trace.jsonl>
+   py -3 plugins/tools/twitch_trace.py fixtures <trace.jsonl> <fixtures.json>
+   ```
+
+   `summary` gives call counts, the busiest minute of Helix calls, the validation rhythm,
+   EventSub sessions and Twitch's real error bodies. `fixtures` turns a trace into **recorded
+   contract fixtures** for the fake server, with the accounts replaced by stand-ins (the
+   format is in the script), so the unit tests can use Twitch's real answers (ads formats,
+   the snooze answer, 403 wording, `delay` without a moderator id). `test_plugin.py`'s fake
+   doesn't replay them yet.
 4. **Twitch CLI mocks** (if the download is approved): point `EVENTSUB_URL` and
    `HELIX_URL` at the mock server for paid events, reconnects and revocations.
-5. **A cleanup script** for app-made rewards (DELETE with the same client ID), for the
-   maintainer to run.
+5. **The cleanup script exists:** `plugins/tools/twitch_cleanup.py` deletes app-made
+   rewards (DELETE with the same client ID), for the maintainer to run. It's a dry run
+   unless `--yes` is given, and `--yes` needs `--broadcaster`: nothing is deleted unless the
+   sign-in belongs to that account. `--sign-in` uses a sign-in of its own (only
+   `channel:manage:redemptions`, revoked afterwards) for M or a friend's channel.
+
+   ```
+   py -3 plugins/tools/twitch_cleanup.py --match "PerritoDeck test"
+   py -3 plugins/tools/twitch_cleanup.py --broadcaster <T> --match "PerritoDeck test" --yes
+   ```
 
 **Needs a person:**
 - Creating the developer app and the accounts (two-factor authentication, email, phone).

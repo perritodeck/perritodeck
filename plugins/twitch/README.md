@@ -327,4 +327,6 @@ with none), `session_reconnect` and revocation.
 
 `docs/testing/twitch.md` is the plan for trying the plugin on real Twitch accounts: what
 to set up (your own app, a test broadcaster and a test viewer), which cases are safe on
-your main channel and which never are, and the order to run them in.
+your main channel and which never are, and the order to run them in. The harness, HTTP
+trace and reward cleanup in [`plugins/tools/`](../tools/) run that plan's cases through the
+plugin's own protocol.

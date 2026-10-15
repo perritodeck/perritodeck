@@ -31,6 +31,7 @@ starts and talks to over stdin/stdout (see [PROTOCOL.md](PROTOCOL.md)).
 | [`keylight/`](keylight/) | First-party: Elgato Key Light and Light Strip (local API) |
 | [`spotify/`](spotify/) | First-party: Spotify playback, likes, playlists, devices (Web API) |
 | [`twitch/`](twitch/) | First-party: Twitch stream, chat, moderation, ads, channel points, polls, predictions, live events |
+| [`tools/`](tools/) | Not a plugin: test tools, such as the Twitch plugin's real-world test harness, HTTP trace and reward cleanup |
 
 Everything in this folder is MIT-licensed (see [LICENSE](LICENSE)) so plugin authors
 can use the SDKs under any license.
