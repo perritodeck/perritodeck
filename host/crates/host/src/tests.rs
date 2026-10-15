@@ -288,6 +288,25 @@ async fn a_mistake_in_integrations_toml_is_reported() {
     let report = host.diagnostics(None);
     assert!(report.contains("integrations.toml has a mistake and is ignored"));
     assert!(!report.contains("hunter2"));
+    // Keys (and sliders) point at the mistake, not at adding [obs] to the file.
+    let obs = ActionSpec::Obs(perritodeck_actions::ObsAction::ToggleRecord);
+    assert_eq!(
+        host.test_action(&obs).await,
+        Err(format!(
+            "integrations.toml has a mistake, so OBS is off: {e}"
+        ))
+    );
+    let ha = ActionSpec::HomeAssistant {
+        service: "light.toggle".into(),
+        entity: None,
+        data: None,
+    };
+    assert_eq!(
+        host.test_action(&ha).await,
+        Err(format!(
+            "integrations.toml has a mistake, so Home Assistant is off: {e}"
+        ))
+    );
 
     // Fixed: the next start has no mistake to report.
     std::fs::write(
@@ -356,6 +375,140 @@ async fn a_mistake_in_integrations_toml_never_shows_a_password() {
     ] {
         assert!(!text.contains("12345678"), "{place}: {text}");
     }
+}
+
+/// What's logged on this thread while the guard from [`CapturedLog::start`] lives.
+#[derive(Clone, Default)]
+struct CapturedLog(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedLog {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl CapturedLog {
+    fn start(level: tracing::Level) -> (Self, tracing::subscriber::DefaultGuard) {
+        let log = Self::default();
+        let writer = log.clone();
+        let guard = tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_max_level(level)
+                .with_writer(move || writer.clone())
+                .finish(),
+        );
+        // A callsite another test reached first may still be cached as uninteresting.
+        tracing::callsite::rebuild_interest_cache();
+        (log, guard)
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+/// With `--profile` in the data folder itself, integrations.toml sits among the
+/// profiles. It's never read as one, at start or when it changes: it holds passwords,
+/// which a profile's error would quote in the log. Naming it as the profile is refused.
+#[tokio::test]
+async fn integrations_toml_is_never_read_as_a_profile() {
+    let (log, _logging) = CapturedLog::start(tracing::Level::INFO);
+    let dir = tempfile::tempdir().unwrap();
+    // On one line, which a profile's error would quote whole.
+    let integrations = |password: &str| {
+        let toml = format!("obs = {{ url = \"ws://127.0.0.1:1\", password = \"{password}\" }}\n");
+        std::fs::write(integrations_path(dir.path()), toml).unwrap();
+    };
+    integrations("hunter2");
+    let profile = |name: &str| {
+        let path = dir.path().join(format!("{}.toml", name.to_lowercase()));
+        let toml = format!("schema_version = 1\nname = \"{name}\"\n[[pages]]\nname = \"Main\"\n");
+        std::fs::write(&path, toml).unwrap();
+        path
+    };
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.profile = Some(profile("Stream"));
+    let host = Host::start(opts.clone()).await.unwrap();
+    let ids = || -> Vec<String> { host.profiles().into_iter().map(|p| p.id).collect() };
+    assert_eq!(ids(), ["stream"]);
+
+    integrations("hunter3");
+    // Written after integrations.toml, so loaded after it would have been.
+    profile("Talk");
+    for _ in 0..250 {
+        if ids().len() > 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(ids(), ["stream", "talk"]);
+
+    opts.profile = Some(integrations_path(dir.path()));
+    let Err(e) = Host::start(opts).await else {
+        panic!("integrations.toml was taken for a profile");
+    };
+    let e = format!("{e:#}");
+    assert!(e.contains("not a profile"), "{e}");
+    let logged = log.text();
+    assert!(!logged.contains("profile integrations"), "{logged}");
+    for text in [e, logged] {
+        assert!(!text.contains("hunter"), "{text}");
+    }
+}
+
+/// A press has one number in every log line, counted from 1 like the editor's rows
+/// and columns: keyIndex 10 is key 11 to the server and to the host.
+#[tokio::test]
+async fn a_key_press_has_one_number_in_the_log() {
+    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
+
+    let (log, _logging) = CapturedLog::start(tracing::Level::DEBUG);
+    let dir = tempfile::tempdir().unwrap();
+    // keyIndex 10 is empty, so the press runs nothing on this computer.
+    let profile = default_profile_path(dir.path());
+    std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+    std::fs::write(
+        &profile,
+        "schema_version = 1\nname = \"Keys\"\n[grid]\ncols = 4\nrows = 3\n[[pages]]\nname = \"Main\"\n",
+    )
+    .unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.insecure = true;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    let host = Host::start(opts).await.unwrap();
+    let ep = Endpoint {
+        addr: host.addr.to_string(),
+        security: ClientSecurity::Insecure,
+    };
+    let (mut tablet, _, _) = Client::handshake(&ep, fake_hello("tab-1", None, None))
+        .await
+        .unwrap();
+    tablet.key_down(10).await.unwrap();
+    for _ in 0..250 {
+        if log.text().contains("pressed") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let logged = log.text();
+    let key_down = logged.lines().find(|l| l.contains("keyDown"));
+    assert!(key_down.is_some_and(|l| l.contains("key=11")), "{logged}");
+    assert!(logged.contains("key 11 pressed"), "{logged}");
+    tablet.close().await;
 }
 
 #[tokio::test]

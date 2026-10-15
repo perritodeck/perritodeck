@@ -134,18 +134,27 @@ async fn run_action(dir: &Path, json: &str, delay_secs: u64) -> Result<()> {
     };
     let spec: ActionSpec = serde_json::from_str(json).context("not a valid action")?;
     Executor::validate(&spec)?;
-    // OBS and Home Assistant as the host sets them up, from integrations.toml.
-    let integrations = perritodeck_integrations::Config::load(&integrations_path(dir))
-        .unwrap_or_else(|e| {
-            eprintln!("integrations.toml has a mistake, so OBS and Home Assistant are off: {e}");
-            Default::default()
-        });
+    // OBS and Home Assistant as the host sets them up, from integrations.toml; with a
+    // mistake in it, their actions say so.
+    let (integrations, mistake) =
+        match perritodeck_integrations::Config::load(&integrations_path(dir)) {
+            Ok(config) => (config, None),
+            Err(e) => {
+                eprintln!(
+                    "integrations.toml has a mistake, so OBS and Home Assistant are off: {e}"
+                );
+                (Default::default(), Some(e))
+            }
+        };
     if delay_secs > 0 {
         println!("running in {delay_secs}s — switch to the target window…");
         tokio::time::sleep(Duration::from_secs(delay_secs)).await;
     }
     let ex = Executor::new(Arc::new(EnigoInput::new()), Arc::new(OpenSystem))
-        .with_integrations(perritodeck_integrations::Builtins::new(integrations))
+        .with_integrations(perritodeck_integrations::Builtins::new(
+            integrations,
+            mistake,
+        ))
         .with_plugins(Arc::new(NoPlugins));
     match ex.run(&spec).await? {
         Outcome::Ok => println!("ok"),
@@ -388,4 +397,35 @@ fn print_banner(host: &Host) {
     }
     println!("  type `pair` to pair a tablet, `devices` to list them");
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// With a mistake in integrations.toml, `action` says so for an OBS or Home
+    /// Assistant action, rather than asking for them to be added to the file.
+    #[tokio::test]
+    async fn action_points_at_a_mistake_in_integrations_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            integrations_path(dir.path()),
+            "[obs]\npasword = \"hunter2\"\n",
+        )
+        .unwrap();
+        let mistake = "line 2: unknown field `pasword`, expected `url` or `password`";
+        let obs = run_action(dir.path(), r#"{"type":"obs","op":"stopRecord"}"#, 0)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            obs.to_string(),
+            format!("integrations.toml has a mistake, so OBS is off: {mistake}")
+        );
+        let ha = r#"{"type":"homeAssistant","service":"light.toggle"}"#;
+        let ha = run_action(dir.path(), ha, 0).await.unwrap_err();
+        assert_eq!(
+            ha.to_string(),
+            format!("integrations.toml has a mistake, so Home Assistant is off: {mistake}")
+        );
+    }
 }

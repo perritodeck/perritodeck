@@ -208,6 +208,28 @@ pub fn default_profile_path(dir: &Path) -> PathBuf {
     dir.join("profiles").join("default.toml")
 }
 
+/// The host's own files that sit among the profiles when `--profile` puts them in the
+/// data folder `dir`: its integrations file, which holds passwords. They look like
+/// profiles but are never read as one.
+fn not_profiles(profiles_dir: &Path, dir: &Path) -> Vec<String> {
+    [integrations_path(dir)]
+        .iter()
+        .filter(|f| {
+            f.parent()
+                .is_some_and(|folder| same_place(folder, profiles_dir))
+        })
+        .filter_map(|f| Some(f.file_name()?.to_string_lossy().into_owned()))
+        .collect()
+}
+
+/// Whether two paths name the same file or folder, however they're written.
+fn same_place(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
 /// What a UI hears about.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -583,6 +605,13 @@ impl Host {
             .profile
             .clone()
             .unwrap_or_else(|| default_profile_path(&dir));
+        // It can hold passwords, which a profile's load error would quote.
+        if same_place(&profile_path, &integrations_path(&dir)) {
+            bail!(
+                "{} holds the integrations (OBS, Home Assistant, Companion), not a profile",
+                profile_path.display()
+            );
+        }
         if perritodeck_profile::ensure_starter(&profile_path)? {
             info!("created a starter profile: {}", profile_path.display());
         }
@@ -591,6 +620,7 @@ impl Host {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_default();
+        let not_profiles = not_profiles(&profiles_dir, &dir);
         let default_id = watch::profile_id(&profile_path).unwrap_or_else(|| "default".into());
         for m in profile.missing_icons(&profiles_dir) {
             warn!("icon not found: {}", m.display());
@@ -617,7 +647,10 @@ impl Host {
                 }
             };
         let companion_config = integrations_config.companion.clone();
-        let builtins = perritodeck_integrations::Builtins::new(integrations_config);
+        let builtins = perritodeck_integrations::Builtins::new(
+            integrations_config,
+            integrations_error.clone(),
+        );
         let mut integrations: Vec<String> = builtins
             .configured()
             .into_iter()
@@ -674,7 +707,7 @@ impl Host {
             outbox.clone(),
             executor,
         );
-        watch::load_all(&profiles_dir, &deck);
+        watch::load_all(&profiles_dir, &deck, &not_profiles);
         let _ = live_sink.set(deck.clone());
         // Stream Deck plugins run beside PerritoDeck's own.
         let sd_plugins = match perritodeck_sdcompat::SdHost::start(dir.join("sdplugins")).await {
@@ -728,7 +761,7 @@ impl Host {
         let handle = server.handle();
         let _ = outbox.0.set(handle.clone());
 
-        let watcher = watch::watch_profiles(profiles_dir.clone(), deck.clone())
+        let watcher = watch::watch_profiles(profiles_dir.clone(), deck.clone(), not_profiles)
             .map_err(|e| {
                 warn!(
                     "won't notice edits to {} until restart: {e}",
@@ -2218,10 +2251,14 @@ fn spawn_event_loop(
     });
     let sliders = shared.deck.clone();
     tokio::spawn(async move {
-        // Keep sliders in step with changes made on the computer.
+        // Keep sliders in step with changes made on the computer, and read them as soon
+        // as a tablet shows them: its layout carried the last level known.
         let mut every = poll_timer(Duration::from_secs(3));
         loop {
-            every.tick().await;
+            tokio::select! {
+                _ = every.tick() => {}
+                _ = sliders.sliders_shown() => {}
+            }
             sliders.poll_sliders().await;
         }
     });

@@ -378,6 +378,34 @@ fn profile_ids_come_from_file_names() {
     assert_eq!(profile_id(Path::new("/x/notes.txt")), None);
 }
 
+/// Files in the profiles folder that aren't profiles (the host's integrations.toml,
+/// when profiles share its data folder) are never loaded, at start or when they change,
+/// even one that would pass for a profile.
+#[tokio::test]
+async fn files_that_are_not_profiles_are_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let not_a_profile = dir.path().join("integrations.toml");
+    std::fs::write(&not_a_profile, PROFILE).unwrap();
+    std::fs::write(dir.path().join("stream.toml"), PROFILE).unwrap();
+    let (deck, _, _) = setup();
+    let others = vec!["integrations.toml".to_owned()];
+    crate::watch::load_all(dir.path(), &deck, &others);
+    assert_eq!(deck.profile_ids(), ["default", "stream"]);
+
+    let _watcher =
+        crate::watch::watch_profiles(dir.path().to_owned(), deck.clone(), others).unwrap();
+    std::fs::write(&not_a_profile, PROFILE.replace("Copy", "Paste")).unwrap();
+    std::fs::write(dir.path().join("talk.toml"), PROFILE).unwrap();
+    // Written after integrations.toml, so loaded after it would have been.
+    for _ in 0..250 {
+        if deck.profile_ids().iter().any(|id| id == "talk") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(deck.profile_ids(), ["default", "stream", "talk"]);
+}
+
 #[derive(Default)]
 struct Volume(std::sync::Mutex<Vec<u8>>);
 
@@ -473,6 +501,53 @@ async fn sliders_set_the_volume_and_follow_it() {
     assert!(sent.take().is_empty(), "nothing new");
 }
 
+/// Whether the deck asked for sliders to be read (within a moment).
+async fn sliders_shown(deck: &Deck) -> bool {
+    tokio::time::timeout(Duration::from_millis(50), deck.sliders_shown())
+        .await
+        .is_ok()
+}
+
+/// A tablet's layout carries the last level known (or 50), which may be old, so a
+/// slider tablet that connects or turns to a page with sliders has them read at once
+/// instead of on the next poll.
+#[tokio::test]
+async fn sliders_are_read_as_soon_as_a_tablet_shows_them() {
+    let profile = SLIDERS.replace(
+        "title = \"Copy\"\naction = { type = \"hotkey\", keys = \"Ctrl+C\" }",
+        "title = \"More\"\nnav = { page = \"More\" }",
+    ) + "[[pages]]\nname = \"More\"\n[[pages.keys]]\nat = [0, 0]\ntitle = \"Back\"\nnav = \"back\"\n";
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(&profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys, Arc::new(Volume::default())),
+    );
+    let grid = Grid { cols: 2, rows: 1 };
+    let caps = ["keys".to_string(), "sliders".to_string()];
+
+    deck.connected("old", grid, hello().screen, &["keys".to_string()]);
+    assert!(!sliders_shown(&deck).await, "it draws no sliders");
+    deck.connected("a", grid, hello().screen, &caps);
+    assert!(sliders_shown(&deck).await);
+    // The read moves the new tablet's slider to the real level.
+    deck.poll_sliders().await;
+    let msgs = sent.take();
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::SetValue(v) if v.key_index == 1 && v.value == 33)),
+        "{msgs:?}"
+    );
+    assert!(!sliders_shown(&deck).await, "nothing new to read");
+
+    deck.key_down("a", 0); // to More, which has none
+    assert!(!sliders_shown(&deck).await);
+    deck.key_down("a", 0); // back
+    assert!(sliders_shown(&deck).await);
+}
+
 #[tokio::test]
 async fn live_values_and_followed_toggles() {
     let profile = r##"
@@ -538,6 +613,67 @@ states = [
         .take()
         .iter()
         .any(|m| matches!(m, Message::Layout(l) if l.keys[1].title == "Rec")));
+}
+
+/// A live value that changes reaches the tablets at once, not on the next tick (which
+/// could add a second to OBS's 2 s poll); only keys whose text changed are sent.
+#[tokio::test]
+async fn live_values_redraw_their_keys_at_once() {
+    let profile = r##"
+schema_version = 1
+name = "L"
+[grid]
+cols = 3
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Scene\n{obs:scene}"
+[[pages.keys]]
+at = [0, 1]
+follow = "{obs:recording}"
+states = [{ title = "Rec" }, { title = "Stop" }]
+[[pages.keys]]
+at = [0, 2]
+title = "CPU {cpu}"
+"##;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys),
+    );
+    deck.connected("tab", Grid { cols: 3, rows: 1 }, hello().screen, &[]);
+    sent.take();
+    let set = |name: &str, value: &str| deck.set_live([(name.to_owned(), value.to_owned())]);
+    let titles = |msgs: Vec<Message>| -> Vec<(u32, String)> {
+        msgs.into_iter()
+            .map(|m| match m {
+                Message::SetTitle(t) => (t.key_index, t.title),
+                other => panic!("expected only titles, got {other:?}"),
+            })
+            .collect()
+    };
+
+    set("obs:scene", "Gameplay");
+    assert_eq!(titles(sent.take()), [(0, "Scene\nGameplay".to_owned())]);
+    // Same scene again, a new CPU reading: only the CPU key.
+    deck.set_live([
+        ("obs:scene".to_owned(), "Gameplay".to_owned()),
+        ("cpu".to_owned(), "5%".to_owned()),
+    ]);
+    assert_eq!(titles(sent.take()), [(2, "CPU 5%".to_owned())]);
+    // A toggle that follows a value flips with it.
+    set("obs:recording", "on");
+    assert_eq!(titles(sent.take()), [(1, "Stop".to_owned())]);
+    set("obs:recording", "true");
+    assert!(sent.take().is_empty(), "still on: the key looks the same");
+    // A value no key shows.
+    set("mem", "40%");
+    assert!(sent.take().is_empty());
 }
 
 #[test]

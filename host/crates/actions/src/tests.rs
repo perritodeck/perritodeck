@@ -291,6 +291,41 @@ async fn text_is_limited_in_characters() {
 }
 
 #[test]
+fn integration_errors_name_the_service_once() {
+    let says = |service: &str, reason: &str| {
+        ActionError::Integration {
+            service: service.into(),
+            reason: reason.into(),
+        }
+        .to_string()
+    };
+    assert_eq!(says("OBS", "already recording"), "OBS: already recording");
+    assert_eq!(
+        says("OBS", "OBS didn't answer in time"),
+        "OBS didn't answer in time"
+    );
+    assert_eq!(
+        says("OBS", "OBS's WebSocket server uses ws://"),
+        "OBS's WebSocket server uses ws://"
+    );
+    assert_eq!(
+        says("Home Assistant", "Home Assistant answered 500"),
+        "Home Assistant answered 500"
+    );
+    // Only the whole name counts.
+    assert_eq!(says("OBS", "OBSBOT not found"), "OBS: OBSBOT not found");
+
+    let mistake = ActionError::IntegrationsMistake {
+        service: "OBS".into(),
+        mistake: "line 3: unknown field `pasword`".into(),
+    };
+    assert_eq!(
+        mistake.to_string(),
+        "integrations.toml has a mistake, so OBS is off: line 3: unknown field `pasword`"
+    );
+}
+
+#[test]
 fn unknown_fields_are_rejected() {
     assert!(
         serde_json::from_str::<ActionSpec>(r#"{"type":"text","text":"a","shell":true}"#).is_err()

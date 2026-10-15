@@ -192,10 +192,26 @@ pub enum ActionError {
     },
     #[error("{0} isn't set up; add it to integrations.toml in the host's settings folder")]
     NotConfigured(String),
-    #[error("{service}: {reason}")]
+    /// integrations.toml has a mistake, so the host ignored all of it.
+    #[error("integrations.toml has a mistake, so {service} is off: {mistake}")]
+    IntegrationsMistake { service: String, mistake: String },
+    #[error("{}", integration_message(.service, .reason))]
     Integration { service: String, reason: String },
     #[error("could not open \"{target}\": {reason}")]
     Open { target: String, reason: String },
+}
+
+/// "OBS: already recording", but a reason that names the service itself reads on its
+/// own: "OBS didn't answer in time", not "OBS: OBS didn't answer in time".
+fn integration_message(service: &str, reason: &str) -> String {
+    let names_it = reason
+        .strip_prefix(service)
+        .is_some_and(|rest| rest.starts_with([' ', '\'', '’']));
+    if names_it {
+        reason.to_owned()
+    } else {
+        format!("{service}: {reason}")
+    }
 }
 
 /// Synthetic keyboard input.

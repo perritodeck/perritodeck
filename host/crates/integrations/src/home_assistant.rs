@@ -232,6 +232,16 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(out, Outcome::Alert(m) if m.contains("light.nope")));
+        // Named once: not "Home Assistant: Home Assistant doesn't know …".
+        let (url, _seen3) = fake_ha(404);
+        let e = HaClient::new(HaConfig {
+            url,
+            token: "x".into(),
+        })
+        .state("light.gone")
+        .await
+        .unwrap_err();
+        assert_eq!(e.to_string(), "Home Assistant doesn't know light.gone");
     }
 
     #[tokio::test]

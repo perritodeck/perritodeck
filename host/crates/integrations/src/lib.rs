@@ -115,14 +115,31 @@ fn without_values(message: &str) -> String {
 pub struct Builtins {
     obs: Option<obs::ObsClient>,
     ha: Option<home_assistant::HaClient>,
+    /// Why integrations.toml was ignored, if it was.
+    mistake: Option<String>,
 }
 
 impl Builtins {
-    pub fn new(config: Config) -> Arc<Self> {
+    /// `mistake` is why integrations.toml was ignored (from [`Config::load`]), if it
+    /// was: OBS and Home Assistant actions then point at it, rather than asking for
+    /// them to be added to a file that may already have them.
+    pub fn new(config: Config, mistake: Option<String>) -> Arc<Self> {
         Arc::new(Self {
             obs: config.obs.map(obs::ObsClient::new),
             ha: config.home_assistant.map(home_assistant::HaClient::new),
+            mistake,
         })
+    }
+
+    /// Why `service` can't run: not in integrations.toml, or the file was ignored.
+    fn not_set_up(&self, service: &str) -> ActionError {
+        match &self.mistake {
+            Some(mistake) => ActionError::IntegrationsMistake {
+                service: service.into(),
+                mistake: mistake.clone(),
+            },
+            None => ActionError::NotConfigured(service.into()),
+        }
     }
 
     pub fn configured(&self) -> Vec<&'static str> {
@@ -140,10 +157,7 @@ impl Builtins {
 impl Integrations for Builtins {
     fn obs<'a>(&'a self, action: &'a ObsAction) -> BoxFuture<'a, Result<Outcome, ActionError>> {
         Box::pin(async move {
-            let client = self
-                .obs
-                .as_ref()
-                .ok_or_else(|| ActionError::NotConfigured("OBS".into()))?;
+            let client = self.obs.as_ref().ok_or_else(|| self.not_set_up("OBS"))?;
             client.run(action).await
         })
     }
@@ -158,7 +172,7 @@ impl Integrations for Builtins {
             let client = self
                 .ha
                 .as_ref()
-                .ok_or_else(|| ActionError::NotConfigured("Home Assistant".into()))?;
+                .ok_or_else(|| self.not_set_up("Home Assistant"))?;
             client.call(service, entity, data).await
         })
     }
@@ -169,10 +183,7 @@ impl Integrations for Builtins {
         data: serde_json::Value,
     ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
         Box::pin(async move {
-            let client = self
-                .obs
-                .as_ref()
-                .ok_or_else(|| ActionError::NotConfigured("OBS".into()))?;
+            let client = self.obs.as_ref().ok_or_else(|| self.not_set_up("OBS"))?;
             client.call(request_type, data).await
         })
     }
@@ -185,7 +196,7 @@ impl Integrations for Builtins {
             let client = self
                 .ha
                 .as_ref()
-                .ok_or_else(|| ActionError::NotConfigured("Home Assistant".into()))?;
+                .ok_or_else(|| self.not_set_up("Home Assistant"))?;
             client.state(entity).await
         })
     }
@@ -266,8 +277,31 @@ mod tests {
 
     #[tokio::test]
     async fn unconfigured_integrations_say_so() {
-        let b = Builtins::new(Config::default());
+        let b = Builtins::new(Config::default(), None);
         let err = b.obs(&ObsAction::ToggleRecord).await.unwrap_err();
         assert!(matches!(err, ActionError::NotConfigured(s) if s == "OBS"));
+    }
+
+    /// With a mistake in integrations.toml, keys and sliders point at it instead of
+    /// asking for OBS or Home Assistant to be added.
+    #[tokio::test]
+    async fn an_ignored_integrations_toml_is_what_keys_and_sliders_say() {
+        let mistake = "line 3: unknown field `pasword`, expected `url` or `password`";
+        let b = Builtins::new(Config::default(), Some(mistake.into()));
+        let obs = format!("integrations.toml has a mistake, so OBS is off: {mistake}");
+        let ha = format!("integrations.toml has a mistake, so Home Assistant is off: {mistake}");
+        let key = b.obs(&ObsAction::ToggleRecord).await.unwrap_err();
+        assert_eq!(key.to_string(), obs);
+        let slider = b
+            .obs_request("SetInputVolume", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(slider.to_string(), obs);
+        let key = b
+            .home_assistant("light.toggle", None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(key.to_string(), ha);
+        assert_eq!(b.ha_state("light.desk").await.unwrap_err().to_string(), ha);
     }
 }

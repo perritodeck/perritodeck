@@ -1,7 +1,8 @@
 //! Live values in key titles: `{time}`, `{time_s}`, `{date}`, and values the host
 //! keeps up to date such as `{cpu}`, `{mem}`, `{ha:sensor.outside}` or
-//! `{obs:recording}`. A value that something declares but hasn't reported yet shows as
-//! "–"; unknown names are left as written, so a typo stays visible.
+//! `{obs:recording}`. A value that something declares, or one of the host's own, that
+//! hasn't been reported yet shows as "–"; unknown names are left as written, so a typo
+//! stays visible.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,6 +10,13 @@ use chrono::{DateTime, TimeZone};
 
 /// What stands for a declared value that hasn't been reported yet.
 pub const PENDING: &str = "–";
+
+/// Whether `name` is one of the values the host itself keeps up to date: `cpu`, `mem`,
+/// `ha:<entity>` and `obs:<what>`. Nothing declares them, but they all get a value
+/// (or "–") on the host's first round.
+fn is_builtin(name: &str) -> bool {
+    matches!(name, "cpu" | "mem") || name.starts_with("ha:") || name.starts_with("obs:")
+}
 
 /// Whether `name` is one of the `declared` live values: `plugin:<id>:<value>`, or for a
 /// value that takes an argument, `plugin:<id>:<value>:<anything>` when `declared` holds
@@ -51,7 +59,7 @@ where
             "date" => out.push_str(&now.format("%a %-d %b").to_string()),
             _ => match live.get(name) {
                 Some(v) => out.push_str(v),
-                None if is_declared(declared, name) => out.push_str(PENDING),
+                None if is_builtin(name) || is_declared(declared, name) => out.push_str(PENDING),
                 None => {
                     out.push('{');
                     out.push_str(name);
@@ -173,6 +181,25 @@ mod tests {
             "{plugin:dev.perritodeck.sysmon:disk:x}"
         );
         assert_eq!(render("{weather}"), "{weather}");
+    }
+
+    /// Before the host's first round (a tablet that connects right after it starts),
+    /// its own values show "–", as they do while OBS or Home Assistant can't be asked.
+    #[test]
+    fn the_hosts_own_values_wait_with_a_dash() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 11, 21, 7, 45).unwrap();
+        let nothing = HashSet::new();
+        let none = HashMap::new();
+        let render = |t: &str, live: &HashMap<String, String>| render_title(t, now, live, &nothing);
+        assert_eq!(render("{obs:scene}", &none), "–");
+        assert_eq!(render("{obs:recording} {obs:streaming}", &none), "– –");
+        assert_eq!(render("CPU {cpu}\nRAM {mem}", &none), "CPU –\nRAM –");
+        assert_eq!(render("{ha:sensor.outside}", &none), "–");
+        // Reported: the value.
+        let live = HashMap::from([("obs:scene".to_string(), "Gameplay".to_string())]);
+        assert_eq!(render("{obs:scene}", &live), "Gameplay");
+        // Names the host doesn't keep stay as written.
+        assert_eq!(render("{cpuu} {obs}", &none), "{cpuu} {obs}");
     }
 
     #[test]

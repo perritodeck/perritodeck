@@ -272,6 +272,8 @@ pub struct Deck {
     revision: std::sync::atomic::AtomicU64,
     paused: std::sync::atomic::AtomicBool,
     sliders: Mutex<SliderQueue>,
+    /// A slider tablet started showing sliders: see [`Deck::sliders_shown`].
+    sliders_shown: tokio::sync::Notify,
     live: LiveValues,
     declared: DeclaredValues,
     started: std::time::Instant,
@@ -340,6 +342,7 @@ impl Deck {
             revision: Default::default(),
             paused: Default::default(),
             sliders: Default::default(),
+            sliders_shown: Default::default(),
             live,
             declared,
             started: std::time::Instant::now(),
@@ -432,6 +435,7 @@ impl Deck {
         if image_px.is_some() {
             self.send_images(&mut st, device_id);
         }
+        self.wake_slider_reads(&st, device_id);
     }
 
     pub fn disconnected(&self, device_id: &str) {
@@ -1069,12 +1073,40 @@ impl Deck {
         self.show_page(st, device_id);
     }
 
-    /// Update live values (`cpu`, `ha:sensor.x`, …). Keys showing them refresh on the
-    /// next tick.
+    /// Update live values (`cpu`, `ha:sensor.x`, …). Keys showing one that changed, in a
+    /// title or as what a toggle follows, are redrawn on every tablet right away.
     pub fn set_live(&self, values: impl IntoIterator<Item = (String, String)>) {
-        let mut live = self.live.write().expect("live values poisoned");
-        for (k, v) in values {
-            live.insert(k, v);
+        let mut changed = HashSet::new();
+        {
+            let mut live = self.live.write().expect("live values poisoned");
+            for (k, v) in values {
+                if live.get(&k) != Some(&v) {
+                    live.insert(k.clone(), v);
+                    changed.insert(k);
+                }
+            }
+        }
+        if changed.is_empty() {
+            return;
+        }
+        let mut st = self.lock();
+        let mut showing = Vec::new();
+        for (id, d) in &st.devices {
+            let slot = st.slot(&d.profile);
+            let Some(page) = slot.profile.pages.get(d.page) else {
+                continue;
+            };
+            if slot.profile.companion {
+                continue;
+            }
+            for k in &page.keys {
+                if in_grid(k, d.grid) && shows_any(k, &changed) {
+                    showing.push((id.clone(), k.at[0] * d.grid.cols + k.at[1]));
+                }
+            }
+        }
+        for (id, index) in showing {
+            self.refresh_key(&mut st, &id, index);
         }
     }
 
@@ -1221,6 +1253,29 @@ impl Deck {
         }
     }
 
+    /// Resolves when a tablet that draws sliders starts showing some (it connected or
+    /// changed page). Its layout carried the last level known, which may be old, so
+    /// that's the moment to [`poll_sliders`](Deck::poll_sliders) rather than the next poll.
+    pub async fn sliders_shown(&self) {
+        self.sliders_shown.notified().await;
+    }
+
+    /// For [`Deck::sliders_shown`]: the device's page has sliders and it draws them.
+    fn wake_slider_reads(&self, st: &State, device_id: &str) {
+        let Some(d) = st.devices.get(device_id) else {
+            return;
+        };
+        let slot = st.slot(&d.profile);
+        let has_sliders = slot
+            .profile
+            .pages
+            .get(d.page)
+            .is_some_and(|p| p.keys.iter().any(|k| k.slider.is_some()));
+        if d.sliders && has_sliders && !slot.profile.companion {
+            self.sliders_shown.notify_one();
+        }
+    }
+
     /// Read the current level of every slider on screen (volume changed on the
     /// computer, a light dimmed elsewhere) and move the tablets' sliders to match.
     pub async fn poll_sliders(self: &Arc<Self>) {
@@ -1282,7 +1337,8 @@ impl Deck {
         }
     }
 
-    /// Refresh keys whose titles contain live values like `{time}`.
+    /// Refresh keys whose titles contain live values like `{time}`. (A value set with
+    /// [`Deck::set_live`] redraws its keys itself; this catches clocks and the rest.)
     pub fn tick(&self) {
         let mut st = self.lock();
         let ids: Vec<String> = st.devices.keys().cloned().collect();
@@ -1746,6 +1802,7 @@ impl Deck {
         if images {
             self.send_images(st, device_id);
         }
+        self.wake_slider_reads(st, device_id);
     }
 
     /// A Companion profile: the keys as Companion drew them (or a note while it hasn't).
@@ -2026,6 +2083,19 @@ fn has_template(key: &KeyDef) -> bool {
             .states
             .iter()
             .any(|s| s.title.as_deref().is_some_and(|t| t.contains('{')))
+}
+
+/// Whether a key shows any of the live values `names`, in a title (of any state) or as
+/// what it follows.
+fn shows_any(key: &KeyDef, names: &HashSet<String>) -> bool {
+    let titles = key
+        .title
+        .iter()
+        .chain(key.states.iter().filter_map(|s| s.title.as_ref()));
+    key.follow.as_ref().is_some_and(|f| names.contains(f))
+        || titles
+            .flat_map(|t| tokens(t))
+            .any(|name| names.contains(name))
 }
 
 /// Whether finishing `action` is worth a ✓ on the key (it may have taken a while).

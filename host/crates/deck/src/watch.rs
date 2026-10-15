@@ -19,15 +19,27 @@ pub fn profile_id(path: &Path) -> Option<String> {
         .flatten()
 }
 
+/// [`profile_id`] for a file in the profiles folder, unless it's one of `others`: files
+/// kept there that aren't profiles, which are never read.
+fn profile_in_folder(path: &Path, others: &[String]) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy();
+    if others.iter().any(|o| name.eq_ignore_ascii_case(o)) {
+        return None;
+    }
+    profile_id(path)
+}
+
 /// Load every `*.toml` profile in `dir` into the deck (besides the default, which is
-/// already loaded). Files that don't load are reported and skipped.
-pub fn load_all(dir: &Path, deck: &Deck) {
+/// already loaded). Files that don't load are reported and skipped. `others` names the
+/// files in `dir` that aren't profiles (the host's `integrations.toml`, when profiles
+/// share its data folder); they're never read.
+pub fn load_all(dir: &Path, deck: &Deck, others: &[String]) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     let default = deck.default_profile_id();
     for path in entries.flatten().map(|e| e.path()) {
-        let Some(id) = profile_id(&path) else {
+        let Some(id) = profile_in_folder(&path, others) else {
             continue;
         };
         if id == default {
@@ -42,8 +54,13 @@ pub fn load_all(dir: &Path, deck: &Deck) {
 
 /// Watch the profiles folder and keep the deck in step: edited files reload, new files
 /// are added, deleted files are removed. Bad edits are reported and the last good
-/// version stays on the tablets. Keep the returned watcher alive.
-pub fn watch_profiles(dir: PathBuf, deck: Arc<Deck>) -> notify::Result<notify::RecommendedWatcher> {
+/// version stays on the tablets. `others` are left alone, as in [`load_all`]. Keep the
+/// returned watcher alive.
+pub fn watch_profiles(
+    dir: PathBuf,
+    deck: Arc<Deck>,
+    others: Vec<String>,
+) -> notify::Result<notify::RecommendedWatcher> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if let Ok(ev) = res {
@@ -54,7 +71,7 @@ pub fn watch_profiles(dir: PathBuf, deck: Arc<Deck>) -> notify::Result<notify::R
             // Editors often save by writing a temp file and renaming it over the
             // original, so watch the folder and match by name.
             for p in ev.paths {
-                if profile_id(&p).is_some() {
+                if profile_in_folder(&p, &others).is_some() {
                     let _ = tx.send(p);
                 }
             }

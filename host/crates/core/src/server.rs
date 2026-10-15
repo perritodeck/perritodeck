@@ -597,8 +597,10 @@ impl Connection {
                 )
                 .await?;
             }
+            // Logs count keys from 1, as the editor counts rows and columns and the host's
+            // "key 3 pressed" counts keys: keyIndex 2 is key 3.
             Message::KeyDown(k) => {
-                debug!(device = %device_id, key = k.key_index, "keyDown");
+                debug!(device = %device_id, key = k.key_index + 1, "keyDown");
                 let _ = self.events.send(ServerEvent::KeyDown {
                     device_id: device_id.to_owned(),
                     key_index: k.key_index,
@@ -606,7 +608,7 @@ impl Connection {
                 ack(ws, env.id, k.key_index, received).await?;
             }
             Message::KeyUp(k) => {
-                debug!(device = %device_id, key = k.key_index, "keyUp");
+                debug!(device = %device_id, key = k.key_index + 1, "keyUp");
                 let _ = self.events.send(ServerEvent::KeyUp {
                     device_id: device_id.to_owned(),
                     key_index: k.key_index,
@@ -622,7 +624,7 @@ impl Connection {
                 .await?;
             }
             Message::SliderChange(v) => {
-                debug!(device = %device_id, key = v.key_index, value = v.value, "sliderChange");
+                debug!(device = %device_id, key = v.key_index + 1, value = v.value, "sliderChange");
                 let _ = self.events.send(ServerEvent::SliderChange {
                     device_id: device_id.to_owned(),
                     key_index: v.key_index,
