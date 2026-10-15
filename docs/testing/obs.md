@@ -3,7 +3,9 @@
 PerritoDeck can control OBS in two independent ways, and until this pass neither had run
 against a real OBS. Both were tested only against fake obs-websocket servers. This plan is
 for the maintainer and contributors: what to set up, every case to run, and how a
-harness can run most of them unattended.
+harness can run most of them unattended. The first pass ran on 2026-10-13 against OBS
+31.0.3 with obs-websocket 5.5.6 ([results](obs-results-2026-10-13.md)); what it found and
+what has been fixed since is at the end of [§1](#found-by-the-first-pass-2026-10-13).
 
 | | Built-in integration (host) | OBS plugin (`dev.perritodeck.obs`) |
 |---|---|---|
@@ -11,9 +13,9 @@ harness can run most of them unattended.
 | Actions | 10: `scene`, `toggleRecord`, `startRecord`, `stopRecord`, `toggleStream`, `startStream`, `stopStream`, `toggleMute`, `toggleReplayBuffer`, `saveReplayBuffer` | 26, two of them sliders (see the [coverage map](#4-coverage-map)) |
 | Live values | 3, polled every 2 s: `{obs:scene}`, `{obs:recording}`, `{obs:streaming}` | 30 (21 plain, 9 with an argument), kept current by OBS events; statistics polled every 2 s |
 | Slider | `slider = { type = "obs", input = "…" }`, read back every 3 s | `volume` and `request-value` |
-| Connection | One shared connection, opened on first use; reconnects when it has dropped. After a failed connection, polls wait 5 s, doubling up to 30 s; a key press tries at once | Its own WebSocket client; reconnects in the background with backoff (0.5 s up to 10 s) |
+| Connection | One shared connection, opened on first use; reconnects when it has dropped. After a failed connection, polls wait 5 s, doubling up to 30 s; a key press tries at once. Starting a stream opens a connection of its own, to hear whether it went live | Its own WebSocket client; reconnects in the background with backoff (0.5 s up to 10 s) |
 | Scene key in Studio Mode | Always changes the program scene | `auto` changes the preview, `program` the program |
-| Code | `host/crates/integrations/src/obs.rs`, `host/crates/host/src/live.rs`, `host/crates/actions/src/slider.rs` | `plugins/obs/plugin.py`, `perritodeck-plugin.json`, `README.md` (plugin 1.0.2) |
+| Code | `host/crates/integrations/src/obs.rs`, `host/crates/host/src/live.rs`, `host/crates/actions/src/slider.rs` | `plugins/obs/plugin.py`, `perritodeck-plugin.json`, `README.md` (plugin 1.0.3) |
 
 **How to read the cases.** Each case has an ID, steps, the expected result and how it runs:
 **Auto** means the harness does it and checks OBS's own state; **Semi** means the harness
@@ -56,11 +58,82 @@ OBS plugin (1.0.2) and the editor:
 | `dropped_frames` counts render and encoder skips, not network drops, while the website said "dropped frames". It's now named "Skipped frames, rendering and encoding (%)", and a new value, `network_dropped_frames` ("Dropped frames, network (%)"), comes from `GetStreamStatus` | F-stats |
 
 Known and **not** being fixed now; record what happens:
-- The built-in path has no TLS, so `wss://` addresses fail (A8).
-- The plugin has its own wording only for the output and Studio Mode codes (500–506) and
-  the replay buffer. Other refusals that come without a comment from OBS, such as 600 or
-  604 elsewhere, read "OBS refused X (error N)". Record any you see.
+- The built-in path has no TLS, so `wss://` addresses fail (A8). Since the first pass it
+  refuses them before connecting and says why.
+- Besides its hint for a replay buffer that's turned off, the plugin words a refusal that
+  comes without a comment from OBS only for codes 204, 500–506 (outputs and Studio Mode),
+  600 (naming the scene, source, profile or scene collection when the request names one)
+  and 604. Any other code without a comment reads "OBS refused X (error N)". Record any you see. (Corrected after the first
+  pass: this said 600 and 604 read "OBS refused X (error N)", but a 600 read "OBS: it
+  couldn't find that".)
 - fakedeck has no slider command (see [the harness](#5-automated-harness)).
+
+### Found by the first pass (2026-10-13)
+
+The first pass ran on 2026-10-13 against OBS 31.0.3 with obs-websocket 5.5.6 on Windows 11,
+with PerritoDeck at `71922d3` and plugin 1.0.2: see [the results](obs-results-2026-10-13.md).
+Every re-check above that a real OBS could exercise held. It found 22 bugs, numbered as in
+[its §5](obs-results-2026-10-13.md#5-bugs-ranked-by-severity), and all of them have been
+fixed since. A re-check on 2026-10-15 against the same OBS ran the cases below (all but B6,
+which needs a live target, and K5, which is these documents), checks for bugs 21 and 22,
+and B1, B4, B8, D1, E1, E11, E12 and F-args again for regressions. Every one passed. The
+built-in cases ran on a command-line host built from the fixed code, which has the same
+client and deck code as the desktop app, and the plugin's at Layer A with plugin 1.0.3.
+F-follow, D4 and K6 are still blocked: they need the plugin installed in the desktop app.
+
+Built-in integration and the host:
+
+| Bug | Re-check in |
+|---|---|
+| 5. Live values took up to about 3 s to reach a tablet: keys redrew on a 1 s tick after the 2 s poll. Keys that show or follow a live value now redraw as soon as it changes (re-check: `{obs:scene}` p95 1.46 s over 50 samples, `{obs:recording}` at most 1.85 s) | C1, C2, C3, I1 |
+| 7. With a mistake in `integrations.toml`, OBS and Home Assistant keys and sliders said "OBS isn't set up; add it to integrations.toml…". They now say "integrations.toml has a mistake, so OBS is off: line 3: unknown field `pasword`…", on the tablet and from `perritodeck-host action` | H12 |
+| 8. A stream start that can't connect showed success. `startStream`, and a `toggleStream` that starts one, now wait up to 6 s on a connection of their own. Back to stopped: "OBS: the stream didn't start; see the message OBS shows, or check Settings → Stream in OBS". No outcome yet: "OBS: the stream hasn't started yet; if it can't connect, OBS shows a message saying why" | B7; B6 with a live target |
+| 9. The raw `{obs:…}`, `{cpu}`, `{mem}` and `{ha:…}` tokens showed until the first poll; they show "–" now | C6 |
+| 10. A poll's connection attempt ran inside the live loop and froze `{cpu}`, `{mem}` and `{ha:…}` for up to 5 s. OBS and Home Assistant are now asked beside the loop | I2 |
+| 11. A slider tablet that connected showed the last stored level until the next read-back. The levels are read as soon as it shows sliders | D2 |
+| 14. Every connect error ended in "(is the WebSocket server enabled?)". An address without `ws://` is now refused before connecting with "OBS: the address 127.0.0.1:4455 in integrations.toml must start with ws://, like ws://127.0.0.1:4455", and `wss://` with "OBS's WebSocket server uses ws://, so the address in integrations.toml must start with ws://, not wss://". The hint stays only when nothing answers (refused or timed out) | A5, A6, A8 |
+| 17. Alerts read "OBS: OBS …", and OBS's 207 comment hid the built-in's own text. A reason that starts with "OBS" now stands alone ("OBS didn't answer in time, so it may or may not have happened", "OBS rejected the password in integrations.toml", "OBS needs a password; add it to integrations.toml"), and a 207 reads "OBS: it isn't ready yet; try again in a moment" | A2, A3, H2, H4 |
+| 21. With `--profile` pointing at a file in the data folder, the command-line host loaded `integrations.toml` as a profile too, and logged an error. It's left alone now | No case: the steps in the results |
+| 22. Detailed logs numbered a key press from 0 ("keyDown … key=10") and from 1 ("key 11 pressed"); both count from 1 now | No case: the steps in the results |
+
+OBS plugin 1.0.3:
+
+| Bug | Re-check in |
+|---|---|
+| 1. A one-off `transition` over a fixed-length transition (Cut) left OBS's shared duration at the one-off's for good, and `set-transition` Cut with a duration did the same. The one-off now notes the shared duration once OBS has switched and puts it back; a duration is left out for a fixed-length transition | G5, E4 |
+| 2. `record` pause and pause-toggle showed ✓ while nothing recorded, or when OBS couldn't pause. Nothing recording: ⚠ "OBS isn't recording", with nothing sent. No PAUSED within 2 s: "OBS couldn't pause the recording: pausing needs a recording encoder of its own, not the stream's (Settings → Output)" | E6 |
+| 3. Pausing turned `recording` off and `record_time` to 00:00:00 (PAUSED carries `outputActive` false). PAUSED and RESUMED, and RECONNECTING and RECONNECTED for the stream, now count as still on | F-out, F-time |
+| 4. `recording` went off, on, off while a recording stopped: the 2 s poll undid STOPPING. A poll no longer overrides a start or stop under way (for up to 30 s), or an event that came during the poll | F-out, F-time |
+| 6. Renaming the live scene left `scene` and `scene_active:*` on the old name | F-rename |
+| 8. A stream start that can't connect showed ✓. `stream` start, or a toggle that starts one, now waits up to 7 s: the error "OBS couldn't start the stream: see the message in OBS, or check Settings → Stream", or ⚠ "OBS is still connecting to the stream server…" | E5 |
+| 12. A "Scene/Source" argument split at a `\|` whenever there was one, against the README's rule. Every split is tried (the first `\|`, the first `/`, then the others) and the first pair OBS has wins | H13 |
+| 13. After an input rename, the old name's `item_visible` value kept following the renamed item | F-rename |
+| 15. A missing profile or scene collection read "OBS: it couldn't find that"; now "OBS: there's no profile called “X”" and "OBS: there's no scene collection called “X”". `source-visibility` tells a missing scene ("OBS has no scene “X”") from a missing source | E14, E22, E23 |
+| 16. `projector` on a screen number OBS doesn't have showed ✓ and opened nothing; now "OBS has no screen 9; it has 2" | E21 |
+| 18. The README's "What's tested" was out of date and lacked OBS's real answers | K5 |
+| 20. The connect log read "connected to OBS ? at …"; now "connected to OBS 31.0.3 (obs-websocket 5.5.6) at …", once per connection | H1, F-conn |
+| Statistics read "–" for about 2 s after connecting; they now come with the first sync | F-stats |
+| `record-split` and `record-chapter` while paused showed OBS's misleading 702 comment ("Verify that …"); now ⚠ "the recording is paused; resume it first" | E7, E8 |
+
+The guide (bug 19) now says that the built-in scene key changes the program scene in Studio
+Mode and that the address starts with `ws://` (G4, K5). It also says that a stream start
+which can't connect flashes ⚠ (bug 8).
+
+What real OBS did also showed five expected results in §3 to be wrong. Each now says
+"corrected after the first pass":
+- **E4:** Cut has a fixed length, and OBS keeps one duration for all transitions, so Cut
+  with a duration must leave Fade's alone.
+- **E5:** OBS refuses to start an output that's running with 500 and no comment (seen for
+  recording; streaming needs a live target), so the key shows the plugin's own "OBS is
+  already streaming", not "it's already running".
+- **E6:** pausing needs a recording encoder of its own. With "Use stream encoder", OBS's
+  default, OBS says yes to a pause and sends no PAUSED. §2.2 now gives PD Test a recording
+  encoder, and E6 also pauses once with the stream's encoder.
+- **F-stats:** `GetStats` counts skipped frames from when OBS started, so `dropped_frames`
+  needn't be 0.
+- **G5:** OBS 31 sends SceneTransitionEnded for Cut too, and with Cut current
+  `GetCurrentSceneTransition` reports no duration, so checking it alone missed bug 1. G5
+  now also checks Fade's duration afterwards.
 
 ## 2. Prerequisites
 
@@ -94,7 +167,10 @@ called **PD Test**. The harness can build them through obs-websocket requests on
 - **Profile `PD Test`:** Advanced output; recordings to a scratch folder; replay buffer on
   (20 s); recording format **Hybrid MP4** for chapters (plus one run in MKV for the error
   path); Automatic File Splitting set to split manually only, for `SplitRecordFile` (check
-  the exact option in your OBS version). A second profile `PD Test2` for the profile switch.
+  the exact option in your OBS version); a recording encoder of its own, not "Use stream
+  encoder", because pausing needs one (E6). Recording settings made with
+  `SetProfileParameter` take effect only once the profile is loaded again (switch to
+  another profile and back). A second profile `PD Test2` for the profile switch.
 - **Scene collection `PD Test`:**
   - Scenes `PD A`, `PD B`, `PD C`, a non-ASCII one `Escena ñ 🎮`, and one with a slash and a
     comma in the name (`Talk/Show, live`).
@@ -234,9 +310,9 @@ settings = … }`, or a fakedeck key). ⚠ means `ok: true` with a message.
 | E1 | `scene`: `auto`, `program`, `preview`, with Studio Mode off and on; a missing scene | Program or preview changes as the mode says; missing → OBS's comment | Auto |
 | E2 | `studio-mode`: toggle, on, off | StudioModeStateChanged | Auto |
 | E3 | `transition` (see G5, G6) | | Auto |
-| E4 | `set-transition`: `Fade` 300, `Cut`, duration 49 and 20001, an unknown name | Current transition and duration change; out-of-range durations fail in the plugin; unknown name → OBS's comment | Auto |
-| E5 | `stream`: toggle, start, stop; start while streaming | StreamStateChanged; start while streaming → ⚠ "it's already running" | Semi (target) |
-| E6 | `record`: toggle, start, stop, pause-toggle, pause, resume; pause while stopped | RecordStateChanged including PAUSED and RESUMED; ⚠ texts | Auto |
+| E4 | `set-transition`: `Fade` 300, `Cut`, `Cut` with duration 500, duration 49 and 20001, an unknown name | Current transition and duration change. Cut has a fixed length and OBS has one duration for all transitions, so Cut with 500 leaves Fade at 300 (corrected after the first pass); out-of-range durations fail in the plugin; unknown name → OBS's comment | Auto |
+| E5 | `stream`: toggle, start, stop; start while streaming | StreamStateChanged; start while streaming → ⚠ "OBS is already streaming" (corrected after the first pass) | Semi (target) |
+| E6 | `record`: toggle, start, stop, pause-toggle, pause, resume; pause while stopped; pause once more with the recording on "Use stream encoder" (`RecEncoder` = `none`, profile loaded again) | RecordStateChanged including PAUSED and RESUMED; ⚠ texts. With the stream's encoder OBS says yes and sends no PAUSED, and the key says it couldn't pause (corrected after the first pass) | Auto |
 | E7 | `record-split` while recording (splitting set up, and not); while stopped | A new file / OBS's comment / ⚠ "OBS isn't recording" | Auto |
 | E8 | `record-chapter` with a name and blank; Hybrid MP4 and MKV | Chapter in the MP4 (check with `ffprobe` if present, otherwise by eye in a player); MKV → OBS's comment | Semi |
 | E9 | `replay-buffer`: toggle, start, stop, save; buffer turned off in the profile | Events and a saved file; turned off → "the replay buffer is turned off in OBS (Settings → Output → Replay Buffer)" for every mode. Record the real code and comment (§1) | Auto |
@@ -271,7 +347,7 @@ event-driven values and 2.5 s for polled ones.
 | F-out | `streaming`, `recording`, `record_paused`, `replay_buffer`, `virtualcam` | `on`/`off` as the outputs change | Auto (streaming: Semi) |
 | F-names | `transition`, `profile`, `scene_collection` | The current names | Auto |
 | F-time | `stream_time`, `record_time` | `HH:MM:SS`, `00:00:00` when stopped, frozen while paused | Auto (stream: Semi) |
-| F-stats | `fps`, `cpu`, `memory`, `dropped_frames`, `network_dropped_frames`, `bitrate` | `fps` equals the canvas rate; `cpu` and `memory` within a few % or MB of `GetStats`; `dropped_frames` 0, rising when the encoder is overloaded (slowest preset); `network_dropped_frames` 0 while not streaming, rising when the network is throttled during a stream (throttling needs a tool, so the maintainer's OK), and matching `GetStreamStatus`; `bitrate` near the configured kbps after 4 s of streaming (§1) | Auto (bitrate and network drops: Semi) |
+| F-stats | `fps`, `cpu`, `memory`, `dropped_frames`, `network_dropped_frames`, `bitrate` | `fps` equals the canvas rate; `cpu` and `memory` within a few % or MB of `GetStats`; `dropped_frames` low, rising when the encoder is overloaded (slowest preset), and not necessarily 0, because OBS counts from when it started (corrected after the first pass); `network_dropped_frames` 0 while not streaming, rising when the network is throttled during a stream (throttling needs a tool, so the maintainer's OK), and matching `GetStreamStatus`; `bitrate` near the configured kbps after 4 s of streaming (§1) | Auto (bitrate and network drops: Semi) |
 | F-resp | `last_response` | Set by E25 | Auto |
 | F-args | `scene_active:PD B`, `scene_preview:PD B`, `muted:PD Mic`, `volume:PD Mic` (50 at −12 dB), `volume_db:PD Mic` (`-12`, `-inf` at 0), `item_visible:PD A/PD Color` and the `\|` form for the slash scene, `filter_enabled:PD Color/PD CC`, `input_text:PD Text` (edit it in OBS's properties window; live updates for GDI+ are unconfirmed), `media_playing:PD Media`; a misspelled name | Each follows OBS; the misspelled one shows `–` | Auto |
 | F-rename | Rename the input, the scene and the filter in OBS | The values look the names up again | Auto |
@@ -285,7 +361,7 @@ event-driven values and 2.5 s for polled ones.
 | G2 | Plugin `scene` with `auto` in Studio Mode | Preview changes, program doesn't | Auto |
 | G3 | Plugin `scene` with `program` in Studio Mode | Program changes | Auto |
 | G4 | Built-in `scene` in Studio Mode | Record what OBS does (expected: the program changes) and document it in the guide | Auto |
-| G5 | `transition` with a one-off `Fade` 800 ms while the current one is Fade 300; again while the current one is Cut | Plays with the one-off settings, then `GetCurrentSceneTransition` is back to the original; with Cut it's restored within duration + 2 s even without SceneTransitionEnded | Auto |
+| G5 | `transition` with a one-off `Fade` 800 ms while the current one is Fade 300; again while the current one is Cut | Plays with the one-off settings, then `GetCurrentSceneTransition` is back to the original within duration + 2 s. With Cut current OBS reports no duration, and all transitions share one, so then select Fade: it still has 300 ms (corrected after the first pass: OBS 31 sends SceneTransitionEnded for Cut too, and the old check missed bug 1) | Auto |
 | G6 | `transition` with Studio Mode off | ⚠ "Studio Mode is off; there's nothing to transition"; a one-off transition is put back at once | Auto |
 | G7 | Turn Studio Mode off while preview and program differ | `preview_scene` shows `–` | Auto |
 

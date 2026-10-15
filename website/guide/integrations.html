@@ -94,6 +94,7 @@ url = "ws://127.0.0.1:4455"
 password = "the password from OBS"</code></pre>
   </li>
 </ol>
+<p>The address starts with <code>ws://</code>, not <code>wss://</code> or <code>http://</code>: OBS's WebSocket server only speaks <code>ws://</code>. If it starts with anything else, OBS buttons say so, for example <strong>OBS: the address 127.0.0.1:4455 in integrations.toml must start with ws://, like ws://127.0.0.1:4455</strong>.</p>
 <p>If OBS runs on a different computer, use that computer's address instead of <code>127.0.0.1</code>, for example <code>ws://192.168.1.20:4455</code>, and allow port 4455 through its firewall.</p>
 
 <h3 id="obs-buttons">OBS buttons</h3>
@@ -105,8 +106,9 @@ password = "the password from OBS"</code></pre>
   <li>Mute or unmute an audio source (e.g. <code>Mic/Aux</code>)</li>
   <li>Start or stop the replay buffer; save the replay</li>
 </ul>
+<p>In Studio Mode, Switch scene always changes the live scene (OBS's Program side), with OBS's current transition. The preview stays as it is. To set the preview instead, use the <a href="#obs-plugin">OBS Studio plugin</a>.</p>
 <p>You can also show OBS's state in titles with <code>{obs:scene}</code>, <code>{obs:recording}</code> and <code>{obs:streaming}</code>, make a <a href="buttons.html#follow">toggle that follows</a> <code>obs:recording</code> so it's red exactly while you record, and set an audio source's volume with a <a href="buttons.html#sliders">slider</a>.</p>
-<p>If OBS can't do what a button asks, the button flashes ⚠, and <span class="ui">Try it</span> on the <span class="ui">Buttons</span> page says why, for example <strong>OBS: already recording</strong> or <strong>OBS: the replay buffer is turned off (Settings → Output → Replay Buffer)</strong>. While OBS is closed, the <code>{obs:…}</code> values show <strong>–</strong>, and PerritoDeck tries to reach OBS again after 5 seconds, then waits longer each time, up to 30 seconds. Pressing an OBS button always tries straight away.</p>
+<p>If OBS can't do what a button asks, the button flashes ⚠, and <span class="ui">Try it</span> on the <span class="ui">Buttons</span> page says why, for example <strong>OBS: already recording</strong> or <strong>OBS: the replay buffer is turned off (Settings → Output → Replay Buffer)</strong>. When you start a stream, PerritoDeck waits a few seconds to see that it goes live. If OBS can't connect to the streaming service, the button then flashes ⚠, and OBS shows its own message saying why. While OBS is closed, the <code>{obs:…}</code> values show <strong>–</strong>, and PerritoDeck tries to reach OBS again after 5 seconds, then waits longer each time, up to 30 seconds. Pressing an OBS button always tries straight away.</p>
 
 <h3 id="obs-plugin">Want more? The OBS Studio plugin</h3>
 <p>The built-in OBS support covers the everyday buttons. For much more, such as Studio Mode and transitions, showing or hiding sources, filters, screenshots, the virtual camera, chapter markers, stream time, dropped frames (from the network, and skipped while rendering or encoding) and a live "is this scene on air?" value, add the <strong>OBS Studio</strong> plugin from the <span class="ui">Plugins</span> page. It's set up on the Plugins page rather than in the integrations file. See <a href="plugins.html#first-party">Plugins</a>.</p>
