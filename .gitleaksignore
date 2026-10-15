@@ -12,3 +12,5 @@ ca97afae3c126384e93fce5754d90071fba7779e:protocol/fixtures/paired.json:generic-a
 # version of this file's comment that quoted it.
 0476653575c766ee0ff6dc62d69ca2b3ebe01149:host/README.md:generic-api-key:34
 ca45eb16ad4b7e825264f8dde3709a8cc6e1715b:.gitleaksignore:generic-api-key:11
+# Made-up tokens in the Twitch test tools' check that the redactor hides them.
+94c377b59cf8fcc76c51a56c6b5ae4de162904be:plugins/tools/test_tools.py:generic-api-key:665
