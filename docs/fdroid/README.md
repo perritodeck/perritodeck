@@ -18,10 +18,10 @@ Nothing here has been submitted. Both stores need the repository to be **public*
 | `dependenciesInfo` block disabled (F-Droid flags the encrypted blob) | ✔ |
 | Release build unsigned when no key is present (F-Droid signs itself) | ✔ (signing only when `PERRITO_KEYSTORE` is set) |
 | `title.txt` (≤ 50; Play ≤ 30) | ✔ 28 characters |
-| `short_description.txt` (≤ 80) | ✔ 73 characters |
-| `full_description.txt` (≤ 4000) | ✔ about 1400 characters |
+| `short_description.txt` (≤ 80) | ✔ 76 characters |
+| `full_description.txt` (≤ 4000) | ✔ about 2,600 characters |
 | `changelogs/<versionCode>.txt` (≤ 500) for every release | ✔ `1.txt`; `scripts/release-version.py --check` fails a release without one |
-| `images/icon.png` 512×512 | ✔ the final paw-of-keys icon (the app's own launcher icon is still the old paw; `docs/next-steps.md` item 13) |
+| `images/icon.png` 512×512 | ✔ the final paw-of-keys icon, the same as the app's launcher icon |
 | `images/phoneScreenshots/`, `images/tenInchScreenshots/` | ✔ two phone screenshots at 1080×1920 and three ten-inch ones at 1920×1200, showing decks (streaming, homelab, desk). Play needs at least two |
 | `images/featureGraphic.png` 1024×500 | ✔ (Play only) |
 | Anti-features | None expected. `CAMERA` is used only to scan a pairing QR code |
@@ -65,15 +65,16 @@ The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>` on each
 Making the builds reproducible lets F-Droid ship **our** signed APK after checking it matches its own build from source. F-Droid users and GitHub/Obtainium users can then update across channels, and the release key stays the single identity of the app. The steps:
 
 1. Set up release signing (see [`../releasing.md`](../releasing.md)), then publish the first release with `perrito-<version>.apk` attached.
-2. Build the same tag twice in clean checkouts (CI and locally on Linux) and compare: `diffoscope a.apk b.apk`, or `apksigcopier compare`. The reference build is the one CI makes. Windows builds can differ because of line endings (`core.autocrlf`).
+2. Build the same tag twice in clean checkouts (CI and locally on Linux, locally with `--no-build-cache`; see the incremental-compile risk below) and compare: `diffoscope a.apk b.apk`, or `apksigcopier compare`. The reference build is the one CI makes. Windows builds can differ because of line endings (`core.autocrlf`).
 3. If they match, uncomment `Binaries:` and `AllowedAPKSigningKeys:` in the draft. The key is the lowercase SHA-256 of the certificate with no colons. The Release workflow prints it in the Android job summary and the release notes.
 
 Known risks to check when doing step 2:
 - **`META-INF/version-control-info.textproto`**: AGP 8.3+ writes the git commit into release APKs, so a build from a source tarball wouldn't match one from git. Release builds now leave it out (`vcsInfo { include = false }` in `android/app/build.gradle.kts`); check that the file is absent when comparing.
 - **Native-lib stripping depends on the build machine.** The APK carries 12 prebuilt `.so` files (`libandroidx.graphics.path` and two CameraX libraries, for four ABIs each). AGP strips their debug symbols only if a matching NDK is installed: GitHub's Ubuntu runners have NDKs, F-Droid's build server has none unless asked, and a local build may have either. So the same commit could give different `.so` files. Release builds now keep them exactly as they come (`keepDebugSymbols` for `**/*.so` in `android/app/build.gradle.kts`); check that the `.so` files match when comparing.
-- **Baseline profiles** (`assets/dexopt/baseline.prof`, which Compose libraries ship): older AGP versions wrote them non-deterministically. AGP 8.11 should be fine. Compare them if the APKs differ.
+- **Baseline profiles** (`assets/dexopt/baseline.prof`, which Compose libraries ship): older AGP versions wrote them non-deterministically. Measured on 2026-10-15 with AGP 8.11: three release builds with the build cache off, in three different folders on two drives, gave byte-identical APKs. `baseline.prof` records the checksum of `classes.dex`, so it differs whenever the dex does.
+- **Incremental Kotlin compiles can give a different `classes.dex`.** When only some files are recompiled, the Compose compiler can infer an argument's stability differently and pass different `$changed` flags (on 2026-10-15, six classes, all in files edited since the last full compile). A fresh checkout isn't enough to avoid it: `android/gradle.properties` turns on Gradle's build cache, and the user-level cache (`~/.gradle/caches/build-cache-1`) can hold `compileReleaseKotlin` output from an incremental compile of the same sources. That day a fresh copy of the tree took `compileReleaseKotlin` from the cache and gave a different APK from the same copy built with the cache off. Compare builds made with the build cache off: `clean assembleRelease --no-build-cache`. CI isn't affected, because its cache entries come from full compiles on fresh runners.
 - **JDK and build-tools versions** must match: JDK 17 (Temurin in CI, OpenJDK on F-Droid), and build-tools 35.0.0, now pinned with `buildToolsVersion`. R8 output can change between JDK vendors only in rare cases.
-- **No comparison has been run yet.** The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
+- **No comparison between machines has been run yet** (the builds above were all on one Windows PC with one JDK). The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
 - The `minSdk 22` APK is signed with v1 + v2 signatures (set explicitly in the signing config; v3 is off). `apksigcopier` handles both.
 
 ## IzzyOnDroid
@@ -82,7 +83,7 @@ Faster than F-Droid (days) and serves the APKs from our GitHub Releases as they 
 
 - Needs: a public repository, a **signed** `perrito-<version>.apk` attached to each GitHub Release, and the fastlane metadata in the repository. The metadata is there, and the Release workflow publishes only a signed APK, so what's left is the release key (`docs/next-steps.md` item 11) and going public.
 - Its scanner rejects trackers, proprietary libraries and the dependency-info blob. None of these are present.
-- Size limit is about 30 MB per APK. The minified release APK is about 2.1 MB (2,164,101 bytes signed, 2026-10-13), and `android.yml` reports its size in every run and warns above 30 MB.
+- Size limit is about 30 MB per APK. The minified release APK is about 2.2 MB (2,179,425 bytes unsigned, 2026-10-15; the signed size needs measuring again once the release key exists), and `android.yml` reports its size in every run and warns above 30 MB.
 - IzzyOnDroid now also verifies reproducible builds and shows a badge for them. The same reproducibility work as above applies.
 - Request it by opening an issue at `gitlab.com/IzzyOnDroid/repo` with the "inclusion request" template. Give the repository URL and confirm that the APK is attached to releases.
 - After inclusion, new GitHub Releases are picked up automatically, with no action needed per release.

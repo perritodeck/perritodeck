@@ -26,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.perritodeck.client.ui.DeckScreen
 import dev.perritodeck.client.ui.HomeScreen
+import dev.perritodeck.client.ui.LicensesScreen
 import dev.perritodeck.client.ui.PairScreen
 import dev.perritodeck.client.ui.PerritoTheme
 import dev.perritodeck.client.ui.orientationFor
@@ -78,7 +79,12 @@ private fun PerritoApp(vm: DeckViewModel) {
                 onPairFound = { vm.openPairing("${it.address}:${it.port}") },
                 onPairManually = { vm.openPairing() },
                 onScan = if (canScan) vm::openScan else null,
+                onLicenses = vm::openLicenses,
             )
+        }
+        Route.Licenses -> {
+            BackHandler { vm.closeLicenses() }
+            LicensesScreen(onBack = vm::closeLicenses)
         }
         Route.Pair -> {
             val pairState by vm.pairState.collectAsStateWithLifecycle()

@@ -6,15 +6,16 @@ PerritoDeck is licensed under Apache-2.0 (see [LICENSE](LICENSE)); the plugin SD
 and first-party plugins in `plugins/` are MIT (see [plugins/LICENSE](plugins/LICENSE)).
 It is built on the open-source work listed below. The full licence texts are in
 `third-party-licenses.txt` (made with `--full`), which the GitHub release, the
-command-line archives and the desktop installers carry. The Android app doesn't
-carry it yet.
+command-line archives and the desktop installers carry. The Android app carries
+its own list, generated at build time from the libraries in the APK.
 
 No dependency is GPL, AGPL or LGPL-only. Copyleft-adjacent items, all used
 unmodified unless noted:
 
 - **MPL-2.0** (file-level): `option-ext` (host, via `directories`); `cssparser`,
   `cssparser-macros`, `dtoa-short`, `selectors` (desktop app, via Tauri). Their
-  source is available from crates.io.
+  source is available from crates.io. In the Android app, the Public Suffix List
+  data inside OkHttp.
 - **OFL-1.1**: the Inter, Bricolage Grotesque and Atkinson Hyperlegible fonts.
 - **`r-efi`** is `MIT OR Apache-2.0 OR LGPL-2.1-or-later`; PerritoDeck uses it under
   MIT/Apache-2.0.
@@ -1102,10 +1103,10 @@ unmodified unless noted:
 | androidx.lifecycle:lifecycle-viewmodel-compose | 2.9.1 | Apache-2.0 |
 | androidx.lifecycle:lifecycle-runtime-compose | 2.9.1 | Apache-2.0 |
 | androidx.compose:compose-bom (ui, foundation, material3, ui-tooling-preview) | 2025.06.01 | Apache-2.0 |
-| androidx.camera:camera-camera2, camera-lifecycle, camera-view | 1.4.2 | Apache-2.0 |
+| androidx.camera:camera-camera2, camera-lifecycle, camera-view | 1.4.2 | Apache-2.0, BSD-3-Clause (libyuv in camera-core) |
 | org.jetbrains.kotlinx:kotlinx-coroutines-android | 1.10.2 | Apache-2.0 |
 | org.jetbrains.kotlinx:kotlinx-serialization-json | 1.9.0 | Apache-2.0 |
-| com.squareup.okhttp3:okhttp | 4.12.0 | Apache-2.0 |
+| com.squareup.okhttp3:okhttp | 4.12.0 | Apache-2.0, MPL-2.0 (Public Suffix List data) |
 | com.google.zxing:core | 3.5.3 | Apache-2.0 |
 | Transitive: org.jetbrains.kotlin:kotlin-stdlib | 2.2.0 | Apache-2.0 |
 | Transitive: com.squareup.okio:okio | 3.x | Apache-2.0 |

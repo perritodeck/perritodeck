@@ -5,11 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +41,7 @@ fun HomeScreen(
     onPairFound: (FoundHost) -> Unit,
     onPairManually: () -> Unit,
     onScan: (() -> Unit)?,
+    onLicenses: () -> Unit,
 ) {
     val pairedIds = paired.map { it.hostId }.toSet()
     val unpairedFound = found.filter { it.hostId == null || it.hostId !in pairedIds }
@@ -46,6 +50,8 @@ fun HomeScreen(
     Column(
         Modifier
             .fillMaxSize()
+            // Clear of the status and navigation bars, which Android 15 draws over the app.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -97,6 +103,10 @@ fun HomeScreen(
             if (paired.isEmpty() && unpairedFound.isEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Text(stringResource(R.string.home_empty), color = Muted)
+            }
+            Spacer(Modifier.height(24.dp))
+            TextButton(onClick = onLicenses, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(stringResource(R.string.licenses_button), color = Muted)
             }
         }
     }

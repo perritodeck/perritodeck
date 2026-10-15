@@ -32,4 +32,12 @@
     <string name="scan_hint">Point the camera at the QR code PerritoDeck Host shows on your computer.</string>
     <string name="scan_permission_denied">Perrito needs the camera only to read the pairing code. You can also pair by typing the 6-digit code instead.</string>
     <string name="scan_allow">Allow camera</string>
+    <string name="back">Back</string>
+    <string name="licenses_button">Open-source licences</string>
+    <string name="licenses_title">Open-source licences</string>
+    <string name="licenses_intro">Perrito %1$s is free software under the Apache License 2.0. Its full text is at the end of this page.</string>
+    <string name="licenses_source">Source code</string>
+    <string name="licenses_libraries">Perrito includes these open-source libraries, each under the licence named here. Their licence texts and notices follow the list.</string>
+    <string name="licenses_missing">This copy of Perrito is missing its licence list.</string>
+    <string name="licenses_no_browser">This tablet has no app that can open web links.</string>
 </resources>
