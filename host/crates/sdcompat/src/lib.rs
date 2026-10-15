@@ -10,9 +10,10 @@
 //! shared by every tablet showing it, like PerritoDeck's own toggles. Settings a plugin
 //! saves are kept in `settings.json` in the plugins folder.
 //!
-//! Supported: Node.js plugins (the current SDK), and native plugins on Windows and macOS.
-//! Not supported: property inspectors (settings are edited as JSON in the app), dials and
-//! touch strips, multi-actions, and the old HTML plugins.
+//! Supported: Node.js plugins (the current SDK), native plugins on Windows and macOS, and
+//! property inspectors, each action's settings page, which `inspector` serves over HTTP on
+//! 127.0.0.1 for the app to show in a frame (settings can also be edited as JSON there).
+//! Not supported: dials and touch strips, multi-actions, and the old HTML plugins.
 
 pub mod images;
 mod inspector;

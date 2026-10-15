@@ -68,8 +68,9 @@ are cheap except `nvidia-smi`, which is only run if it's installed.
 - **Unit-tested with real sample output only**: `/proc` and `/sys` files (written to a
   temporary folder), `vm_stat`, `netstat -ib`, `top`, `pmset -g batt`, `kern.boottime`,
   and `nvidia-smi --query-gpu … --format=csv`.
-- **Checked on Windows 11** (outside the app): the network totals and speeds match
-  `Get-NetAdapterStatistics` for the physical adapters; the test suite reads the real
-  interface table there.
-- **Not run on real systems**: the rest of Windows (the ctypes structures are checked
-  for size, the calls are mocked) and macOS. Neither was tested with a real NVIDIA GPU.
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet): the values showed
+  on keys, and the network totals and speeds matched `Get-NetAdapterStatistics` for the
+  physical adapters. The other Windows values weren't compared with Windows' own
+  figures. The test suite reads the real interface table on Windows; the other ctypes
+  structures are checked for size there and the calls are mocked.
+- **Not run on real systems**: macOS, and a real NVIDIA GPU on any system.

@@ -4,9 +4,9 @@ Everything to do, in order, to take `perritodeck/perritodeck` from private to pu
 ship the first release. Steps marked **(maintainer)** change repository settings, secrets,
 tags or anything visible to the world; only the maintainer does those.
 
-Status as of 2026-10-13: steps 1–2 re-checked by a sweep of the whole history (results
-below), and the ticked boxes are done. Everything else is open; `docs/next-steps.md` item 8
-has the current state and the decisions it needs.
+Status as of 2026-10-15: steps 1–2 re-checked by a sweep of the whole history on
+2026-10-13 (results below), and the ticked boxes are done. Everything else is open;
+`docs/next-steps.md` item 8 has the current state and the decisions it needs.
 
 ## 1. History and personal data
 
@@ -98,7 +98,10 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] `docs/SECURITY.md` "Reporting" section points at `SECURITY.md` and
   dev@perritodeck.dev.
 - [ ] Make sure dev@perritodeck.dev actually receives mail (it's the CoC, security and
-  store contact).
+  store contact). The nameservers are on Cloudflare since 2026-10-13, the `MX` records
+  point at ImprovMX, and the SPF and DMARC records are in place (checked 2026-10-15). The
+  maintainer still has to confirm the mail service (decision D2 in `docs/plan/phase-8.md`)
+  and send a test from an outside address (`docs/next-steps.md` item 8).
 - [x] Session-oriented docs (`docs/HANDOFF.md`, `CLAUDE.md`, `docs/next-steps.md` and
   others) trimmed in place into neutral contributor notes (decided 2026-10-13).
 - [x] The copyright holder is "PerritoDeck contributors" everywhere, `plugins/LICENSE`
@@ -116,14 +119,18 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] The release, the command-line archives and the desktop installers carry
   `third-party-licenses.txt` (`release.yml` puts it in the app's resource folder with
   `tauri build --config`).
-- [ ] **Release blocker:** the third-party notices in the APK, or a licences screen in
-  Perrito. The APK carries no licence texts today. Generate a text asset at build time
-  (not Play Services' oss-licenses, which F-Droid forbids).
-- [ ] Optional: a link to the licences next to Version in the desktop app's Settings (the
-  installers already carry the file).
+- [x] The APK carries `assets/third-party-licenses.txt`, generated at build time from the
+  release runtime classpath (`generateReleaseThirdPartyLicenses` in
+  `android/app/build.gradle.kts`, not Play Services' oss-licenses, which F-Droid forbids),
+  and Perrito shows it under Open-source licences on the home screen (2026-10-15).
+- [x] A link to the licences next to Version in the desktop app's Settings: it opens the
+  installers' `third-party-licenses.txt` (2026-10-15).
 
 ## 4. Flip visibility **(maintainer)**
 
+- [ ] Review what becomes public with the repository: old Actions runs and artifacts (E2E
+  logs, the 2026-10-11 desktop bundles; decision D9 in `docs/plan/phase-8.md`) and
+  Dependabot's open pull request #1. There are no issues.
 - [ ] Settings → General → Danger Zone → **Change visibility → Public**.
 - [ ] CI runs again from here: it was blocked by billing from 2026-10-11 until the flip, by
   the maintainer's choice, because public repositories run Actions free. Run every
@@ -153,17 +160,21 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   run, plus a final `if: always()` job that fails if any job it needed failed. A gate
   can't `needs:` jobs in the other workflows, because `needs` works only inside one
   workflow. Once it exists, require only that final job.
-  `bootstrap-gradle-wrapper.yml` pushes straight to `main` and will need to open a PR
-  instead.
+  `bootstrap-gradle-wrapper.yml` works under the ruleset: it pushes a
+  `gradle-wrapper-<version>` branch, not `main`, and a person opens the pull request from
+  the compare link in its run summary.
 - [ ] **Tag ruleset** for `v*`: only the maintainer can create, nobody can update or
   delete.
 - [ ] Recommended: a `release` environment for the three Android signing secrets, limited to
   `v*` tags with a required reviewer, and the `environment: release` line in `release.yml`
   turned on at the same time (`docs/releasing.md`, "Once the repository is public").
-- [ ] Actions → General: "Require approval for first-time contributors" for fork PRs, and
-  check that "Workflow permissions" is read-only (not yet confirmed). Every workflow file
-  already asks for read-only `permissions`, except `bootstrap-gradle-wrapper.yml` and the
-  Release workflow's publish job.
+- [ ] Actions → General: "Require approval for first-time contributors" for fork PRs.
+- [x] Actions → General → "Workflow permissions" is already read-only, and "Allow GitHub
+  Actions to create and approve pull requests" is off (checked through the API on
+  2026-10-13 and 2026-10-15). Keep it off: `bootstrap-gradle-wrapper.yml` doesn't open
+  pull requests itself (DECISIONS, 2026-10-15). Every workflow file also asks for read-only
+  `permissions` at the top; only the jobs of `bootstrap-gradle-wrapper.yml` (`contents:
+  write`, to push its branch) and the Release workflow's publish job ask for write.
 - [ ] Optional: [DCO app](https://github.com/apps/dco) to enforce sign-offs (required
   from 2026-10-13; the app checks the commits of pull requests, not older history).
 - [ ] Public repos get free standard GitHub-hosted runners, macOS included. Revisit the
@@ -172,23 +183,33 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 
 ## 6. Website and plugin catalogue (perritodeck.dev)
 
-The steps are in [`website/README.md`](../website/README.md): "Deploy" for the setup,
-"Launch day" for the day the release goes out. `docs/next-steps.md` item 12 has the
-decisions to make first.
+The steps are in [`docs/website.md`](website.md): "Deploy" for the setup, "Launch day" for
+the day the release goes out. `docs/next-steps.md` item 12 has what's left and the
+decisions it needs.
 
-- [ ] Deploy `website/` as `website/README.md` "Deploy" describes: Cloudflare Pages with
+- [ ] Deploy `website/` as `docs/website.md` "Deploy" describes: Cloudflare Pages with
   Git integration, whose build command `python3 plugins/build_catalog.py website/plugins`
   publishes the catalogue on every deploy (`website/plugins/` is git-ignored). It works
   while the repo is private. If the site is ever served without that build step (GitHub
   Pages, say), unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into
-  `website/plugins/` before each deploy.
-- [ ] Custom domain `perritodeck.dev`, with `www` and the `pages.dev` address redirecting to
-  it, HTTPS enforced, HSTS ("The domain" in `website/README.md`). Set up mail for `dev@`
-  before the nameservers move.
+  `website/plugins/` before each deploy. The site is live and builds the catalogue from
+  `main` (checked 2026-10-15), but the project looks like a Worker rather than a Pages
+  project (no `pages.dev` address, an empty 404, no `nosniff` header): check which it is
+  and follow "The project" in `docs/website.md`.
+- [x] Custom domain `perritodeck.dev`, with `www` redirecting to it (301, path and query
+  kept), HTTPS enforced (`http://` gets a 301), HSTS from `_headers` (two years,
+  `includeSubDomains`, `preload`; Cloudflare's own HSTS and Network Error Logging are off)
+  and DNSSEC in force, the DS record being at the `.dev` registry (checked from outside on
+  2026-10-15; "The domain" in `docs/website.md` still lists these as to do). Mail for
+  `dev@` is §3 (decision D2).
+- [ ] If the site is a Pages project (see the first item), add its `pages.dev` address to
+  the `www` redirect ("The domain" in `docs/website.md`, step 2). Today there is no
+  `perritodeck.pages.dev`.
 - [ ] Check `https://perritodeck.dev/plugins/index.json` loads and that the desktop app's
-  Plugins → "Look online" installs a plugin from it.
+  Plugins → "Look online" installs a plugin from it. The first half is done (24 plugins,
+  2026-10-15).
 - [ ] **Launch day**, after step 7 publishes the release: work through "Launch day" in
-  `website/README.md`. It removes the temporary `noindex` header and the "Not released
+  `docs/website.md`. It removes the temporary `noindex` header and the "Not released
   yet" notice and other pre-release lines, checks the status lines, and lists the checks
   after the deploy. The home page's Download links already point at `download.html`.
 - [x] Self-host the two web fonts instead of loading them from Google Fonts, in keeping
@@ -210,8 +231,8 @@ Follow [docs/releasing.md](releasing.md). In short:
 - [x] The full licence texts for the release: `release.yml` runs
   `scripts/third-party-notices.py --check --full` and puts `third-party-licenses.txt` in
   the release, the command-line archives and the desktop installers.
-- [ ] **Release blocker:** the third-party notices in the APK, or a licences screen in
-  Perrito (§3). Of the apps in the release, only the APK lacks them.
+- [x] The third-party notices in the APK and a licences screen in Perrito (§3, 2026-10-15),
+  so every app in the release carries the texts.
 - [ ] Decide whether the first public release is `v0.1.0` on current `main` or `v0.2.0`.
   There are no tags in this repository or on GitHub. A stale local `v0.1.0` tag (on
   `9f47509`, before most features) is left in one other clone and was never pushed;

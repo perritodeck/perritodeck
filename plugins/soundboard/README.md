@@ -49,11 +49,15 @@ Windows, and stopping a sound ends that process. On Windows the first try plays
 inside the plugin instead (no PowerShell start, so no second of delay), each sound with
 its own MCI alias; when MCI can't open a file, the PowerShell player tries it.
 
-## Not tested yet
+## What's tested and what isn't
 
-Real playback on every OS. The tests use stand-in child processes to check starting,
-stopping, the four modes, falling back to the next player and the `playing` value,
-and check the exact command lines for each OS. In particular the Windows MCI player (tested
-against a stand-in for `mciSendStringW`) and the PowerShell script (MediaPlayer driven
-by pumping the WPF dispatcher) have only been read, not run;
-macOS `afplay` and Linux `pw-play`/`paplay` options are from their manuals.
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet): playing and
+  stopping a sound through the in-plugin MCI player. Not checked by ear yet: the volume
+  setting, each format, and the PowerShell player playing a sound. The test suite runs
+  that PowerShell script on Windows only with a file both of its players refuse, to
+  check the error it logs.
+- **Tests only**: stand-in child processes check starting, stopping, the four modes,
+  falling back to the next player and the `playing` value, and the exact command lines
+  for each OS; the MCI player is also tested against a stand-in for `mciSendStringW`.
+- **Not run yet**: real playback on macOS and Linux. The `afplay` and `pw-play`/`paplay`
+  options are from their manuals.

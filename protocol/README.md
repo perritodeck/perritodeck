@@ -60,7 +60,7 @@ client                                   host
 
 | Type | Direction | Payload |
 |---|---|---|
-| `hello` | C → H | `deviceId`, `deviceName`, `appVersion`, `platform`, `osVersion`, `screen {widthPx, heightPx, densityDpi}`, `capabilities[]`, `requestedGrid?`, `deviceSecret?`, `networkFailed?` (true over a USB cable when the host's network addresses didn't answer; `token?` is deprecated) |
+| `hello` | C → H | `deviceId`, `deviceName`, `appVersion`, `platform` (`android`, `ios`, `web` or `other`), `osVersion`, `screen {widthPx, heightPx, densityDpi}`, `capabilities[]`, `requestedGrid?`, `deviceSecret?`, `networkFailed?` (true over a USB cable when the host's network addresses didn't answer; `token?` is deprecated) |
 | `pair` | C → H | `code`, `deviceId`, `deviceName` — first message instead of `hello` |
 | `paired` | H → C | `deviceSecret`, `hostId` (certificate fingerprint), `hostName`; then the host closes |
 | `welcome` | H → C | `hostName`, `hostVersion`, `protocolVersion`, `heartbeatIntervalMs` |
@@ -79,7 +79,15 @@ client                                   host
 
 1. Edit the schema.
 2. Add or update a fixture in `fixtures/`.
-3. Run `python3 protocol/tools/validate.py protocol` (needs `pip install jsonschema`).
-4. Update the Rust types (`host/crates/protocol`) and Kotlin types (`android/app/src/main/java/dev/perritodeck/client/protocol`); both test suites will fail until they match the fixtures.
+3. Run `python3 protocol/tools/validate.py protocol` (needs `pip install jsonschema`; on Windows, `py -3` instead of `python3`).
+4. Update the types in all three apps. Each test suite decodes and re-encodes every fixture, so it fails until its types match:
+
+   | App | Types | Tests |
+   |---|---|---|
+   | Host (Rust) | `host/crates/protocol/src/lib.rs` | `cargo test -p perritodeck-protocol` in `host/` |
+   | Android (Kotlin) | `android/app/src/main/java/dev/perritodeck/client/protocol/Protocol.kt` | `.\gradlew.bat testDebugUnitTest` (or `./gradlew`) in `android/` |
+   | iOS (Swift) | `ios/PerritoKit/Sources/PerritoKit/Protocol.swift` | `swift test` in `ios/PerritoKit` (needs a Mac; CI runs it weekly in the iOS workflow) |
+
+   New fixtures are picked up by themselves: each suite reads every `.json` file in `fixtures/` (`host/crates/protocol/tests/fixtures.rs`, `android/app/src/test/java/dev/perritodeck/client/protocol/ProtocolFixturesTest.kt`, `ios/PerritoKit/Tests/PerritoKitTests/ProtocolFixturesTests.swift`).
 
 Adding a message type or optional field is a minor change. Removing or renaming anything bumps `v`.

@@ -1,17 +1,6 @@
 # PerritoDeck host
 
-Rust workspace for the desktop host. During Phase 1 it's a headless command-line app; the Tauri UI arrives in Phase 3.
-
-| Crate | What |
-|---|---|
-| `crates/protocol` | Wire types (serde), tested against `protocol/fixtures` |
-| `crates/core` | WebSocket server, handshake, device registry, demo layout |
-| `crates/profile` | TOML profiles: pages, keys, toggles, validation, the starter profile |
-| `crates/deck` | Runs the profile on every tablet: pages, actions, toggles, live titles, reload on save |
-| `crates/render` | Draws key images (Inter font) at each tablet's pixel size |
-| `crates/actions` | What keys do: hotkeys, text, media keys, URLs, apps, commands, multi-actions (Phase 2 prototype) |
-| `crates/host` | `perritodeck-host` binary |
-| `crates/fakedeck` | `perritodeck-fakedeck` — a CLI "tablet" for testing without Android, plus end-to-end tests |
+Rust workspace for the host: the `perritodeck-host` library that runs everything, the `perritodeck-host` command-line program for headless machines, and `perritodeck-fakedeck`, a tablet stand-in for testing. The desktop tray app in [`app/`](app/) is a separate Cargo workspace over the same library. What each of the thirteen crates in `crates/` does is in [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#the-host-crates).
 
 ## Build requirements
 
@@ -30,7 +19,7 @@ The first run creates the host's certificate and, since nothing is paired yet, s
 
 - **Wi-Fi:** the tablet finds the host automatically, or enter its IP
 - **Android emulator:** `10.0.2.2`
-- **USB:** `adb reverse tcp:46710 tcp:46710`, then `127.0.0.1` on the tablet
+- **USB:** with Android's `adb` installed, the host runs `adb reverse` for each tablet on a cable by itself, and Perrito reaches it at `127.0.0.1`
 
 `perritodeck-host devices`, `revoke <id>` and `paths` work without starting the server. `--insecure` runs plain `ws://` with no pairing on loopback, for development.
 
@@ -42,7 +31,7 @@ On Linux Wayland desktops, the host asks for permission to control the keyboard 
 
 ## Try an action
 
-Actions aren't wired to keys until Phase 2 profiles land, but you can fire one directly (it waits 3 s so you can focus a window):
+You can run one action directly, without a key or a tablet (it waits 3 s so you can focus a window):
 
 ```sh
 cargo run -p perritodeck-host -- action '{"type":"hotkey","keys":"Ctrl+Shift+Esc"}'

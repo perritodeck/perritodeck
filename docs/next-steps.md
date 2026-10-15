@@ -1,4 +1,4 @@
-# Next steps (2026-10-13)
+# Next steps (2026-10-15)
 
 Where the work stands, and the open work in priority order. Read `CLAUDE.md` first;
 `docs/HANDOFF.md` has the Windows notes and how to test without a person at the keyboard.
@@ -7,8 +7,9 @@ commit (`git commit -s`, item 8), no personal names anywhere, no GPL code, and a
 tagging, pushing tags, force-pushing, setting secrets or changing repo settings. Commit in
 small pieces, push in batches, and tick items off here as they land.
 
-Items 1–7 are done. Item 8 (going public) and items 9–12 (real-world OBS and Twitch passes,
-signed APKs, the website) come next; items 13–18 collect the rest of the open work by area,
+Items 1–7 are done, and the OBS pass (item 9) has run with its fixes in. Item 8 (going
+public) and items 10–12 (the Twitch pass, signed APKs, the rest of the website) come next;
+items 13–18 collect the rest of the open work by area,
 and the list ends with nice-to-haves. **The order to do it in, who does what, and the
 decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 
@@ -21,7 +22,7 @@ decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 | macOS | Host tests passed and a universal `.dmg` was built in CI once (2026-10-11). Stale since then (over 100 host commits later), and never run on a real Mac |
 | iOS | Never compiled (its one scheduled CI run never started) |
 | Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
-| CI | Every GitHub Actions run since 2026-10-11 has stopped within seconds, before any job started: a billing block the maintainer is leaving until the repo goes public, where Actions are free. Nothing since then has been through CI on any OS, and the Release workflow has never run. Until the flip, checks run locally (Linux in WSL); right after it, every workflow runs once by hand and goes green before the first tag (launch checklist §4) |
+| CI | Every run of the repository's workflows since 2026-10-11 has stopped within seconds, before any job started: a billing block the maintainer is leaving until the repo goes public, where Actions are free. Nothing since then has been through CI on any OS, and the Release workflow has never run. Until the flip, checks run locally (Linux in WSL); right after it, every workflow runs once by hand and goes green before the first tag (launch checklist §4) |
 
 Items marked 🖥 need a Windows PC and the test tablet. The rest can be done on any machine.
 **(maintainer)** marks a decision or an action only the maintainer can take.
@@ -259,7 +260,7 @@ The original list:
 - Wi-Fi round trip on the Fire 7 is ~105 ms against 6–18 ms on USB. Profile one key press
   end to end (tablet logcat timestamps against host logs) before guessing at a cause.
 
-## 7. The website (perritodeck.dev) — ✅ done (2026-10-13), deploy left to the maintainer
+## 7. The website (perritodeck.dev) — ✅ done (2026-10-13), and live (item 12)
 
 **Landed.**
 - **Fonts self-hosted** (`website/fonts/`, Fontsource latin subsets, OFL; the maintainer
@@ -279,12 +280,15 @@ The original list:
 - **Guide:** app screenshots (light and dark), and the fixes from a check of every page
   against the app.
 - **Privacy:** covers the website and the iOS app, and matches what Perrito stores and sends.
-- Images are WebP from PNG masters, which moved to `docs/assets/site/`; `website/README.md`
-  says how. Every page was checked at 375 px and 1440 px in light and dark: no sideways
-  scrolling, and about 155 KB at most before images.
+- Images are WebP from PNG masters, which moved to `docs/assets/site/`;
+  [`docs/website.md`](website.md) says how. Every page was checked at 375 px and 1440 px in
+  light and dark: no sideways scrolling, and about 155 KB at most before images.
+- **Later (2026-10-15):** canonical, Open Graph and `twitter:card` tags on every page and
+  a link-preview image (`website/img/og.png`, made by `scripts/og-image.py`); the site's
+  notes moved from `website/README.md`, which the site published, to `docs/website.md`.
 
-**Left for the maintainer:** the Cloudflare Pages setup below. `website/README.md` has the
-steps and the build command.
+**Deployed:** the site is live (item 12 has what's left). [`docs/website.md`](website.md)
+has the setup and the build command.
 
 **Decision: keep it in this repo, in `website/`.**
 - The guide describes the app's features and changes in the same commits as the code.
@@ -296,7 +300,7 @@ steps and the build command.
 - Revisit only if the site grows its own framework or outside contributors who shouldn't need
   the code.
 
-**Deploy** (maintainer, once): Cloudflare Pages, as in `website/README.md` ("Deploy"), with
+**Deploy** (maintainer, once): Cloudflare Pages, as in `docs/website.md` ("Deploy"), with
 the build command `python3 plugins/build_catalog.py website/plugins` so the catalogue
 publishes too. Output directory: `website`. Then add the custom domain (item 12). Once the
 repo is public, GitHub Pages also works for free; either is fine.
@@ -365,8 +369,8 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 | gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run once more right before the flip |
 | `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). `cargo deny check advisories` flags one notice, RUSTSEC-2026-0192: `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained; not a vulnerability. Replace it (its author suggests `skrifa`) or accept it with a reason in `deny.toml` before CI runs advisories |
 | `cargo deny` and `third-party-notices.py --check` in CI | The Release workflow's licences job runs `third-party-notices.py --check` (2026-10-13), so a release fails if `THIRD_PARTY_NOTICES.md` is stale. No push workflow runs it or `cargo deny` yet (item 16). The notices check passes locally |
-| `third-party-licenses.txt` in releases | `release.yml` generates it (2026-10-13), attaches it to the release and puts it in the command-line archives and the desktop installers (in the app's resource folder, merged in with `tauri build --config`). Only the APK doesn't carry it (next row) |
-| Licences screen in the apps | None in the desktop app, Android or iOS. **Blocks the release for Android:** the APK carries no third-party licence texts, so it needs them as an asset or a licences screen (launch checklist §3). Android: a screen that reads a text asset generated at build time (not Play Services' oss-licenses, which F-Droid forbids). Desktop, not blocking (the installers carry the file): a link next to Version in Settings |
+| `third-party-licenses.txt` in releases | `release.yml` generates it (2026-10-13), attaches it to the release and puts it in the command-line archives and the desktop installers (in the app's resource folder, merged in with `tauri build --config`). The APK carries its own list, generated at build time (next row) |
+| Licences screen in the apps | Done (2026-10-15). **Android:** a Gradle task writes `assets/third-party-licenses.txt` from the release runtime classpath (86 libraries; licences from each POM and its parents, resolved through Gradle, not Play Services' oss-licenses, which F-Droid forbids), and Open-source licences on Perrito's home screen shows it, so the APK carries every licence text (launch checklist §3). **Desktop:** Settings → Version → Open-source licences opens the installers' `third-party-licenses.txt`, or the notices on `main` in a build without it. iOS: none yet (not part of the first release). Neither screen has been looked at on a device yet (item 15) |
 | Plugin licence | Done (2026-10-13): every catalogue zip carries `plugins/LICENSE` (unless the plugin has its own), and the desktop app bundles it next to the plugins |
 | `.gitignore` | Done (2026-10-13): signing files (`*.p12`, `*.p8`, `*.pfx`, `*.mobileprovision`), `.env` and `keystore.properties` are ignored. No signing file is tracked |
 
@@ -387,14 +391,21 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
   requests, so the old ones don't matter.
 
 **Still to decide or do (maintainer):**
-1. **Mail and DNS:** send a test mail to dev@perritodeck.dev. It's forwarded by the
-   registrar today, which only receives, and replying from the inbox it forwards to would
-   show a personal address. Moving the nameservers for the website ends that forwarding, so
-   set up the replacement first (item 12).
-2. **Old runs:** Actions logs and artifacts become public (E2E host logs, logcat, the
-   2026-10-11 desktop bundles). There are no issues or pull requests yet.
-3. **Website and visibility together:** the site links to the GitHub repo throughout, and
-   the repo links to the site, so deploy the site and flip visibility close together.
+1. **Mail (decision D2 in `docs/plan/phase-8.md`):** the nameservers moved to Cloudflare
+   on 2026-10-13, which ended the registrar's forwarding. The MX records point at ImprovMX
+   (`mx1.improvmx.com`, `mx2.improvmx.com`), and SPF (`v=spf1 include:spf.improvmx.com
+   ~all`) and DMARC (`v=DMARC1; p=none`, reports to Cloudflare's DMARC Management) are in
+   place (checked 2026-10-15). The maintainer still has to confirm the mail service (keep
+   ImprovMX, or switch to Cloudflare Email Routing and edit the SPF record rather than add
+   a second one), send a test mail to dev@perritodeck.dev from an outside address, and
+   decide how to reply as dev@ without showing a personal address (both services only
+   receive and forward; replying needs an SMTP relay or a hosted mailbox).
+2. **Old runs and PR #1:** Actions logs and artifacts become public (E2E host logs,
+   logcat, the 2026-10-11 desktop bundles), and so does Dependabot's pull request #1
+   (eight GitHub Actions updates, opened 2026-10-13, still open). There are no issues.
+3. **Website and visibility together:** the site is live (with noindex) and links to the
+   GitHub repo throughout, where visitors get a 404 until the flip, and the repo links to
+   the site. Keep the noindex until the flip, and flip soon after the site is complete.
 4. **Trademark sign-off:** the website's compatibility page, the Key Light plugin, the
    README and the store text name Elgato's products (nominatively, with a not-affiliated
    line). A person should sign off before they go live (`docs/plan/phase-7.md`).
@@ -402,7 +413,8 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 6. **Account security:** the app trusts perritodeck.dev for plugin code and
    github.com/perritodeck for releases. Require 2FA in the GitHub org (it's off), turn on
    2FA and the registrar lock at the domain registrar, set the domain to auto-renew, and
-   use 2FA on the Cloudflare account.
+   use 2FA on the Cloudflare account and the mail service's (ImprovMX, while `MX` points
+   there).
 
 **Repo settings after the flip (maintainer):** private vulnerability reporting (`SECURITY.md`
 and the issue template already link to it); Dependabot alerts and security updates; secret
@@ -412,10 +424,13 @@ first-time contributors' workflows; description, topics, website and social prev
 required check whose workflow didn't run stays pending and blocks the PR. The ruleset
 should require one always-running gate job, but **the gate doesn't exist yet** (item 16):
 until it does, require no status checks. Every workflow file sets read-only `permissions`
-(only `bootstrap-gradle-wrapper.yml` and the Release workflow's publish job ask for write);
-also check that the repository's default under Settings → Actions → General is read-only,
-which hasn't been confirmed. `bootstrap-gradle-wrapper.yml` pushes straight to `main`, so
-it will fail under the ruleset; make it open a PR.
+at the top; only the jobs of `bootstrap-gradle-wrapper.yml` (`contents: write`, to push
+its branch) and the Release workflow's publish job ask for write. The repository's default
+under Settings → Actions → General is read-only, with Actions not allowed to create or
+approve pull requests (checked through the API on 2026-10-13 and 2026-10-15), and it stays
+that way: `bootstrap-gradle-wrapper.yml` no longer pushes to `main` but to a
+`gradle-wrapper-<version>` branch, and links a compare page in its run summary from which
+a person opens the pull request (2026-10-15, DECISIONS), so it works under the ruleset.
 
 After it's public:
 - Restore push and PR triggers for Linux, macOS and the other emulators, which are weekly or
@@ -428,7 +443,15 @@ After it's public:
   secrets, can only be created once the repo is public (a private repo on the Free plan
   can't have one), so create it first if you want one (`docs/releasing.md`).
 
-## 9. OBS: a real-world test pass, both paths 🖥 (maintainer for the setup)
+## 9. OBS: a real-world test pass, both paths 🖥 (maintainer for the setup) — ✅ ran (2026-10-13), fixes re-checked (2026-10-15)
+
+**Result: [docs/testing/obs-results-2026-10-13.md](testing/obs-results-2026-10-13.md).**
+Against OBS 31.0.3 with obs-websocket 5.5.6 on Windows 11, 93 of the plan's 110 cases ran.
+It found 22 bugs, none blocking a release; all are fixed (OBS plugin 1.0.3 and the host)
+and a re-check against the same OBS on 2026-10-15 passed every case it ran. The plugin is
+no longer marked Experimental. Still to run (the results' §7): the cases that need the
+plugin installed in the app, a live stream target, a person at OBS or a second computer,
+and groups A, B, C and F on Linux and macOS.
 
 **Plan: [docs/testing/obs.md](testing/obs.md).** The built-in integration (10 actions,
 `{obs:*}` values, an OBS slider) and the OBS plugin (26 actions, 30 values) have only run
@@ -480,18 +503,26 @@ retried every few seconds.
 - A developer app at dev.twitch.tv, Client Type **Public** (the plugin uses the device code
   flow with no secret).
 - Three accounts: a test broadcaster, a test viewer and a raid target that can stream.
-- **Affiliate decision:** ads, channel points, polls, predictions and real subs, cheers and
-  hype trains need an Affiliate or Partner channel. Use the main channel if it qualifies
-  (offline where possible), a consenting Affiliate, or the Twitch CLI's mocks (a download,
-  so approval first).
+- ~~Affiliate decision~~ **Decided (maintainer, 2026-10-13; `docs/DECISIONS.md`,
+  2026-10-15): test accounts only, no Affiliate channel.** Ads, channel points, polls and
+  predictions need an Affiliate or Partner channel, so those cases (sections I, J and K)
+  are deferred to a later pass on an Affiliate's channel, which the harness's
+  `--no-skip-affiliate` is for. On the test broadcaster the pass still records what Twitch
+  answers a channel that isn't an Affiliate (B7). The test tools are built
+  (`plugins/tools/`).
+- **L6 (subs, gifts, cheers, hype trains), still open:** real ones need money on an
+  Affiliate's channel, so with test accounts L6 either runs against the Twitch CLI's mock
+  server (`event trigger`; the CLI is a download, which needs the maintainer's OK) or waits
+  for the Affiliate pass. The harness offers it in stage 8 as a manual case either way.
 - Approving the device code in the browser, going live, and acting as the viewer.
 - **Product decision:** today every user registers their own Twitch app, which is the
   biggest setup hurdle. A project-owned public client ID with the device code flow would
   remove it.
 
-**Done when** the non-Affiliate groups pass, the Affiliate cases are run or deferred on
-purpose, real wording and payloads are in the fixtures and the plugin README, and anything
-found is fixed or listed here.
+**Done when** the non-Affiliate groups pass (L6 only if it runs on the mock server),
+real wording and payloads are in the fixtures and the plugin README, and anything found is
+fixed or listed here. The Affiliate cases stay deferred until an Affiliate channel is
+available.
 
 ## 11. Signed APK releases (the key: maintainer; the pipeline: in place)
 
@@ -598,36 +629,44 @@ CI's included, are unsigned, which is what F-Droid wants.
 - `docs/fdroid/dev.perritodeck.client.yml`: fill in `AllowedAPKSigningKeys` and `Binaries`
   once the builds match.
 
-## 12. The website goes live (maintainer)
+## 12. The website goes live (maintainer) — mostly done (2026-10-15)
 
-The site and the plugin catalogue are ready to deploy; perritodeck.dev is still parked at
-the registrar. **Steps: [website/README.md, Deploy](../website/README.md#deploy):**
-Cloudflare Pages with Git integration (it works while the repo is private; a Direct Upload
-project can never be connected to Git later), build command
-`python3 plugins/build_catalog.py website/plugins`, output folder `website`, then the custom
-domain.
+**Where it stands** (checked from outside on 2026-10-15; [docs/website.md,
+Deploy](website.md#deploy) has the setup, but its "Where it stands" and steps 1–3 of "The
+domain" predate these checks and still list the HSTS, NEL, `www` and DS work as to do;
+updating them is the rest of phase-8 M1-2). `https://perritodeck.dev` is live and serves `main` with the temporary
+`X-Robots-Tag: noindex`. That settles two earlier questions: the bare domain is the
+canonical address, and the domain is attached before launch (Play's closed test needs a
+live privacy policy, and the real-world passes can use the real catalogue), with noindex
+until launch day. `/plugins/index.json` lists the 24 plugins, also for the app's user
+agent. `http://` and `www` redirect to `https://perritodeck.dev` with a 301, keeping the
+path and query. Every response carries the policy and the two-year HSTS from `_headers`,
+with no `Nel` or `Report-To` header, so Cloudflare's own HSTS and Network Error Logging are
+off. DNSSEC is in force: the DS record is at the `.dev` registry and resolvers validate the
+answers. SPF and DMARC are in place (item 8).
 
-**Decide first:**
-- **The canonical address:** the bare `https://perritodeck.dev`, with `www` redirecting to
-  it. The app's catalogue URL and every link in the repo already use it.
-- **When to attach the domain:** now, with a temporary `X-Robots-Tag: noindex` until launch
-  day (Play's closed test needs a live privacy policy, and the OBS and Twitch passes can use
-  the real catalogue), or at the flip. GitHub links on the site 404 for visitors until the
-  repo is public.
-- **Mail for dev@:** an apex domain on Pages means moving the nameservers to Cloudflare,
-  which ends the registrar's mail forwarding. Set up Cloudflare Email Routing first, add a
-  DMARC record, and send a test. Routing only receives; replying as dev@ needs an SMTP relay
-  or a hosted mailbox.
-- **Where the catalogue comes from:** built from `main`, every plugin version bump reaches
-  every app's "Look online" before release, and manifests can't yet say which host version
-  they need (item 17). Accept `main`, or deploy from a release branch.
-
-**After the deploy:** check that `https://perritodeck.dev/plugins/index.json` loads (24
-plugins) and that Plugins → Look online installs one; that Cloudflare's Web Analytics,
-Email Address Obfuscation, Rocket Loader and Bot Fight Mode are off (they'd contradict the
-privacy page or block the app's catalogue requests); and the headers, redirects and 404
-page (all listed under "Launch day" in `website/README.md`). On launch day, work through
-that list: it removes the noindex header and the "Not released yet" lines.
+**Left:**
+- **Pages or a Worker (maintainer):** the live project has no `perritodeck.pages.dev`
+  address, redirects `/privacy.html` with a 307, answers `/nope` with an empty 404 instead
+  of `404.html`, and lacks the `X-Content-Type-Options: nosniff` Pages adds to everything.
+  A Worker with static assets behaves like that. Check in the dashboard, then follow
+  [docs/website.md, The project](website.md#the-project) (the 2026-10-13 decision says
+  Pages).
+- **Zone settings only the dashboard shows:** Web Analytics, Email Address Obfuscation,
+  Rocket Loader, Bot Fight Mode, Speed Brain and the Browser Cache TTL
+  ([The domain](website.md#the-domain), step 1). From outside, the pages carry nothing
+  Cloudflare injects and no Speed Brain header.
+- **Mail for dev@ (decision D2):** confirm the service, send a test, and decide how to
+  reply as dev@ (item 8).
+- **Where the catalogue comes from (decision D3):** the live site builds it from `main`,
+  so every plugin version bump reaches every app's "Look online" before a release, and
+  manifests can't yet say which host version they need (item 17). Accept `main`, or deploy
+  from a release branch.
+- **After the next push deploys:** `/README.md`, which still serves the old notes, answers
+  404; `/img/og.png` loads; `index.json` marks the experimental plugins; and Plugins →
+  Look online installs one from the live catalogue.
+- **Launch day:** [docs/website.md, Launch day](website.md#launch-day) removes the noindex
+  header and the "Not released yet" lines, and lists the checks after the deploy.
 
 ## 13. Before the first release: what else blocks it
 
@@ -637,29 +676,35 @@ that list: it removes the noindex header and the "Not released yet" lines.
   `docs/windows-review-2026-10.md`)
 - **The minified release APK has run on one tablet only.** On 2026-10-13 `assembleRelease`
   was built with a throwaway key and run on the Fire 7: code pairing worked, a key press
-  was acked, and the scan screen opens. `apksigner` verified the v1 and v2 signatures; the
-  signed APK is 2,164,101 bytes (unsigned 2,124,736), far under IzzyOnDroid's ~30 MB
-  limit. `android.yml` now builds the unsigned minified APK, `lintVitalRelease` included,
+  was acked, and the scan screen opens. `apksigner` verified the v1 and v2 signatures; that
+  signed APK was 2,164,101 bytes (unsigned 2,124,736). With the licence list and the new
+  icons the unsigned APK is 2,179,425 bytes (2026-10-15), far under IzzyOnDroid's ~30 MB
+  limit; the signed size needs measuring again once the release key exists.
+  `android.yml` now builds the unsigned minified APK, `lintVitalRelease` included,
   in every Android CI run (item 11). E2E still builds debug only
   (`scripts/e2e-android.sh`), and the keep rules cover only kotlinx.serialization and
   OkHttp (`android/app/proguard-rules.pro`). Still to do by hand: an API 22 emulator, QR
-  decoding, USB, the deck and sliders.
-- **0.x releases are invisible to the update check.** `release.yml:59` marks every 0.x
-  version a pre-release, and the app asks for `/releases/latest`
-  (`host/crates/host/src/updates.rs:8`), which skips pre-releases, so it would say "No
-  releases are published yet." until 1.0. Mark only `-suffix` versions as pre-releases, or
-  read `/releases` and take the newest non-draft.
+  decoding, USB, the deck and sliders, and now the licences screen and the launcher icons
+  (item 15).
+- ✅ **0.x releases reach the update check (2026-10-15).** `release.yml:59` marks every
+  0.x version a pre-release, which `/releases/latest` skips. The app now lists
+  `/releases?per_page=10` and picks the highest release meant for the running version:
+  drafts and tags `release.yml` doesn't make are skipped, pre-releases count while the app
+  is 0.x or a pre-release itself, and `-rc` style versions only for someone already on one
+  (`host/crates/host/src/updates.rs`, DECISIONS).
 - **First version and tag (maintainer).** No tags exist in this repository or on GitHub.
   Re-tag v0.1.0 on current `main` (rewrite `fastlane/.../changelogs/1.txt`, which
   describes the very first slice) or release v0.2.0 (`scripts/release-version.py` raises
   versionCode to 2, so `2.txt` is needed). The script has no same-version guard
   (`scripts/release-version.py:177-182`). The F-Droid draft, PKGBUILD, Flatpak manifest
   and metainfo hardcode 0.1.0.
-- **Installed icons are the old plain paw.** `android/.../res/drawable/ic_launcher.xml` says
-  it's a placeholder; the finished adaptive and monochrome paw-of-keys set sits unused in
-  `docs/assets/android/`. The desktop icons (`host/app/src-tauri/icons/`), the iOS AppIcon
-  and the Linux packaging use the old paw too, while the store icon and the website use the
-  new one.
+- ✅ **The installed icons are the paw-of-keys (2026-10-15).** Perrito has the adaptive and
+  monochrome set from `docs/assets/android/` and a plain vector for API 22–25
+  (`LauncherIconTest` keeps them matching the SVGs); the desktop icons in
+  `host/app/src-tauri/icons/` were made with `npx tauri icon` from
+  `docs/assets/icon-master-rounded.svg`, and the Flatpak and AUR drafts take theirs from
+  there; the desktop window's brand mark and the iOS AppIcon match. Not yet seen on a
+  device (item 15).
 - **macOS (maintainer).** Built in CI once on 2026-10-11 and never run on a Mac. Since then
   117 host commits (the second binary in the app bundle, the plugin `open` message, the
   firewall code) haven't been compiled for macOS, and `release.yml`'s publish job needs
@@ -674,12 +719,13 @@ that list: it removes the noindex header and the "Not released yet" lines.
   two copies and two autostart entries fighting over port 46710. Test it (install, upgrade,
   uninstall, autostart, `perritodeck-mcp.exe` present) or drop it from the first release.
 - **Release notes.** The Release workflow's notes are a downloads table, the Android
-  certificate and the Android changelog; there's no CHANGELOG and no pull requests, so
-  `--generate-notes` adds only a compare link (`release.yml` publish job). The first
-  release needs a hand-written summary: what works, what's experimental, known issues.
-- **Third-party notices in the APK (release blocker).** The desktop installers and the
-  command-line archives carry `third-party-licenses.txt`; the APK carries no licence
-  texts. Add them as an asset or a licences screen (item 8, launch checklist §3).
+  certificate and the Android changelog; there's no CHANGELOG, and the only pull request
+  is Dependabot's #1, so `--generate-notes` adds little beyond a compare link
+  (`release.yml` publish job). The first release needs a hand-written summary: what works,
+  what's experimental, known issues.
+- ✅ **Third-party notices in the APK (2026-10-15).** The APK carries
+  `assets/third-party-licenses.txt`, generated at build time, and Perrito shows it under
+  Open-source licences (item 8, launch checklist §3).
 
 ## 14. Desktop app and host
 
@@ -716,15 +762,35 @@ that list: it removes the noindex header and the "Not released yet" lines.
   (`docs/plan/phase-7.md`)
 - **Stream Deck plugins (maintainer):** only Elgato's two samples have run. Not tried:
   third-party published plugins and a native `.exe` plugin. (`docs/plan/phase-7.md`)
+- **Settings → Open-source licences in a real app:** Playwright covers the window's side and
+  the file name `release.yml` bundles, but nobody has run `npx tauri dev` to see it open
+  the notices on `main` when the build has no resource file, or an installed build open
+  its own copy.
+- **A timing-sensitive host test:** `tests::tablets_become_companion_surfaces`
+  (`host/crates/host/src/tests.rs`) failed once under load on 2026-10-15 and passed on every
+  rerun.
 
 ## 15. Android
 
-- **16 KB pages and Android 15/16.** Play requires 16 KB page support for apps targeting
-  Android 15+ that ship native libraries; the APK carries CameraX's and
-  `androidx.graphics.path`'s `.so` files, pinned old for minSdk 22. Check the release APK
-  with `zipalign -c -P 16 -v 4`. E2E stops at API 34 while targetSdk is 36, so enforced
+- ✅ **16 KB pages: checked (2026-10-15), no change needed.** Play requires 16 KB page
+  support for apps targeting Android 15+ that ship native libraries. The release APK's 12
+  `.so` files (CameraX's and `androidx.graphics.path`'s, for four ABIs, pinned old for
+  minSdk 22) are stored compressed, so they're extracted at install and zip alignment
+  doesn't apply, and every `LOAD` segment in them is 16 KB-aligned.
+- **Android 15/16 on a device.** E2E stops at API 34 while targetSdk is 36, so enforced
   edge-to-edge (15) and predictive back (16) are never exercised; add an API 35/36 run.
+  The Home, Licences, Pair and Scan screens now pad for the system bars (`safeDrawing`),
+  and `SystemBarsTest` checks Home, Licences and Pair with edge to edge forced on any API
+  level; it compiles and runs in e2e's instrumented tests, but hasn't run yet. Two things
+  left for a separate look: the deck screen can draw into a display cutout while the bars
+  are hidden (phones held sideways), and whether MainActivity should call
+  `enableEdgeToEdge()`, which would change how older Android, Fire OS 5–9 included, looks
+  too.
   (`compileSdk` and `targetSdk` in `android/app/build.gradle.kts`, `.github/workflows/e2e.yml`)
+- **Not yet looked at on a device or emulator:** the licences screen, and the launcher
+  icons: the adaptive icon on API 26+ (the Fire 7, Fire OS 7.3 = API 28, shows that one),
+  the plain vector fallback on API 22–25 (an API 22 or 25 emulator, or a Fire OS 5 tablet),
+  and the themed icon on API 33+.
 - **Hardware matrix, then minSdk (maintainer).** The only real tablet so far is the Fire 7
   (Fire OS 7). minSdk 22, with AndroidX and Compose pinned for it, is justified only by
   Fire OS 5, seen only in emulators; raising it after the first release would strand
@@ -732,8 +798,11 @@ that list: it removes the noindex header and the "Not released yet" lines.
   slider-feel and haptics checks. More Kindles are on order. (`docs/DECISIONS.md:14,16`)
 - **Page switches stall the main thread on slow tablets** (~560 ms of long frames per
   switch on the Fire 7; item 6 has the numbers). Try per-key image state in the deck screen.
-- **Reproducible builds have never been compared, and `fdroid lint` / `fdroid build` never
-  run (maintainer, an install)** (`docs/fdroid/README.md`).
+- **Reproducible builds have never been compared between machines, and `fdroid lint` /
+  `fdroid build` never run (maintainer, an install)** (`docs/fdroid/README.md`). On one PC,
+  clean release builds with the build cache off match byte for byte across folders and
+  drives (2026-10-15); an incremental Kotlin compile, or one taken from the build cache,
+  doesn't. Whether to keep the startup profile is decision D11 in `docs/plan/phase-8.md`.
 
 ## 16. CI
 
@@ -760,37 +829,62 @@ that list: it removes the noindex header and the "Not released yet" lines.
   the notices is a hand-kept table, so the check can't catch Android dependency changes.
 - **Untested MSRV:** `host/Cargo.toml` declares `rust-version = "1.80"`, but only the pinned
   1.97 is ever built. Test it, or raise it to what's verified.
+- **Path filters that miss files the checks read** (2026-10-15): `android.yml` doesn't run
+  for `docs/assets/**`, though `LauncherIconTest` checks the launcher icons against
+  `docs/assets/*.svg` and `docs/assets/android/**`; `desktop-app.yml` doesn't run for
+  `.github/workflows/release.yml`, though `host/app/tests/licences.spec.ts` checks the
+  bundled licences' file name against it. Add those paths. Also, no workflow runs
+  `cargo test` in `host/app/src-tauri` (`host.yml` tests the host workspace, and
+  `desktop-app.yml` runs only fmt and clippy there).
 
 ## 17. Plugins and integrations
 
 - **The catalogue tracks `main`, and manifests can't say which host they need
   (maintainer).** The catalogue is rebuilt from `main` on every push (`docs/releasing.md`
-  step 7, `website/README.md` "Deploy"), so plugin bumps reach every app's Look online
+  step 7, `docs/website.md` "Deploy"), so plugin bumps reach every app's Look online
   before a release. There's no minimum host version or supported-OS field
   (`plugins/PROTOCOL.md`), so a plugin that needs a newer host feature can install onto
   an older host. Accept that or deploy from a release branch (item 12), and add the
   fields before third parties publish.
 - **Other service plugins have only met fake servers (maintainer):** Spotify (needs
   Premium), Hue, Key Light, GitLab, Proxmox VE, TrueNAS, Ollama, Weather, Is it up?,
-  Wake-on-LAN, MQTT and HTTP, and the built-in Home Assistant. Test them, or label them
-  clearly in the catalogue (today only Companion and Stream Deck plugins say Experimental).
-  (each plugin's README, "What's tested")
+  Wake-on-LAN, MQTT and HTTP, and the built-in Home Assistant. Test them. Until then the
+  online catalogue and the desktop app's Look online mark the plugins Experimental, with
+  what each was tested against, from `plugins/catalogue_status.json` (2026-10-15,
+  DECISIONS; Twitch too, until item 10). Take a plugin off that list once it works against
+  the real thing. (each plugin's README, "What's tested") The built-in Home Assistant isn't
+  a plugin, so nothing marks it: only the store text calls it experimental (item 18), while
+  the website's features page (`features.html:119`), home page (`index.html:138`) and
+  integrations guide present it like OBS, which has passed against a real instance.
 - **OBS and Twitch issues the research left open** are listed in the test plans
   ([OBS](testing/obs.md#1-fixed-before-this-pass-re-check-these),
   [Twitch](testing/twitch.md#1-fixed-before-this-pass-re-check-these)).
 
 ## 18. Docs and store text
 
-- **The store listing text is stale:** `full_description.txt` says "PerritoDeck Host",
-  leaves out sliders, QR pairing, pages, profiles, live values and plugins, and promises
-  macOS. (`fastlane/metadata/android/en-US/full_description.txt:4,15-22`)
-- **`docs/ARCHITECTURE.md` is out of date:** an Android-only client, a "Tauri UI (Phase 3)"
-  box, dial and touch messages that aren't in the schema, and only four host crates of
-  fourteen; no iOS, MCP or plugins. `CONTRIBUTING.md` links to it.
-- **Stale status lines elsewhere:** `ios/README.md:68-69` (the protocol has `ios` now); the
-  audio, windows, screenshot, soundboard, sysmon and clipboard READMEs still call their
-  Windows code unrun; `protocol/README.md:83` leaves the Swift types out of "changing the
-  protocol"; `docs/DECISIONS.md:64` says thirteen plugins (there are 24).
+- ✅ **Done (2026-10-13), the docs public readers hit first:** the store listing;
+  `docs/ARCHITECTURE.md`, rewritten from the code (all thirteen host crates, the desktop
+  app, both tablet apps, the protocol's messages, plugins, MCP, Stream Deck plugins,
+  Companion, ports, the data folder, the website); `ios/README.md` (`hello` says `ios`,
+  and a status line: not yet built); `protocol/README.md` (the Swift types and each app's
+  test command); and the audio, windows, screenshot, soundboard, sysmon and clipboard
+  READMEs, which now say what ran on Windows on 2026-10-12 and what didn't.
+- ✅ **Corrected after review (2026-10-15):** the store listing (`full_description.txt`)
+  names the desktop app "PerritoDeck Host", as the tablet apps do until the naming decision
+  (D10 in `docs/plan/phase-8.md`); lists the plugins that aren't experimental first (timers,
+  clocks, counters, the soundboard, the system monitor, screenshots, windows and apps, audio
+  devices, clipboard snippets, now playing, more OBS controls) and calls the rest
+  experimental without naming them; names other brands only where needed (OBS Studio and
+  Home Assistant, which are built in, Amazon Fire tablets, and the closing line, which says
+  it isn't affiliated with or endorsed by Elgato, Corsair or any company whose products it
+  works with); marks the built-in Home Assistant "still experimental" and takes its slider
+  and live-value examples from OBS, the computer and what's playing rather than from Home
+  Assistant (item 17); says USB needs USB debugging and Android's adb tool; says ⚠ shows
+  when an action fails
+  and ✓ when a command or a row of actions finishes; and names only Windows and Linux
+  (`docs/distribution.md`). `ARCHITECTURE.md`'s feedback, port and website lines,
+  `host/README.md` (now pointing at ARCHITECTURE's crate table) and the Stream Deck crate's
+  module comment (property inspectors are served) were fixed too.
 - **No long-session soak or sleep test** has been recorded: memory over hours, plugin
   restarts, OBS and Twitch connections held for a whole stream, PC sleep and resume, tablet
   doze, Wi-Fi dropping and coming back. Pair it with the OBS and Twitch passes (a 3–4 hour
@@ -835,12 +929,17 @@ that list: it removes the noindex header and the "Not released yet" lines.
 - **A dozing Fire 7 gets messages from the computer 0.3–0.9 s late over Wi-Fi** (item 6); an
   FAQ line.
 - **iOS:** never compiled; needs a `PrivacyInfo.xcprivacy` (UserDefaults is a
-  required-reason API), a real icon, TestFlight. Not part of the first release.
-- **Flatpak and AUR drafts** bundle 13 of 24 plugins, leave out `perritodeck-mcp` and use
-  the old icon; never built.
-- **Social preview image, Open Graph tags, and a Gradle entry in `.github/dependabot.yml`**
-  (it covers only GitHub Actions today; a Gradle entry must ignore AndroidX and Compose bumps
-  that need minSdk 23).
+  required-reason API) and TestFlight. It has the paw-of-keys icon now (2026-10-15). Not
+  part of the first release.
+- **Flatpak and AUR drafts** bundle 13 of 24 plugins and leave out `perritodeck-mcp`;
+  never built. Their icons come from `host/app/src-tauri/icons/`, so they have the new one.
+- **A Gradle entry in `.github/dependabot.yml`** (it covers only GitHub Actions today; a
+  Gradle entry must ignore AndroidX and Compose bumps that need minSdk 23). The site's
+  Open Graph tags and preview image are done (2026-10-15); the repository's own social
+  preview is a GitHub setting (launch checklist §4).
+- **The Settings screenshots** (`docs/assets/screenshot-settings*.png`, made by
+  `scripts/screenshots.mjs`) don't show the Open-source licences link yet; refresh them
+  with the next round of screenshots.
 - **Store submissions** (IzzyOnDroid, F-Droid, the 14-day Play closed test, winget, Flathub,
   AUR, Homebrew) and **release automation** for them; **announcement prep** (demo video,
   launch post, good first issues). See `docs/launch-checklist.md` §8–9.

@@ -74,16 +74,17 @@ are in use.
 
 ## What's tested and what isn't
 
-Only the **Linux parsing** is checked against real output: `wpctl status` from two
-real PipeWire 1.2 systems and a real `pactl list sink-inputs`, as posted publicly.
-The `pactl list sinks`/`sources` samples and the macOS and `SwitchAudioSource`
-outputs are written from their documented formats.
-
-**Everything else is verified only by tests**, not on real hardware:
-
-- the Linux and macOS command lines (checked against a fake command runner);
-- the Windows Core Audio code, which can't run here. Its tests check the GUIDs
-  against their byte layout, the vtable indexes against the Windows headers' method
-  order, and drive every COM call through fake objects with real vtables of ctypes
-  callbacks (so method indexes, argument types, out-pointers and releases are
-  exercised), but never real Windows audio.
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet): the volume and
+  the microphone mute, through Core Audio, set from keys and put back afterwards. Not
+  tried on Windows yet: muting the sound, switching devices (`IPolicyConfig`), and an
+  app's volume or mute.
+- **Linux parsing** is checked against real output: `wpctl status` from two real
+  PipeWire 1.2 systems and a real `pactl list sink-inputs`, as posted publicly. The
+  `pactl list sinks`/`sources` samples and the macOS and `SwitchAudioSource` outputs
+  are written from their documented formats.
+- **Tests only**, not on real hardware: the Linux and macOS command lines (checked
+  against a fake command runner), and the rest of the Windows Core Audio code. Its
+  tests check the GUIDs against their byte layout, the vtable indexes against the
+  Windows headers' method order, and drive every COM call through fake objects with
+  real vtables of ctypes callbacks (so method indexes, argument types, out-pointers and
+  releases are exercised).

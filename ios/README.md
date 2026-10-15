@@ -4,6 +4,11 @@ The iOS/iPadOS client for PerritoDeck: the same deck as the Android app, speakin
 same [protocol](../protocol/README.md). No third-party dependencies, no analytics; the
 app talks only to the computer it's paired with.
 
+**Status: written, not yet built.** It has never been compiled: building it needs a Mac,
+and the weekly iOS workflow (`.github/workflows/ios.yml`) hasn't run so far. Expect the
+first build to need fixes. It isn't part of the first release; before it can ship it also needs
+a privacy manifest (`PrivacyInfo.xcprivacy`) and a TestFlight round.
+
 | Path | What |
 |---|---|
 | `PerritoKit/` | Swift package with everything that isn't UI: protocol models and codec, pairing links, certificate fingerprints and pinning, the connection state machine, Bonjour discovery, Keychain storage, grid maths and slider throttling. Tested with XCTest against `protocol/fixtures`. |
@@ -35,7 +40,9 @@ swift test
 ```
 
 The protocol tests read the golden files from `../../protocol/fixtures` (override with
-`PERRITODECK_FIXTURES=/path/to/fixtures`).
+`PERRITODECK_FIXTURES=/path/to/fixtures`). The iOS workflow runs these tests and builds
+the app for the Simulator, unsigned, every Monday or by hand (Actions → iOS → Run
+workflow).
 
 ### Trying it without a tablet
 
@@ -65,8 +72,9 @@ Differences:
 - **No USB.** Android reaches the host over a cable with `adb reverse`; iOS has no
   equivalent. `DeckConnection` still takes fallback addresses, so another route can be
   added the same way.
-- **Platform.** The protocol's `platform` enum has no `ios` value yet, so `hello` says
-  `other`. `densityDpi` is reported in Android's terms (160 per point scale).
+- **Platform.** `hello` says `"platform": "ios"` (the schema's `platform` enum and all
+  three apps' types have it). `densityDpi` is reported in Android's terms: 160 per point
+  of scale, so a 2× screen says 320.
 - **Haptics** only do something on iPhone; iPads have no Taptic Engine.
 - **Leaving the deck.** iOS has no back button, so the deck has a small menu (top right)
   with *Disconnect*.

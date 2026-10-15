@@ -55,10 +55,12 @@ py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --viewer <V> --raid-ta
   and L10 (`--l10-minutes`, 10). Set one to 0 to skip it. A8 and M1 run at the end of
   stage 11 (see below).
 - Sections I, J and K report "needs an Affiliate channel" unless you pass
-  `--no-skip-affiliate`, with an Affiliate or Partner channel as `--broadcaster`. That
-  channel is usually M, so with `--no-skip-affiliate` every other case with a public
+  `--no-skip-affiliate`. The current pass uses test accounts only and doesn't pass it: the
+  Affiliate cases are deferred to a later pass (`docs/DECISIONS.md`, 2026-10-15), which
+  gives `--no-skip-affiliate` with an Affiliate or Partner channel as `--broadcaster`.
+  That channel is usually M, so with `--no-skip-affiliate` every other case with a public
   effect is refused unless `--only` names it by its ID (`--only C1`, not `--only C`).
-  Normally run `--no-skip-affiliate --only I,J,K`. With `--viewer`, V must follow that
+  Run it as `--no-skip-affiliate --only I,J,K`. With `--viewer`, V must follow that
   channel too (J5, K2 and K4 need V; without `--viewer` they're skipped).
 - The test folder is `%TEMP%\perritodeck-twitch-live-test` unless you pass `--data-dir`.
   It holds the sign-in (`plugin-data/dev.perritodeck.twitch/tokens.json`), the plugin's

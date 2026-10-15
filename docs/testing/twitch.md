@@ -77,8 +77,8 @@ Known and **not** being fixed now; record what happens:
 | **T**, test broadcaster | A Twitch account that signs in to the plugin. Turn on "Store past broadcasts" (for markers) and allow clips. Two-factor authentication on | Keeps every public effect off the main channel |
 | **V**, test viewer | A second account. Follows T and chats | Target for bans, timeouts, warnings, VIP and mod; votes and redeems where possible |
 | **R**, raid target | A third account that can stream | Raid and shoutout target; raids T to fire `channel.raid`. Must be live at the same time as T: a second OBS profile or computer streaming a static "test, please ignore" scene |
-| **M**, the main channel | The project's or maintainer's real channel | Only the cases marked Yes or Caution, and the Affiliate cases |
-| Affiliate or Partner | **Ads, channel points, polls and predictions need an Affiliate or Partner channel**, and so do real subs, cheers and hype trains. A new account can't get there quickly (it needs followers, broadcast days and average viewers) | If M is Affiliate or Partner, run those cases on M, offline where possible. If not, ask a consenting Affiliate to sign in with their own account, or use the Twitch CLI's mock server plus the error path on T |
+| **M**, the main channel | The project's or maintainer's real channel | Only the cases marked Yes or Caution; the Affiliate cases only in a later pass (next row) |
+| Affiliate or Partner | **Ads, channel points, polls and predictions need an Affiliate or Partner channel**, and so do real subs, cheers and hype trains. A new account can't get there quickly (it needs followers, broadcast days and average viewers) | **Not in this pass** (decided on 2026-10-13; `docs/DECISIONS.md`, 2026-10-15): it uses test accounts only, so sections I, J and K are deferred. A later pass runs them on an Affiliate's channel, offline where possible: M if it's Affiliate or Partner, or a consenting Affiliate signed in with their own account. L6 (subs, gifts, cheers, hype trains) is still open: the Twitch CLI's mock server (§4) could stand in for those events in this pass if the maintainer approves the download, or L6 waits for the Affiliate pass |
 
 Use **one browser profile per account**, and check which account the default browser is
 signed in to before pressing Sign in: the device page opens in the default browser and
@@ -297,8 +297,9 @@ public client ID instead is an open decision in `docs/next-steps.md`.
 9. Moderation on V: G1–G9.
 10. H5 (shoutouts), then H1–H4 (raids).
 11. Errors and the token's life: A4–A6, A8–A12, A14, A15, M2–M6, N1, N2.
-12. Affiliate cases, on M or a consenting Affiliate's channel. Offline first: J, then K
-    (cancel predictions to refund). Live last: I2, then I3 (one 30 s ad).
+12. Affiliate cases, deferred to a later pass on an Affiliate's channel (M if it qualifies,
+    or a consenting Affiliate's; §2.1). Offline first: J, then K (cancel predictions to
+    refund). Live last: I2, then I3 (one 30 s ad).
 
 **Never on the main channel:** bans, timeouts, warnings, clearing chat, chat modes and
 Shield Mode during a real stream, AutoMod changes while live, raids.
@@ -343,12 +344,14 @@ Shield Mode during a real stream, AutoMod changes while live, raids.
    $env:PERRITODECK_TWITCH_CLIENT_ID = "<your app's client ID>"
    py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --viewer <V> --raid-target <R> --main-channel <M>
    py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --only B --auto-only
-   py -3 plugins/tools/twitch_live_test.py --broadcaster <M> --main-channel <M> --no-skip-affiliate --only I,J,K
    ```
 
    The first command runs every case the fakes from `test_plugin.py` can answer, answering
    yes by itself; a live run never does. Sections I, J and K are reported as "needs an
-   Affiliate channel" unless `--no-skip-affiliate` is given. The Affiliate channel is usually
+   Affiliate channel" unless `--no-skip-affiliate` is given, and this pass doesn't give it
+   (test accounts only, §2.1). It's for the later pass on an Affiliate's channel:
+   `--broadcaster <M> --main-channel <M> --no-skip-affiliate --only I,J,K` when that's M.
+   The Affiliate channel is usually
    M, so with `--no-skip-affiliate` every other case with a public effect is refused unless
    `--only` names it by its ID, and `--main-channel` is required. A8 and M1 run at the end of stage 11 (M1 not in the
    background, because only one plugin process can hold a sign-in); the tools README lists
@@ -394,10 +397,11 @@ Shield Mode during a real stream, AutoMod changes while live, raids.
 - Checking what appears on twitch.tv: banners, announcements, the shoutout card, the raid
   pop-up, dashboard settings.
 - Revoking the app in Connections; unplugging the network; putting the computer to sleep.
-- Every Affiliate case on the main channel or a friend's channel, and any spending on subs
-  or bits.
+- In the later Affiliate pass: every Affiliate case on the main channel or a friend's
+  channel, and any spending on subs or bits.
 
-**Done when** A–H and L–N pass on Windows with T, V and R; the Affiliate cases are run or
-explicitly deferred; Twitch's real wording and payloads are in the fixtures and
+**Done when** A–H and L–N pass on Windows with T, V and R, L6 only if it runs on the mock
+server (the Affiliate cases are deferred to a later pass, and L6 is still open, §2.1);
+Twitch's real wording and payloads are in the fixtures and
 `plugins/twitch/README.md` ("What's tested"); and each bug found is fixed or listed in
 `docs/next-steps.md`.

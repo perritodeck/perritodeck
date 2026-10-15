@@ -42,8 +42,12 @@ picture on the clipboard: it isn't saved in the folder, and the key says so.
 - **Verified** on Linux X11 (Xvfb, Openbox, ImageMagick `import`, `xclip`): whole screen
   (a 1280×800 PNG), the window in front (found with `xdotool`), and copying the PNG to the
   clipboard, over the real plugin protocol.
-- **Unit-tested only**: Windows (the PowerShell script is checked for its contents and
-  quoting, not run), macOS (`screencapture` arguments), and on Linux `grim`/`slurp`,
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet, one monitor): the
+  window in front, through the PowerShell script. Not tried on Windows yet: the whole
+  screen, an area (Windows' snipping overlay), copying to the clipboard, and monitors
+  set to different scaling (the plugin asks Windows for per-monitor DPI awareness for
+  those).
+- **Unit-tested only**: macOS (`screencapture` arguments), and on Linux `grim`/`slurp`,
   `spectacle`, `gnome-screenshot`, `scrot` and `wl-copy` (arguments only). Picking an area
   was tested with a fake program, not a real one.
 - Known limits: GNOME on Wayland may block `gnome-screenshot` from capturing without a

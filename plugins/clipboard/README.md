@@ -62,11 +62,13 @@ with "put back" off, count as copying: those show up in the history as usual.
   save to a slot, paste a slot and put the old clipboard back, over the real plugin
   protocol. That the paste shortcut landed in an app was not checked (only that
   `xdotool` accepted it).
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet): Paste text
+  pasted the snippet and put the old clipboard back. Not checked by hand on Windows yet:
+  the slots, Copy text, and what reaches the Win+V history.
 - **Tested on Windows 11** without touching your clipboard: the test suite runs the
   clipboard functions in a process moved to a window station of its own, which has a
   separate clipboard (text with emoji and line breaks, emptying, the clipboard-history
-  formats, another program holding the clipboard open). Copy and paste in the app and
-  the Win+V history were not checked by hand yet, and the key presses aren't run.
+  formats, another program holding the clipboard open). The suite doesn't press keys.
 - **Unit-tested only**: the Windows PowerShell fallback, macOS
   (`pbcopy`/`pbpaste`/`osascript` arguments), Wayland (`wl-copy`, `wl-paste`, `wtype`,
   `ydotool` arguments) and `xsel`.

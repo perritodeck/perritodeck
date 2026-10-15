@@ -1,24 +1,39 @@
-Perrito turns an Android tablet or phone into a grid of buttons that control your Windows, macOS or Linux computer. Mute your mic, switch OBS scenes, fire keyboard shortcuts, launch apps, play and pause music, or trigger your smart home — all with one tap.
+Perrito turns an Android tablet or phone into a grid of buttons for your computer. Mute your mic, start a timer, press keyboard shortcuts, type text, open apps and websites, control music, or switch scenes while you stream, all with one tap.
 
 <b>How it works</b>
-Install the free PerritoDeck Host on your computer, open Perrito on your tablet, and connect over Wi-Fi or a USB cable. You design the buttons on your computer; the tablet shows them instantly and live-updates titles and icons.
+Install the free PerritoDeck Host on your Windows or Linux computer, open Perrito on your tablet, and pair them by scanning a QR code or typing a six-digit code. You lay out the buttons on your computer; the tablet shows them straight away and keeps their titles and images up to date. Perrito finds your computer on Wi-Fi by itself. It can also connect over a USB cable, with USB debugging turned on and Android's adb tool on the computer.
 
 <b>Give an old tablet a new job</b>
-Perrito runs on Android 5.1 and newer, including Amazon Fire tablets. That tablet in the drawer has a bigger, sharper screen than most dedicated macro pads.
+Perrito runs on Android 5.1 and newer, including Amazon Fire tablets. That tablet in the drawer has a bigger screen than most macro pads.
+
+<b>What a button can do</b>
+• Keyboard shortcuts, typed text, and media and volume keys
+• Open websites, files and apps, or run a command
+• Several actions in a row, or one picked at random
+• Toggles that show their state, like a mic key that shows when you're muted
+• Sliders for the volume, one app's volume or an OBS audio source
+• Pages, and profiles that can switch by themselves when an app comes to the front
+• Live values on the keys: the time, how busy the computer is, what's playing, OBS's scene and more
+
+<b>Plugins and integrations</b>
+• 24 free plugins come with PerritoDeck Host: timers, clocks and counters, a soundboard, a system monitor, screenshots, switching windows and apps, audio devices, clipboard snippets, what's playing and more OBS controls, plus some for online services, home servers, smart lights and your network that are still experimental
+• Built in: OBS Studio, and Home Assistant (still experimental)
+• Optional: AI assistants that speak the Model Context Protocol can see your buttons and, only if you allow it, press them or build new ones
+
+<b>On the tablet</b>
+• A full-screen grid that fits your screen and turns to match its shape
+• Press several buttons at once, with haptic feedback
+• A ⚠ on the key when an action fails, and a ✓ when a command or a row of actions finishes
+• Several tablets and phones on one computer, each with its own profile
+• Reconnects by itself when Wi-Fi drops
 
 <b>Private by design</b>
 • No account, no sign-up, no cloud
 • No ads, analytics or tracking
-• The tablet talks only to the computer you connect it to
-
-<b>Features</b>
-• Full-screen button grid sized to your screen
-• Press several buttons at once, with haptic feedback
-• Live titles and icons pushed from your computer
-• Reconnects automatically if Wi-Fi drops
-• Works over USB (adb reverse) when Wi-Fi isn't an option
+• The tablet talks only to the computer you pair it with, over an encrypted connection tied to that computer
+• The camera is used only to scan the pairing QR code
 
 <b>Free and open source</b>
-Perrito and PerritoDeck Host are licensed under Apache 2.0, with a documented protocol and an MIT-licensed plugin SDK. Source code, issue tracker and docs: https://perritodeck.dev
+Perrito and PerritoDeck are licensed under Apache 2.0 and the protocol is documented; the plugins and plugin SDKs are MIT-licensed. Source code, guide and issue tracker: https://perritodeck.dev
 
-Perrito is an independent project and is not affiliated with Elgato or Corsair.
+Perrito is an independent project, not affiliated with or endorsed by Elgato, Corsair or any company whose products it works with.

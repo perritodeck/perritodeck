@@ -124,7 +124,9 @@ via `py -3`, and WebView2 154. Two things to know:
 - ~~Installers, autostart at login, uninstall~~: the NSIS installer was tested on
   2026-10-13 (next-steps item 5), including an upgrade with an assistant connected. A bug
   was fixed (an update turned "Start at login" off), and the release notes are in
-  `docs/launch-checklist.md` §7. MSI not built.
+  `docs/launch-checklist.md` §7. The MSI was built once, in CI on 2026-10-11, but has
+  never been installed or tested, and it's stale since then (decision D5 in
+  `docs/plan/phase-8.md`: test it or drop it from the first release).
 - ~~Raw tokens for live values not reported yet, editor title clipping and image-only key
   labels, USB offered on a specific `--listen` address, a tight test limit~~: fixed
   2026-10-13 (next-steps item 6).
@@ -137,10 +139,14 @@ via `py -3`, and WebView2 154. Two things to know:
   item 1): assistants start `perritodeck-mcp` from `<data dir>/bin`; verified with Claude Code
   connected across a quit, rebuild and restart. The updated real-app e2e still needs a Linux
   run.
-- Linux and macOS have not been compiled since these changes (the bring-up was Windows
-  only); the weekly CI or a local build should check them first. Reviewers flagged the Linux
-  text paths (`open_for_user`'s `xdg-open`, X11 hotkeys with shifted symbols) as the risky
-  parts.
+- **Linux** was checked after the bring-up, on 2026-10-12 on a headless Linux machine:
+  host fmt, clippy and tests, the app's check and Playwright tests, plugins, protocol and
+  the real-app e2e (its update for the separate MCP bridge, above, hasn't had a Linux run
+  yet). It hasn't been compiled since the 2026-10-13 commits, and has never run on a real
+  Linux desktop with a tablet. Reviewers flagged the Linux text paths (`open_for_user`'s
+  `xdg-open`, X11 hotkeys with shifted symbols) as the risky parts.
+- **macOS** was last built in CI on 2026-10-11, before the bring-up, and has never run on
+  a real Mac.
 - iOS: never built (needs a Mac).
 - ~~Wi-Fi latency on the Fire 7~~: profiled 2026-10-13 (next-steps item 6). Key presses take
   the same ~12 ms on Wi-Fi as on the cable. Messages the computer starts can wait 0.3–0.9 s

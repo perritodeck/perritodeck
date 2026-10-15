@@ -60,10 +60,15 @@ macOS it matches app and program names only, not window titles.
   `xdotool` 3): switching, going through an app's windows, maximize, restore, minimize,
   close, quit, show the desktop, launching a command, `running` and `focused_app`, over
   the real plugin protocol.
-- **Unit-tested only** (no real system): Windows (the ctypes calls run only on Windows;
-  the tests check the module imports and its structure layout, and mock it), macOS
-  (AppleScript is checked for the arguments it gets, not run), Sway and Hyprland (parsed
-  from sample JSON).
+- **Run on Windows 11** (2026-10-12, in the desktop app with a tablet): Switch to an app,
+  including opening it when it wasn't running, and Quit an app; an app the plugin opened
+  kept running through a plugin restart. Not tried on Windows yet: minimize, maximize,
+  restore, close and Show the desktop. Checked outside the app: with Calculator open,
+  the window list and the window in front report `CalculatorApp.exe`, not the frame
+  Store apps run in. On Windows the test suite also lists the real windows (read-only);
+  the rest of it mocks the ctypes calls.
+- **Unit-tested only** (no real system): macOS (AppleScript is checked for the arguments
+  it gets, not run), Sway and Hyprland (parsed from sample JSON).
 - Known limits: on Windows, Windows may still refuse to bring a window forward and flash
   its taskbar button instead (the key then warns). macOS "maximize" fills the main screen
   rather than entering full screen. Windows of elevated (administrator) apps can't be

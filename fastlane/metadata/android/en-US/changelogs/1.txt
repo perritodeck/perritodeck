@@ -4,5 +4,5 @@ First preview release.
 • Finds your computer on Wi-Fi automatically
 • Full-screen, multi-touch button grid with crisp host-drawn keys
 • Pages, toggles and live clock keys from your profile
-• ✓ / ⚠ feedback after each action
+• ⚠ on a key when its action fails, ✓ when a command finishes
 • Works back to Android 5.1, including Fire tablets
