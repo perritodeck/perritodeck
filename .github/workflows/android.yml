@@ -1,11 +1,12 @@
 name: Android
 
+# docs/assets/**: LauncherIconTest compares the app's icons with their sources there.
 on:
   push:
     branches: [main]
-    paths: ["android/**", "protocol/**", "scripts/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "protocol/**", "scripts/**", "docs/assets/**", ".github/workflows/android.yml"]
   pull_request:
-    paths: ["android/**", "protocol/**", "scripts/**", ".github/workflows/android.yml"]
+    paths: ["android/**", "protocol/**", "scripts/**", "docs/assets/**", ".github/workflows/android.yml"]
   workflow_dispatch:
 
 # A newer push to the same branch makes older runs pointless.

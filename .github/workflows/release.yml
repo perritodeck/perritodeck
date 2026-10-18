@@ -1,8 +1,10 @@
-# Builds every release file for a version tag and puts them in a DRAFT GitHub Release.
+# Builds the release files for a version tag and puts them in a DRAFT GitHub Release.
 # Nothing is published until a maintainer reviews the draft and presses "Publish release".
+# What a release carries is the SHIP list below; everything else builds only by hand.
 #
 # Runs only when a v*.*.* tag is pushed, or by hand (Actions → Release → Run workflow),
-# never on ordinary pushes: it uses macOS minutes, which cost ten times Linux ones.
+# never on ordinary pushes: a run costs Windows minutes (twice Linux), and with "untested"
+# ticked macOS minutes too (ten times Linux).
 # The Android APK must be signed for a tag build, or a manual run that publishes: without the
 # key those fail. A manual run without "publish" builds perrito-X.Y.Z-unsigned.apk instead.
 # Apple and Windows signing are optional; without their secrets those builds are unsigned.
@@ -21,6 +23,10 @@ on:
         description: "Also create or update the draft GitHub Release (off: build only and keep the files as workflow artifacts)"
         type: boolean
         default: false
+      untested:
+        description: "Also build what doesn't ship yet (anything not in SHIP at the top of release.yml), to test it. Workflow artifacts only, so leave publish unticked"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,6 +37,23 @@ concurrency:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+  # SHIP: what a release publishes, besides the files every release has (the Android APK,
+  # SHA256SUMS, third-party-licenses.txt and the plugin catalogue zip). v0.1.0 is Windows and
+  # Android only (decision D5, 2026-10-15; docs/releasing.md). The rest joins a later release
+  # once it's tested on real hardware. A tag build runs only the build jobs for what's listed,
+  # so a platform that isn't listed can't fail the release. A manual run with "untested" ticked
+  # builds the rest too, to test it.
+  # To ship one, add its name here, and update the website pages that "Launch day" in
+  # docs/website.md lists (download links on website/download.html, and the "not yet" lines):
+  #   windows-nsis  perritodeck-X.Y.Z-windows-x64-setup.exe (per user, no admin needed)
+  #   windows-msi   perritodeck-X.Y.Z-windows-x64.msi (per machine; never for a version with
+  #                 a suffix like 0.3.0-rc.1, because MSI versions must be numeric)
+  #   macos         perritodeck-X.Y.Z-macos-universal.dmg
+  #   linux         perritodeck-X.Y.Z-linux-x86_64.AppImage, -linux-amd64.deb, -linux-x86_64.rpm
+  #   cli-windows   perritodeck-host-X.Y.Z-windows-x86_64.zip    (the command-line host)
+  #   cli-linux     perritodeck-host-X.Y.Z-linux-x86_64.tar.gz
+  #   cli-macos     perritodeck-host-X.Y.Z-macos-universal.tar.gz
+  SHIP: windows-nsis
 
 # bash -eo pipefail: a failing command anywhere in a pipe fails the step.
 defaults:
@@ -46,6 +69,9 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       code: ${{ steps.v.outputs.code }}
       prerelease: ${{ steps.v.outputs.prerelease }}
+      ships: ${{ steps.scope.outputs.ships }}
+      desktop: ${{ steps.scope.outputs.desktop }}
+      cli: ${{ steps.scope.outputs.cli }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -62,6 +88,74 @@ jobs:
             echo "code=$code"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
+      # Turns SHIP (top of this file) into the desktop and command-line build matrices. A tag
+      # build, and a manual run that publishes, build what ships and nothing else. A manual run
+      # with "untested" ticked builds everything, as workflow artifacts only.
+      - id: scope
+        name: What this run builds
+        shell: python3 {0}
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          PUBLISHING: ${{ github.event_name == 'push' || inputs.publish }}
+          UNTESTED: ${{ inputs.untested }}
+        run: |
+          import json, os, sys
+
+          # Every desktop and command-line build, and the SHIP name of each file it makes.
+          # Linux builds run on the oldest supported Ubuntu, so they work with glibc 2.35+.
+          DESKTOP = [
+              {"name": "windows", "os": "windows-latest", "target": "",
+               "bundles": {"nsis": "windows-nsis", "msi": "windows-msi"}},
+              {"name": "linux", "os": "ubuntu-22.04", "target": "",
+               "bundles": {"deb": "linux", "rpm": "linux", "appimage": "linux"}},
+              {"name": "macos", "os": "macos-latest", "target": "universal-apple-darwin",
+               "bundles": {"app": "macos", "dmg": "macos"}},
+          ]
+          CLI = [
+              {"name": "linux-x86_64", "os": "ubuntu-22.04", "ship": "cli-linux"},
+              {"name": "windows-x86_64", "os": "windows-latest", "ship": "cli-windows"},
+              {"name": "macos-universal", "os": "macos-latest", "ship": "cli-macos"},
+          ]
+          known = {n for d in DESKTOP for n in d["bundles"].values()} | {c["ship"] for c in CLI}
+
+          def fail(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          ship = list(dict.fromkeys(os.environ["SHIP"].split()))
+          unknown = sorted(set(ship) - known)
+          if unknown:
+              fail(f"SHIP names {', '.join(unknown)}, which this workflow doesn't build. It knows {', '.join(sorted(known))}.")
+          untested = os.environ["UNTESTED"] == "true"
+          if untested and os.environ["PUBLISHING"] == "true":
+              fail('"untested" builds files that don\'t ship, so it works only with "publish" unticked.')
+          build = set(known) if untested else set(ship)
+          ships = set(ship)
+          # MSI versions must be numeric, so a version with a suffix, like 1.2.0-rc.1, has no
+          # MSI. A plain 0.x version is still marked pre-release on GitHub, and keeps its MSI.
+          if "-" in os.environ["VERSION"] and "windows-msi" in build:
+              build.discard("windows-msi")
+              ships.discard("windows-msi")
+              print(f"::notice::No MSI for {os.environ['VERSION']}: MSI versions must be numeric. Windows gets the NSIS installer only.")
+
+          desktop = []
+          for d in DESKTOP:
+              bundles = [b for b, n in d["bundles"].items() if n in build]
+              if bundles:
+                  desktop.append({"name": d["name"], "os": d["os"], "target": d["target"], "bundles": ",".join(bundles)})
+          cli = [{"name": c["name"], "os": c["os"]} for c in CLI if c["ship"] in build]
+
+          shipping = " ".join(n for n in ship if n in ships)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"ships={shipping}\n")
+              # Empty when there's nothing to build, which skips the job: an empty matrix is an error.
+              out.write(f"desktop={json.dumps({'include': desktop}) if desktop else ''}\n")
+              out.write(f"cli={json.dumps({'include': cli}) if cli else ''}\n")
+          desktop_builds = ", ".join("%s (%s)" % (d["name"], d["bundles"]) for d in desktop) or "none"
+          cli_builds = ", ".join(c["name"] for c in cli) or "none"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"Ships: {shipping or 'nothing'}, plus the APK, the licences and the plugin catalogue.\n\n")
+              summary.write(f"Desktop builds: {desktop_builds}. Command-line builds: {cli_builds}.\n")
 
   android:
     name: Android APK
@@ -251,18 +345,14 @@ jobs:
   cli:
     name: Command-line host (${{ matrix.name }})
     needs: [check-version, licences]
+    # Skipped when SHIP has no cli-* name and "untested" isn't ticked, as for v0.1.0.
+    if: needs.check-version.outputs.cli != ''
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # The oldest supported runner, so the binary runs on older glibc (2.35+).
-          - os: ubuntu-22.04
-            name: linux-x86_64
-          - os: windows-latest
-            name: windows-x86_64
-          - os: macos-latest
-            name: macos-universal
+      # linux-x86_64, windows-x86_64 and macos-universal, as SHIP and "untested" choose
+      # (check-version's "What this run builds" step).
+      matrix: ${{ fromJSON(needs.check-version.outputs.cli) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -318,24 +408,15 @@ jobs:
   desktop:
     name: Desktop app (${{ matrix.name }})
     needs: [check-version, licences]
+    # Skipped only when SHIP has no desktop file and "untested" isn't ticked.
+    if: needs.check-version.outputs.desktop != ''
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: windows
-            bundles: nsis,msi
-            target: ""
-          # AppImage and .deb built on the oldest supported Ubuntu run on more distributions.
-          - os: ubuntu-22.04
-            name: linux
-            bundles: deb,rpm,appimage
-            target: ""
-          - os: macos-latest
-            name: macos
-            bundles: app,dmg
-            target: universal-apple-darwin
+      # windows (nsis, msi), linux (deb, rpm, appimage) and macos (app, dmg), as SHIP and
+      # "untested" choose (check-version's "What this run builds" step). For v0.1.0 a tag
+      # builds windows with nsis only.
+      matrix: ${{ fromJSON(needs.check-version.outputs.desktop) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -401,8 +482,8 @@ jobs:
           unset APPLE_API_KEY_P8_BASE64
           # Windows code signing isn't set up yet (see docs/releasing.md); installers are unsigned.
 
-          # MSI versions must be numeric, so pre-releases like 1.2.0-rc.1 ship the NSIS installer only.
-          case "$VERSION" in *-*) BUNDLES="${BUNDLES//,msi/}" ;; esac
+          # A version with a suffix (like 1.2.0-rc.1) never gets "msi" in BUNDLES: check-version
+          # leaves it out, because MSI versions must be numeric.
           # Puts third-party-licenses.txt in the app's resource folder. Tauri merges --config
           # into tauri.conf.json as a JSON merge patch, so the plugin resources stay as they are.
           # It's added here rather than in tauri.conf.json because the file exists only in CI.
@@ -413,6 +494,7 @@ jobs:
       - name: Collect
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
+          BUNDLES: ${{ matrix.bundles }}
           TARGET: ${{ matrix.target }}
         run: |
           b=src-tauri/target/release/bundle
@@ -427,10 +509,12 @@ jobs:
             [ "${#files[@]}" -eq 1 ] || { echo "::error::Expected one $1, found ${#files[@]}"; exit 1; }
             cp "${files[0]}" "$out/$2"
           }
+          # Was this bundle asked for? Each one that was must be there.
+          built() { [[ ",$BUNDLES," == *",$1,"* ]]; }
           case "$RUNNER_OS" in
             Windows)
-              one 'nsis/*-setup.exe' "perritodeck-$VERSION-windows-x64-setup.exe"
-              [ -d "$b/msi" ] && one 'msi/*.msi' "perritodeck-$VERSION-windows-x64.msi"
+              if built nsis; then one 'nsis/*-setup.exe' "perritodeck-$VERSION-windows-x64-setup.exe"; fi
+              if built msi; then one 'msi/*.msi' "perritodeck-$VERSION-windows-x64.msi"; fi
               ;;
             Linux)
               one 'deb/*.deb' "perritodeck-$VERSION-linux-amd64.deb"
@@ -473,7 +557,18 @@ jobs:
   publish:
     name: Draft GitHub Release
     needs: [check-version, licences, android, cli, desktop, catalogue]
-    if: github.event_name == 'push' || inputs.publish
+    # For a tag, or a manual run with "publish" ticked. Every job it needs must succeed, except
+    # that the command-line and desktop jobs may be skipped when SHIP lists nothing of theirs.
+    # A publishing run never builds what doesn't ship, so every leg that ran is one that ships.
+    if: >-
+      !cancelled()
+      && (github.event_name == 'push' || inputs.publish)
+      && needs.check-version.result == 'success'
+      && needs.licences.result == 'success'
+      && needs.android.result == 'success'
+      && needs.catalogue.result == 'success'
+      && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped')
+      && (needs.cli.result == 'success' || needs.cli.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -487,6 +582,32 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
+      # The draft gets what SHIP lists plus the files every release has, and nothing else.
+      - name: Check the files
+        working-directory: dist
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          SHIPS: ${{ needs.check-version.outputs.ships }}
+        run: |
+          v="$VERSION"
+          expected=("perrito-$v.apk" "third-party-licenses.txt" "perritodeck-$v-plugin-catalogue.zip")
+          for name in $SHIPS; do
+            case "$name" in
+              windows-nsis) expected+=("perritodeck-$v-windows-x64-setup.exe") ;;
+              windows-msi) expected+=("perritodeck-$v-windows-x64.msi") ;;
+              macos) expected+=("perritodeck-$v-macos-universal.dmg") ;;
+              linux) expected+=("perritodeck-$v-linux-x86_64.AppImage" "perritodeck-$v-linux-amd64.deb" "perritodeck-$v-linux-x86_64.rpm") ;;
+              cli-linux) expected+=("perritodeck-host-$v-linux-x86_64.tar.gz") ;;
+              cli-windows) expected+=("perritodeck-host-$v-windows-x86_64.zip") ;;
+              cli-macos) expected+=("perritodeck-host-$v-macos-universal.tar.gz") ;;
+              *) echo "::error::No file names are known for \"$name\" in SHIP."; exit 1 ;;
+            esac
+          done
+          if ! diff <(printf '%s\n' "${expected[@]}" | sort) <(ls -1A | sort); then
+            echo "::error::The files to attach aren't the ones SHIP lists. Lines with < are missing, lines with > shouldn't be there."
+            exit 1
+          fi
+          printf '%s\n' "${expected[@]}"
       - name: Checksums
         working-directory: dist
         run: |
@@ -499,21 +620,25 @@ jobs:
           VERSION: ${{ needs.check-version.outputs.version }}
           CODE: ${{ needs.check-version.outputs.code }}
           CERT: ${{ needs.android.outputs.cert_sha256 }}
+          SHIPS: ${{ needs.check-version.outputs.ships }}
         run: |
           # The Android job only lets a publishing run through with a signed APK.
           [ -n "$CERT" ] || { echo "::error::The Android job reported no certificate fingerprint."; exit 1; }
           # keytool and some apps show the same fingerprint in capitals with colons.
           cert_colons=$(printf '%s' "$CERT" | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
+          ships() { [[ " $SHIPS " == *" $1 "* ]]; }
           {
             echo "## Downloads"
             echo
             echo "| | File |"
             echo "|---|---|"
-            echo "| Windows 10/11 | \`perritodeck-$VERSION-windows-x64-setup.exe\` (installs for you, no admin needed) or \`.msi\` (all users) |"
-            echo "| macOS 10.15+ (Intel and Apple silicon) | \`perritodeck-$VERSION-macos-universal.dmg\` |"
-            echo "| Linux x86_64 | \`.AppImage\`, \`.deb\` (Debian, Ubuntu) or \`.rpm\` (Fedora, openSUSE) |"
+            # A row for each platform SHIP lists, then the files every release has.
+            if ships windows-nsis; then echo "| Windows 10/11 | \`perritodeck-$VERSION-windows-x64-setup.exe\` (installs for you, no admin needed) |"; fi
+            if ships windows-msi; then echo "| Windows 10/11, for all users | \`perritodeck-$VERSION-windows-x64.msi\` |"; fi
+            if ships macos; then echo "| macOS 10.15+ (Intel and Apple silicon) | \`perritodeck-$VERSION-macos-universal.dmg\` |"; fi
+            if ships linux; then echo "| Linux x86_64 | \`.AppImage\`, \`.deb\` (Debian, Ubuntu) or \`.rpm\` (Fedora, openSUSE) |"; fi
             echo "| Android 5.1+ | \`perrito-$VERSION.apk\` |"
-            echo "| Command-line host | \`perritodeck-host-$VERSION-<os>\` archives |"
+            if [[ " $SHIPS " == *" cli-"* ]]; then echo "| Command-line host | \`perritodeck-host-$VERSION-<os>\` archives |"; fi
             echo "| Plugin catalogue | \`perritodeck-$VERSION-plugin-catalogue.zip\` (what perritodeck.dev/plugins/ serves) |"
             echo "| Licences | \`third-party-licenses.txt\`: the licence texts of the open-source code PerritoDeck is built on |"
             echo
