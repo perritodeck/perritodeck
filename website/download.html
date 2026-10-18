@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download — PerritoDeck</title>
-  <meta name="description" content="Download PerritoDeck Host for Windows, macOS and Linux, and Perrito for Android tablets and phones. Free and open source.">
+  <meta name="description" content="Download PerritoDeck for Windows and Perrito for Android tablets and phones. On Linux, build it from source for now. Free and open source.">
   <link rel="canonical" href="https://perritodeck.dev/download">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="PerritoDeck">
   <meta property="og:url" content="https://perritodeck.dev/download">
   <meta property="og:title" content="Download — PerritoDeck">
-  <meta property="og:description" content="Download PerritoDeck Host for Windows, macOS and Linux, and Perrito for Android tablets and phones. Free and open source.">
+  <meta property="og:description" content="Download PerritoDeck for Windows and Perrito for Android tablets and phones. On Linux, build it from source for now. Free and open source.">
   <meta property="og:image" content="https://perritodeck.dev/img/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -50,12 +50,12 @@
       <div class="page-head">
         <h1>Download PerritoDeck</h1>
         <p class="updated">Version 0.1.0 · free and open source · no account needed</p>
-        <p class="lede">You need two things: <strong>PerritoDeck Host</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The host does what your buttons ask, and the tablet shows them.</p>
+        <p class="lede">You need two things: <strong>PerritoDeck</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The computer does what your buttons ask, and the tablet shows them.</p>
       </div>
       <p class="notice"><strong>Not released yet.</strong> PerritoDeck is in early development, and the download links below start working on launch day. Until then, you can <a href="#source">build it from the source code</a>.</p>
 
-      <h2 id="computer">1. Install the host on your computer</h2>
-      <p class="lead-in">The desktop app sits in your tray, pairs tablets, and lets you lay out your buttons.</p>
+      <h2 id="computer">1. Install PerritoDeck on your computer</h2>
+      <p class="lead-in">The desktop app sits in your tray, pairs tablets, and lets you lay out your buttons. This release has an installer for Windows. On Linux, build it from source for now. The Mac version isn't ready yet.</p>
 
       <div class="os-grid">
         <article class="os-card" data-os="windows">
@@ -64,34 +64,27 @@
           <p>Windows 10 or 11, 64-bit. Installs just for you, no administrator needed.</p>
           <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64-setup.exe">Download installer (.exe)</a>
           <ul class="more">
-            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64.msi">MSI package</a> for all users and managed PCs</li>
             <li><code>winget</code> package coming</li>
           </ul>
           <p class="needs">Uses Microsoft Edge WebView2, which Windows 11 already has. The installer adds it on Windows 10 if it's missing.</p>
         </article>
 
-        <article class="os-card" data-os="mac">
-          <h3>macOS <span class="yours">Your system</span></h3>
-          <p class="state">Not built yet: the Mac version is written but untested</p>
-          <p>macOS 10.15 Catalina or newer. One app for Apple silicon and Intel Macs.</p>
-          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-macos-universal.dmg">Download for Mac (.dmg)</a>
-          <ul class="more">
-            <li>Homebrew cask coming</li>
-          </ul>
-          <p class="needs">To press keys for you, PerritoDeck asks for Accessibility access in System Settings → Privacy &amp; Security.</p>
-        </article>
-
         <article class="os-card" data-os="linux">
           <h3>Linux <span class="yours">Your system</span></h3>
-          <p class="state ok">Tested in automated and cloud test runs</p>
-          <p>64-bit (x86_64), X11 or Wayland. The AppImage runs on most distributions.</p>
-          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-x86_64.AppImage">Download AppImage</a>
+          <p class="state">Build from source for now</p>
+          <p>64-bit (x86_64), X11 or Wayland. Tested in automated test runs, but not yet on a Linux desktop with a tablet, so this release has no Linux packages.</p>
+          <a class="button secondary" href="#source">How to build it</a>
           <ul class="more">
-            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-amd64.deb">.deb</a> for Debian, Ubuntu, Mint</li>
-            <li><a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-linux-x86_64.rpm">.rpm</a> for Fedora, openSUSE</li>
-            <li>Flathub and AUR coming</li>
+            <li>Packages come in a later release, once tested on real hardware</li>
           </ul>
           <p class="needs">Needs WebKitGTK 4.1 (Ubuntu 22.04, Debian 12, Fedora 36 or newer). On Wayland, your desktop asks once per start to allow keyboard and mouse control.</p>
+        </article>
+
+        <article class="os-card" data-os="mac">
+          <h3>macOS <span class="yours">Your system</span></h3>
+          <p class="state">Not yet</p>
+          <p>The Mac version is written for macOS 10.15 Catalina or newer, Apple silicon and Intel, but it hasn't been tried on a real Mac. It comes in a later release, once it has been.</p>
+          <p class="needs">To press keys for you, PerritoDeck asks for Accessibility access in System Settings → Privacy &amp; Security.</p>
         </article>
       </div>
 
@@ -109,8 +102,8 @@
       <h2 id="requirements">System requirements</h2>
       <table class="download-table">
         <tr><th scope="row">Windows</th><td>Windows 10 or 11, 64-bit, with WebView2 (installed automatically if missing)</td></tr>
-        <tr><th scope="row">macOS</th><td>macOS 10.15 or newer, Apple silicon or Intel</td></tr>
-        <tr><th scope="row">Linux</th><td>x86_64 with GTK 3 and WebKitGTK 4.1; a tray that supports AppIndicator/StatusNotifier (GNOME needs the AppIndicator extension). Wayland input uses the Remote Desktop portal (GNOME and KDE Plasma).</td></tr>
+        <tr><th scope="row">Linux</th><td>Built from source for now. x86_64 with GTK 3 and WebKitGTK 4.1; a tray that supports AppIndicator/StatusNotifier (GNOME needs the AppIndicator extension). Wayland input uses the Remote Desktop portal (GNOME and KDE Plasma).</td></tr>
+        <tr><th scope="row">macOS</th><td>Not in this release. The Mac version is written for macOS 10.15 or newer, Apple silicon or Intel.</td></tr>
         <tr><th scope="row">Tablet or phone</th><td>Android 5.1 (Fire OS 5) or newer, on the same Wi-Fi as the computer or connected by USB</td></tr>
         <tr><th scope="row">Plugins (optional)</th><td>The plugins that come with PerritoDeck (OBS, Proxmox, timers and more) need <strong>Python 3</strong>. Plugins written in JavaScript, and Stream Deck plugins, need <strong>Node.js 20 or newer</strong>. Without them, everything else works.</td></tr>
         <tr><th scope="row">USB connection (optional)</th><td>Android's <code>adb</code> tool (Android SDK Platform-Tools) on the computer</td></tr>
@@ -127,21 +120,19 @@
       <p>Until the apps are code-signed, your system warns you the first time you open them. That's expected for any app without a paid certificate, and you can check the file yourself first (below).</p>
       <ul>
         <li><strong>Windows:</strong> SmartScreen says "Windows protected your PC". Click <em>More info</em>, then <em>Run anyway</em>.</li>
-        <li><strong>macOS:</strong> if macOS says the app can't be opened, open System Settings → Privacy &amp; Security and click <em>Open Anyway</em> next to the PerritoDeck message.</li>
-        <li><strong>Linux AppImage:</strong> make it executable first: <code>chmod +x perritodeck-*.AppImage</code>.</li>
         <li><strong>Android:</strong> the APK is signed (<a href="#android-certificate">see below</a>), but Android still asks before your browser or file manager installs an app from outside an app store. Allow it when it asks.</li>
       </ul>
 
       <h2 id="verify">Check your download</h2>
       <p>Each release comes with a file called <a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a> that lists a SHA-256 checksum, a fingerprint of the exact bytes, for every file. If your file's checksum matches its line there, you got exactly what was built from the published source, with nothing changed or cut off along the way. Download SHA256SUMS into the same folder, then run:</p>
-      <p class="os-label">Linux</p>
-      <pre><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
-      <p class="os-label">macOS</p>
-      <pre><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
-      <p>(If your <code>shasum</code> doesn't know <code>--ignore-missing</code>, run <code>shasum -a 256 perritodeck-0.1.0-macos-universal.dmg</code> and compare by eye.)</p>
       <p class="os-label">Windows (PowerShell)</p>
       <pre><code>Get-FileHash .\perritodeck-0.1.0-windows-x64-setup.exe -Algorithm SHA256</code></pre>
-      <p>On Linux and macOS each file should say <code>OK</code>. On Windows, compare the long hash with the line for that file in SHA256SUMS (upper or lower case doesn't matter).</p>
+      <p class="os-label">Linux, for the APK</p>
+      <pre><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
+      <p class="os-label">macOS, for the APK</p>
+      <pre><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
+      <p>(If your <code>shasum</code> doesn't know <code>--ignore-missing</code>, run <code>shasum -a 256 perrito-0.1.0.apk</code> and compare by eye.)</p>
+      <p>On Windows, compare the long hash with the line for that file in SHA256SUMS (upper or lower case doesn't matter); <code>Get-FileHash</code> works the same for the APK. On Linux and macOS each file should say <code>OK</code>.</p>
       <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums.</p>
 
       <h3 class="os-label" id="android-certificate">Android: the signing certificate</h3>
@@ -153,10 +144,10 @@
       <p>The line with <code>certificate SHA-256 digest:</code> should end in the fingerprint above, and there should be no <code>ERROR</code> lines (warnings about files in <code>META-INF/</code> are normal). Some tools show the fingerprint in capitals with colons between the pairs; it's the same value. If it doesn't match, don't install the file. Android won't install an update signed with a different key over the app you have, so this check matters most the first time. For the same reason, a copy from F-Droid or Google Play can't be updated with the APK from here, or the other way round.</p>
 
       <h2 id="cli">Command-line host</h2>
-      <p>For servers, kiosks and scripting: the same host without a window, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. It's in the release as <code>perritodeck-host-0.1.0-linux-x86_64.tar.gz</code>, <code>-windows-x86_64.zip</code> and <code>-macos-universal.tar.gz</code>. Run <code>perritodeck-host --pair</code> to pair a tablet.</p>
+      <p>For servers, kiosks and scripting: the same host without a window, <code>perritodeck-host</code>, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. They aren't downloads in this release: <a href="#source">build them from source</a> with Rust, then in <code>host/</code> run <code>cargo run -p perritodeck-host -- --pair</code> to pair a tablet.</p>
 
       <h2 id="source">Build it yourself</h2>
-      <p>Until the first release, this is the way to try PerritoDeck. Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). You need:</p>
+      <p>Until the first release, this is the way to try PerritoDeck. On Linux, it's the way to run it for now. Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). You need:</p>
       <ul>
         <li><strong>Rust</strong> (<a href="https://rustup.rs/">rustup</a>; the right version installs itself) and <strong>Node.js 22 or newer</strong>, for the desktop app.</li>
         <li><strong>JDK 17</strong> and the Android SDK, for Perrito. Android Studio brings both.</li>

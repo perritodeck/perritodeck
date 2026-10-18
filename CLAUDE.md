@@ -46,7 +46,7 @@ the keyboard), and `plugins/PROTOCOL.md` for plugins.
 | Stream Deck plugin host (`.sdPlugin`) | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
 | Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py`; `python3 plugins/build_catalog.py` builds the online catalogue |
 | iOS/iPadOS app (SwiftUI + `PerritoKit` package, needs a Mac) | `ios/` | `cd ios/PerritoKit && swift test`; `cd ios && xcodegen` then Xcode |
-| Website | `website/` | static; open `index.html`. `py -3 -m unittest test_build_catalog` in `plugins/` checks the pages and stylesheets for anything the CSP in `website/_headers` would block |
+| Website | `website/` | static; open `index.html`; notes and deploy steps in `docs/website.md`. `py -3 -m unittest test_build_catalog` in `plugins/` checks the pages and stylesheets for anything the CSP in `website/_headers` would block |
 | Licences | repo root | `py -3 scripts/third-party-notices.py --check` (rerun without `--check` after a dependency change); `cargo deny check licenses bans sources` in `host/` |
 
 The host keeps its data in the per-user config folder: `%APPDATA%\perritodeck\PerritoDeck\config`

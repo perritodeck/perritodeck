@@ -110,7 +110,7 @@
   <p>A firewall usually drops a blocked connection without answering, so the tablet's connection times out. A refusal means the address has no PerritoDeck listening, so that doesn't count. Windows Firewall also drops connections while PerritoDeck isn't running, so once the tablet gets in over the cable it tries the Wi-Fi address once more before saying anything. If that still times out, it tells the computer in its <code>hello</code> (<code>networkFailed</code>). On Windows, PerritoDeck reads the firewall's rules (it never changes them): an enabled inbound rule for its program, or for TCP port 46710, on the network types in use.</p>
 </div>
 
-<h3 id="didnt-start">"The host didn't start"</h3>
+<h3 id="didnt-start">"PerritoDeck couldn't start"</h3>
 <p>Only one PerritoDeck can run on a computer at a time, because they'd all want the same port. If you see this message, another copy is already running, perhaps the command-line version in a terminal. Quit it and open PerritoDeck again. The message also shows the exact error, which helps if it's something else.</p>
 
 <h2 id="pairing">Pairing problems</h2>

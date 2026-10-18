@@ -1,5 +1,6 @@
-# Response headers for Cloudflare Pages (see docs/website.md, "Deploy"). Rules match the request
-# path, and Pages serves pages without ".html", so use /* rather than /*.html. A header set
+# Response headers for the site on Cloudflare (a Worker with static assets, which reads this
+# file as Pages does; see docs/website.md, "Deploy"). Rules match the request path, and pages
+# are served without ".html", so use /* rather than /*.html. A header set
 # by two matching rules is joined with a comma, which for Content-Security-Policy means two
 # policies that must both pass: keep the one CSP rule below.
 #
@@ -15,6 +16,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
   X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
   X-Robots-Tag: noindex
 # ^ TEMPORARY: the X-Robots-Tag line keeps search engines out until the public launch.
 #   Delete it on public launch day.
