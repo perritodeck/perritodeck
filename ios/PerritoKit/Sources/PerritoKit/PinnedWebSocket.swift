@@ -28,7 +28,7 @@ public enum PinPolicy: Sendable, Equatable {
 /// Call `close()` when done — the URLSession holds its delegate (this object) until then.
 public final class PinnedWebSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     public static let pinMismatchMessage =
-        "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
+        "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck on your computer, pair again."
 
     public let events: AsyncStream<SocketEvent>
     private let continuation: AsyncStream<SocketEvent>.Continuation
@@ -176,7 +176,7 @@ public final class PinnedWebSocket: NSObject, URLSessionWebSocketDelegate, @unch
         reason: Data?
     ) {
         let text = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        finish(.closed(reason: text.isEmpty ? "host closed the connection" : text))
+        finish(.closed(reason: text.isEmpty ? "the computer closed the connection" : text))
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -202,7 +202,7 @@ public final class PinnedWebSocket: NSObject, URLSessionWebSocketDelegate, @unch
             return
         }
         guard let fingerprint = Self.leafFingerprint(trust) else {
-            finish(.failure(reason: "host sent no certificate", pinMismatch: false))
+            finish(.failure(reason: "the computer sent no certificate", pinMismatch: false))
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }

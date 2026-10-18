@@ -312,7 +312,7 @@ class DeckConnection(
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
-                events.trySend(WsEvent.Closed(reason.ifEmpty { "host closed the connection" }))
+                events.trySend(WsEvent.Closed(reason.ifEmpty { "the computer closed the connection" }))
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 events.trySend(WsEvent.Closed(reason.ifEmpty { "connection closed" }))
@@ -346,7 +346,7 @@ class DeckConnection(
                         val decoded = try {
                             Codec.decode(event.text)
                         } catch (e: UnsupportedVersionException) {
-                            return SessionEnd.Fatal("The host speaks a newer protocol. Update Perrito.")
+                            return SessionEnd.Fatal("PerritoDeck on the computer speaks a newer protocol. Update Perrito.")
                         } catch (e: ProtocolException) {
                             continue // a single bad frame isn't worth dropping the session
                         }
@@ -471,7 +471,7 @@ class DeckConnection(
             url.substringAfter("://").substringBefore('/').substringBeforeLast(':').removeSurrounding("[", "]")
 
         const val PIN_MISMATCH =
-            "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck Host, pair again."
+            "This isn't the computer you paired with — its identity changed. If you reinstalled PerritoDeck on your computer, pair again."
 
         /** Slider moves are sent at most this often while dragging. */
         const val SLIDER_INTERVAL_MS = 50L

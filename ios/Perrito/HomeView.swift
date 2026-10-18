@@ -19,7 +19,7 @@ struct HomeView: View {
                 Text("Perrito")
                     .font(.largeTitle.weight(.bold))
                 Spacer().frame(height: 4)
-                Text("Your \(DeviceInfo.model)'s button deck. Pair it with a computer running PerritoDeck Host.")
+                Text("Your \(DeviceInfo.model)'s button deck. Pair it with a computer running PerritoDeck.")
                     .foregroundColor(Theme.muted)
 
                 if let notice = model.notice {
@@ -66,7 +66,7 @@ struct HomeView: View {
 
                 if model.paired.isEmpty && unpairedFound.isEmpty {
                     Spacer().frame(height: 12)
-                    Text("Start PerritoDeck Host on your computer. It shows a QR code you can scan with this \(DeviceInfo.model)'s camera, or a 6-digit code to enter here.")
+                    Text("Open PerritoDeck on your computer and choose Pair a tablet. It shows a QR code you can scan with this \(DeviceInfo.model)'s camera, or a 6-digit code to enter here.")
                         .foregroundColor(Theme.muted)
                 }
             }

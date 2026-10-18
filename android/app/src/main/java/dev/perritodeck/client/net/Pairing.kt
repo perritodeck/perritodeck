@@ -61,7 +61,7 @@ object Pairing {
         throw e
     } catch (e: Exception) {
         currentCoroutineContext().ensureActive() // cancelled: the socket was closed on purpose
-        throw PairingException("Couldn't reach $host:$port — is PerritoDeck Host running, and on the same network? (${e.message})")
+        throw PairingException("Couldn't reach $host:$port — is PerritoDeck running on the computer, and is the computer on the same network? (${e.message})")
     }
 
     /**

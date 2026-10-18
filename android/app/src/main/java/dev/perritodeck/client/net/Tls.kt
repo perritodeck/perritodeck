@@ -70,11 +70,11 @@ class PinningTrustManager(private val expected: String?) : X509TrustManager {
         private set
 
     override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-        val leaf = chain?.firstOrNull() ?: throw CertificateException("host sent no certificate")
+        val leaf = chain?.firstOrNull() ?: throw CertificateException("the computer sent no certificate")
         val fp = Fingerprint.of(leaf.encoded)
         seen = fp
         if (expected != null && fp != expected) {
-            throw CertificateException("This isn't the computer you paired with (fingerprint changed). Pair again if you reinstalled the host.")
+            throw CertificateException("This isn't the computer you paired with (fingerprint changed). Pair again if you reinstalled PerritoDeck on your computer.")
         }
     }
 

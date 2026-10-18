@@ -47,7 +47,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Perrito uses the camera only to read the pairing QR code your computer shows.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Perrito finds and connects to PerritoDeck Host on computers on your network.</string>
+	<string>Perrito finds and connects to PerritoDeck on computers on your network.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

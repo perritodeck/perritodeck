@@ -126,14 +126,14 @@ test("explains when the host can't start", async ({ page }) => {
     const t = setInterval(() => {
       const m = (window as unknown as { __perritoMock?: { failToStart(s: string): void } }).__perritoMock;
       if (m) {
-        m.failToStart("could not listen on 0.0.0.0:46710 — is another PerritoDeck host already running?");
+        m.failToStart("could not listen on 0.0.0.0:46710 — is PerritoDeck already running somewhere else?");
         clearInterval(t);
       }
     }, 1);
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "The host didn't start" })).toBeVisible();
-  await expect(page.getByText(/another PerritoDeck host already running/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PerritoDeck couldn't start" })).toBeVisible();
+  await expect(page.getByText(/PerritoDeck already running somewhere else/)).toBeVisible();
 });
 
 test("settings say when integrations.toml has a mistake", async ({ page }) => {

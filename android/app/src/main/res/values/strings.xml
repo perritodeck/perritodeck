@@ -11,11 +11,11 @@
     <string name="latency">%1$s · %2$.1f ms</string>
     <string name="key_description">Key %1$d: %2$s</string>
     <string name="slider_description">%1$s slider, %2$d percent</string>
-    <string name="home_subtitle">Your tablet\'s button deck. Pair it with a computer running PerritoDeck Host.</string>
+    <string name="home_subtitle">Your tablet\'s button deck. Pair it with a computer running PerritoDeck.</string>
     <string name="home_your_computers">Your computers</string>
     <string name="home_found">Found on this network</string>
     <string name="home_on_network">On this network</string>
-    <string name="home_empty">Start PerritoDeck Host on your computer. It shows a QR code you can scan with this tablet\'s camera, or a 6-digit code to enter here.</string>
+    <string name="home_empty">Open PerritoDeck on your computer and choose Pair a tablet. It shows a QR code you can scan with this tablet\'s camera, or a 6-digit code to enter here.</string>
     <string name="forget">Forget</string>
     <string name="pair_button">Pair</string>
     <string name="pair_with_code">Pair with a code</string>
@@ -29,7 +29,7 @@
     <string name="pair_matches">It matches</string>
     <string name="pair_mismatch">It doesn\'t match</string>
     <string name="scan_button">Scan QR code</string>
-    <string name="scan_hint">Point the camera at the QR code PerritoDeck Host shows on your computer.</string>
+    <string name="scan_hint">Point the camera at the QR code PerritoDeck shows on your computer.</string>
     <string name="scan_permission_denied">Perrito needs the camera only to read the pairing code. You can also pair by typing the 6-digit code instead.</string>
     <string name="scan_allow">Allow camera</string>
     <string name="back">Back</string>

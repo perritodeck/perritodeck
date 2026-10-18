@@ -137,7 +137,7 @@
   <main>
     {#if startError}
       <section class="failed" role="alert">
-        <h1>The host didn't start</h1>
+        <h1>PerritoDeck couldn't start</h1>
         <p class="selectable">{startError}</p>
         <p>
           If another PerritoDeck is already running (the app or <code>perritodeck-host</code> in a terminal),

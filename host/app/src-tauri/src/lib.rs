@@ -600,7 +600,7 @@ async fn get_diagnostics(app: State<'_, App>) -> Res<String> {
                     &perritodeck_host::default_profile_path(&dir),
                 );
                 report.app_version = Some(version.to_owned());
-                let mut why = perritodeck_host::diagnostics::Section::new("The host didn't start");
+                let mut why = perritodeck_host::diagnostics::Section::new("PerritoDeck couldn't start");
                 why.line(e);
                 report.sections.insert(0, why);
                 report.render()

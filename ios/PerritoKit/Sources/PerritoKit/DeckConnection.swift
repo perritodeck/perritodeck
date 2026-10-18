@@ -200,7 +200,7 @@ public final class DeckConnection: ObservableObject {
                 do {
                     decoded = try Codec.decode(text)
                 } catch ProtocolError.unsupportedVersion(_) {
-                    return .fatal(reason: "The host speaks a newer protocol. Update Perrito.", notPaired: false)
+                    return .fatal(reason: "PerritoDeck on the computer speaks a newer protocol. Update Perrito.", notPaired: false)
                 } catch {
                     continue // a single bad frame isn't worth dropping the session
                 }

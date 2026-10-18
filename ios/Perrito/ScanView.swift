@@ -41,7 +41,7 @@ struct ScanView: View {
             }
             VStack {
                 Spacer()
-                Text("Point the camera at the QR code PerritoDeck Host shows on your computer.")
+                Text("Point the camera at the QR code PerritoDeck shows on your computer.")
                     .foregroundColor(Theme.muted)
                     .multilineTextAlignment(.center)
                 Button("Cancel", action: onCancel)

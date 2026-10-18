@@ -565,7 +565,7 @@ impl Host {
 
         let addr = SocketAddr::new(opts.listen, opts.port);
         let listener = TcpListener::bind(addr).await.with_context(|| {
-            format!("could not listen on {addr} — is another PerritoDeck host already running?")
+            format!("could not listen on {addr} — is PerritoDeck already running somewhere else?")
         })?;
         let addr = listener.local_addr().unwrap_or(addr);
 

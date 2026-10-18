@@ -40,7 +40,7 @@ public func withTimeout<T: Sendable>(
 public enum Pairing {
     /// Reach the host and return its certificate fingerprint (for the person to compare).
     public static func probe(host: String, port: Int, timeout: Double = 5) async throws -> String {
-        let reach = "Couldn't reach \(host):\(port) — is PerritoDeck Host running, and on the same network?"
+        let reach = "Couldn't reach \(host):\(port) — is PerritoDeck running on the computer, and is the computer on the same network?"
         guard let url = URL(string: webSocketURLString(host: host, port: port)) else {
             throw PairingError("\(reach) (invalid address)")
         }
