@@ -12,6 +12,9 @@
 # no-transform keeps Cloudflare from rewriting pages at the edge: no Web Analytics beacon
 # (the zone had automatic injection on without anyone turning it on, against the privacy page), no
 # email obfuscation, no Rocket Loader. Keep it even with Web Analytics off in the dashboard.
+# It replaces the host's default "public, max-age=0, must-revalidate" on pages; they carry an
+# ETag and no Last-Modified, so browsers still revalidate them on every visit. The /fonts/
+# and /img/ rules below add their lifetimes to it (two rules setting a header are joined).
 
 /*
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
