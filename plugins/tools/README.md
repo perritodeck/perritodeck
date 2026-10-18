@@ -53,10 +53,12 @@ py -3 plugins/tools/twitch_live_test.py --broadcaster <T> --viewer <V> --raid-ta
   B1's second half (T live).
 - The long cases are A8 (`--validate-minutes`, 75 by default), M1 (`--soak-minutes`, 120)
   and L10 (`--l10-minutes`, 10). Set one to 0 to skip it. A8 and M1 run at the end of
-  stage 11 (see below).
+  stage 11, A8 first, as the plan's order says. M1 doesn't run in the background: only
+  one plugin process may hold a sign-in.
 - Sections I, J and K report "needs an Affiliate channel" unless you pass
   `--no-skip-affiliate`. The current pass uses test accounts only and doesn't pass it: the
-  Affiliate cases are deferred to a later pass (`docs/DECISIONS.md`, 2026-10-15), which
+  Affiliate cases are deferred to a later pass (decided on 2026-10-13;
+  `docs/DECISIONS.md`, 2026-10-15), which
   gives `--no-skip-affiliate` with an Affiliate or Partner channel as `--broadcaster`.
   That channel is usually M, so with `--no-skip-affiliate` every other case with a public
   effect is refused unless `--only` names it by its ID (`--only C1`, not `--only C`).
@@ -113,13 +115,14 @@ and with a person there the harness asks for the outcome of doing them by hand.
 | A3, A4, A6 | How: Manual | Semi: the harness presses Sign in (A6: with the Confidential app's client ID) and waits while the person approves, denies or tries the code |
 | A4 | Signed out beforehand: no `tokens.json` afterwards | Stage 11 comes after the sign-in, so A4 runs signed in as T and checks the earlier sign-in is kept: a refused sign-in mustn't touch the saved one |
 | A9 | Press Add marker after the restart | Shows `live:me` instead: Add marker is a public action, and the refresh happens at start either way |
-| A8 | In stage 11's list, before A9 | At the end of stage 11, before M1: it takes two and a half hours |
-| M1 | In the background from stage 8 | At the end of stage 11: only one plugin process may hold a sign-in |
+| A8 | One value key for 75 minutes, a restart, then action keys only for 75 minutes | Restarts the plugin before the first half too, so both halves start from a fresh process (the running one may have been validated in an earlier case); the value key is `live:me` |
+| M1 | A 2-hour soak with value and event keys, trace on | Shows T's `live`, `viewers`, `title`, `followers`, `last_follower`, `last_raid` and `last_cheer`; with `--no-trace` it judges only the log's "EventSub connection:" warnings, not the connections, the call rate and the validations |
 | B1 | T offline, then live | The live half runs with `--check-by-eye` (a person goes live) |
 | H5 | "while offline" | Last, after the person stops streaming; H1 asks to go live again |
 
 `test_tools.py` checks that every case's How matches the plan's How column unless it's in
-this table, and that the cases run in the plan's order but for A8 and M1.
+this table, and that the cases run in the plan's order, with A8 and M1, the two long
+cases, checked separately as the last two of stage 11.
 
 ### The report
 

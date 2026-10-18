@@ -125,8 +125,8 @@ via `py -3`, and WebView2 154. Two things to know:
   2026-10-13 (next-steps item 5), including an upgrade with an assistant connected. A bug
   was fixed (an update turned "Start at login" off), and the release notes are in
   `docs/launch-checklist.md` §7. The MSI was built once, in CI on 2026-10-11, but has
-  never been installed or tested, and it's stale since then (decision D5 in
-  `docs/plan/phase-8.md`: test it or drop it from the first release).
+  never been installed or tested, and it's stale since then. Decision D5 (2026-10-15)
+  leaves it out of v0.1.0, which ships the NSIS installer only; it comes back once tested.
 - ~~Raw tokens for live values not reported yet, editor title clipping and image-only key
   labels, USB offered on a specific `--listen` address, a tight test limit~~: fixed
   2026-10-13 (next-steps item 6).

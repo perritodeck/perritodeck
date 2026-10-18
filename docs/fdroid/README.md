@@ -1,7 +1,7 @@
 # F-Droid and IzzyOnDroid submission kit
 
 Everything needed to list **Perrito** (`dev.perritodeck.client`) on F-Droid and IzzyOnDroid.
-Nothing here has been submitted. Both stores need the repository to be **public** and a release tag. The draft recipe assumes `v0.1.0`; if the first release is `v0.2.0` instead, update its version, versionCode and commit (see `docs/next-steps.md` item 13).
+Nothing here has been submitted. Both stores need the repository to be **public** and a release tag. The draft recipe builds `v0.1.0`, which is what the first release will be (decision D5 in `docs/plan/phase-8.md`; see `docs/next-steps.md` item 13).
 
 | File | What it is |
 |---|---|
@@ -19,7 +19,7 @@ Nothing here has been submitted. Both stores need the repository to be **public*
 | Release build unsigned when no key is present (F-Droid signs itself) | ✔ (signing only when `PERRITO_KEYSTORE` is set) |
 | `title.txt` (≤ 50; Play ≤ 30) | ✔ 28 characters |
 | `short_description.txt` (≤ 80) | ✔ 76 characters |
-| `full_description.txt` (≤ 4000) | ✔ about 2,600 characters |
+| `full_description.txt` (≤ 4000) | ✔ 2,977 characters, counted as decoded text with the `<b>` tags and without the final newline (3,020 bytes in UTF-8) |
 | `changelogs/<versionCode>.txt` (≤ 500) for every release | ✔ `1.txt`; `scripts/release-version.py --check` fails a release without one |
 | `images/icon.png` 512×512 | ✔ the final paw-of-keys icon, the same as the app's launcher icon |
 | `images/phoneScreenshots/`, `images/tenInchScreenshots/` | ✔ two phone screenshots at 1080×1920 and three ten-inch ones at 1920×1200, showing decks (streaming, homelab, desk). Play needs at least two |

@@ -1,7 +1,7 @@
 Perrito turns an Android tablet or phone into a grid of buttons for your computer. Mute your mic, start a timer, press keyboard shortcuts, type text, open apps and websites, control music, or switch scenes while you stream, all with one tap.
 
 <b>How it works</b>
-Install the free PerritoDeck Host on your Windows or Linux computer, open Perrito on your tablet, and pair them by scanning a QR code or typing a six-digit code. You lay out the buttons on your computer; the tablet shows them straight away and keeps their titles and images up to date. Perrito finds your computer on Wi-Fi by itself. It can also connect over a USB cable, with USB debugging turned on and Android's adb tool on the computer.
+Install PerritoDeck on your computer: it's free, with an installer for Windows, and it runs on Linux when built from source. Then open Perrito on your tablet and pair the two by scanning a QR code or typing a six-digit code. You lay out the buttons on your computer; the tablet shows them straight away and keeps their titles and images up to date. Perrito finds your computer on Wi-Fi by itself. It can also connect over a USB cable, with USB debugging turned on and Android's adb tool on the computer.
 
 <b>Give an old tablet a new job</b>
 Perrito runs on Android 5.1 and newer, including Amazon Fire tablets. That tablet in the drawer has a bigger screen than most macro pads.
@@ -16,7 +16,7 @@ Perrito runs on Android 5.1 and newer, including Amazon Fire tablets. That table
 • Live values on the keys: the time, how busy the computer is, what's playing, OBS's scene and more
 
 <b>Plugins and integrations</b>
-• 24 free plugins come with PerritoDeck Host: timers, clocks and counters, a soundboard, a system monitor, screenshots, switching windows and apps, audio devices, clipboard snippets, what's playing and more OBS controls, plus some for online services, home servers, smart lights and your network that are still experimental
+• 24 free plugins come with PerritoDeck: timers, clocks and counters, a soundboard, a system monitor, screenshots, switching windows and apps, audio devices, clipboard snippets, what's playing and more OBS controls, plus some for online services, home servers, smart lights and your network that are still experimental
 • Built in: OBS Studio, and Home Assistant (still experimental)
 • Optional: AI assistants that speak the Model Context Protocol can see your buttons and, only if you allow it, press them or build new ones
 

@@ -18,10 +18,10 @@ decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 | Platform | Status |
 |---|---|
 | Windows 11 + Fire 7 (KFMUWI, Fire OS 7.3.1.7) | Builds, tests and the manual test plan pass on real hardware (2026-10-12); a few manual steps are still to run (item 14) |
-| Linux | Checked on a headless Linux machine on 2026-10-12, after the 109 commits of the Windows bring-up: host fmt, clippy and 34 test suites; app check and 51 Playwright tests; plugins and protocol; the real-app e2e. Not compiled since the 2026-10-13 commits, and never run on a real Linux desktop with a tablet |
-| macOS | Host tests passed and a universal `.dmg` was built in CI once (2026-10-11). Stale since then (over 100 host commits later), and never run on a real Mac |
+| Linux | Checked on a headless Linux machine on 2026-10-12, after the 109 commits of the Windows bring-up: host fmt, clippy and 34 test suites; app check and 51 Playwright tests; plugins and protocol; the real-app e2e. Not compiled since the 2026-10-13 commits, and never run on a real Linux desktop with a tablet. Not in v0.1.0 (D5): it builds from source and in CI, and joins a later release once tested on real hardware |
+| macOS | Host tests passed and a universal `.dmg` was built in CI once (2026-10-11). Stale since then (over 100 host commits later), and never run on a real Mac. Not in v0.1.0 (D5) |
 | iOS | Never compiled (its one scheduled CI run never started) |
-| Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
+| Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13); v0.1.0 ships it and no MSI (D5). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
 | CI | Every run of the repository's workflows since 2026-10-11 has stopped within seconds, before any job started: a billing block the maintainer is leaving until the repo goes public, where Actions are free. Nothing since then has been through CI on any OS, and the Release workflow has never run. Until the flip, checks run locally (Linux in WSL); right after it, every workflow runs once by hand and goes green before the first tag (launch checklist §4) |
 
 Items marked 🖥 need a Windows PC and the test tablet. The rest can be done on any machine.
@@ -300,10 +300,11 @@ has the setup and the build command.
 - Revisit only if the site grows its own framework or outside contributors who shouldn't need
   the code.
 
-**Deploy** (maintainer, once): Cloudflare Pages, as in `docs/website.md` ("Deploy"), with
-the build command `python3 plugins/build_catalog.py website/plugins` so the catalogue
-publishes too. Output directory: `website`. Then add the custom domain (item 12). Once the
-repo is public, GitHub Pages also works for free; either is fine.
+**Deploy** (done): the plan here was Cloudflare Pages, as in `docs/website.md` ("Deploy"),
+with the build command `python3 plugins/build_catalog.py website/plugins` so the catalogue
+publishes too, and the output directory `website`. The live site is a Cloudflare Worker
+with static assets on the custom domain instead (item 12). Once the repo is public, GitHub
+Pages also works for free.
 
 **Build out:**
 - **Home page:**
@@ -364,7 +365,7 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 
 | Item | Status |
 |---|---|
-| Old `v0.1.0` tag | Never pushed: there are no tags in this repository or on GitHub. A stale local `v0.1.0` tag on an early commit is left in one other clone; delete it there so it can't be pushed by mistake **(maintainer)**. Every version field is still 0.1.0 / versionCode 1, so v0.1.0 can be released from current `main` (see item 13) |
+| Old `v0.1.0` tag | Done (2026-10-15): no other clone exists, and there are no tags in this repository or on GitHub. Every version field is still 0.1.0 / versionCode 1, and the first release is v0.1.0 from current `main` (D5, item 13) |
 | `ci/e2e-*` branches | Done (2026-10-13): E2E no longer pushes them (its screenshots and logs are workflow artifacts), and the four branches were deleted on GitHub with the maintainer's OK |
 | gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run once more right before the flip |
 | `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). `cargo deny check advisories` flags one notice, RUSTSEC-2026-0192: `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained; not a vulnerability. Replace it (its author suggests `skrifa`) or accept it with a reason in `deny.toml` before CI runs advisories |
@@ -391,30 +392,36 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
   requests, so the old ones don't matter.
 
 **Still to decide or do (maintainer):**
-1. **Mail (decision D2 in `docs/plan/phase-8.md`):** the nameservers moved to Cloudflare
-   on 2026-10-13, which ended the registrar's forwarding. The MX records point at ImprovMX
-   (`mx1.improvmx.com`, `mx2.improvmx.com`), and SPF (`v=spf1 include:spf.improvmx.com
-   ~all`) and DMARC (`v=DMARC1; p=none`, reports to Cloudflare's DMARC Management) are in
-   place (checked 2026-10-15). The maintainer still has to confirm the mail service (keep
-   ImprovMX, or switch to Cloudflare Email Routing and edit the SPF record rather than add
-   a second one), send a test mail to dev@perritodeck.dev from an outside address, and
-   decide how to reply as dev@ without showing a personal address (both services only
-   receive and forward; replying needs an SMTP relay or a hosted mailbox).
-2. **Old runs and PR #1:** Actions logs and artifacts become public (E2E host logs,
-   logcat, the 2026-10-11 desktop bundles), and so does Dependabot's pull request #1
-   (eight GitHub Actions updates, opened 2026-10-13, still open). There are no issues.
+1. ✅ **Mail (D2 in `docs/plan/phase-8.md`, decided 2026-10-15):** ImprovMX (a
+   grandfathered Light plan) forwards dev@perritodeck.dev to the maintainer's mailbox. Its
+   `MX` records (`mx1.improvmx.com`, `mx2.improvmx.com`), SPF (`v=spf1
+   include:spf.improvmx.com ~all`), one DMARC record (`p=none`, aggregate reports to
+   Cloudflare's DMARC Management) and its two DKIM `CNAME` records are in Cloudflare DNS.
+   Replies as dev@ go through Gmail's "Send mail as" with Gmail's own SMTP, which fails
+   DMARC alignment for perritodeck.dev, so DMARC stays at `p=none` (`p=reject` would
+   bounce those replies). A mail-tester run scored this route about 5/10 for a real
+   message. The upgrade is ImprovMX Premium (its SMTP; the DKIM records are already in
+   DNS) or a free SMTP relay, either of which allows `p=reject`. Google removes "Send mail
+   as" for custom domains in January 2027, so replies need another route before then.
+2. **Old runs and PR #1:** Actions logs and artifacts become public with the repo (E2E
+   host logs, logcat, the 2026-10-11 desktop bundles). Decided (D9, 2026-10-15): right
+   before the flip, every run and its artifacts are deleted, by Claude with the
+   maintainer's OK at that moment; not done yet. Dependabot's pull request #1 (eight
+   GitHub Actions updates, opened 2026-10-13) is still open. There are no issues.
 3. **Website and visibility together:** the site is live (with noindex) and links to the
    GitHub repo throughout, where visitors get a 404 until the flip, and the repo links to
    the site. Keep the noindex until the flip, and flip soon after the site is complete.
-4. **Trademark sign-off:** the website's compatibility page, the Key Light plugin, the
-   README and the store text name Elgato's products (nominatively, with a not-affiliated
-   line). A person should sign off before they go live (`docs/plan/phase-7.md`).
+4. ✅ **Trademark sign-off (D4, 2026-10-15):** the nominative naming of Stream Deck,
+   Elgato and Companion on the website's compatibility page, in the Key Light plugin, the
+   README and the store text (with the not-affiliated line) is signed off as written.
 5. **Actions:** confirm that workflows run again once the repo is public.
-6. **Account security:** the app trusts perritodeck.dev for plugin code and
-   github.com/perritodeck for releases. Require 2FA in the GitHub org (it's off), turn on
-   2FA and the registrar lock at the domain registrar, set the domain to auto-renew, and
-   use 2FA on the Cloudflare account and the mail service's (ImprovMX, while `MX` points
-   there).
+6. ✅ **Account security (done 2026-10-15):** the app trusts perritodeck.dev for plugin
+   code and github.com/perritodeck for releases. 2FA is on for the maintainer's GitHub,
+   Namecheap, Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA
+   (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through
+   the API); the domain auto-renews at Namecheap. Two parts of the earlier list weren't in
+   that check, so they're to confirm with the maintainer: 2FA on the Azure account (D1
+   keeps it for Windows signing) and the registrar lock at Namecheap.
 
 **Repo settings after the flip (maintainer):** private vulnerability reporting (`SECURITY.md`
 and the issue template already link to it); Dependabot alerts and security updates; secret
@@ -449,9 +456,17 @@ After it's public:
 Against OBS 31.0.3 with obs-websocket 5.5.6 on Windows 11, 93 of the plan's 110 cases ran.
 It found 22 bugs, none blocking a release; all are fixed (OBS plugin 1.0.3 and the host)
 and a re-check against the same OBS on 2026-10-15 passed every case it ran. The plugin is
-no longer marked Experimental. Still to run (the results' §7): the cases that need the
-plugin installed in the app, a live stream target, a person at OBS or a second computer,
-and groups A, B, C and F on Linux and macOS.
+no longer marked Experimental. Still to run (the results' §7):
+- with the OBS plugin installed in the app: the host half of every E case, F-follow, D3
+  (tablet), D6 (plugin slider), D4, K1, K3 and K6, and plugin values through a tablet (I1);
+- with a live stream target: B6, C4, E5, E24, F-stats during a stream, and I6;
+- with a person at OBS: A4, A6 (server off), H6, H7, H8, H11, full-screen projectors
+  (E21), the virtual camera in a camera app (E10), D8 and L2;
+- with a second computer: A9 and J4;
+- with a scratch data folder for the app: the app's halves of A2, A3, A5 and H12, H10
+  with a host restart, and C8 "not set up";
+- not yet run anywhere: H3 (kill), I4 over 30 minutes, and groups A, B, C and F on Linux
+  and macOS.
 
 **Plan: [docs/testing/obs.md](testing/obs.md).** The built-in integration (10 actions,
 `{obs:*}` values, an OBS slider) and the OBS plugin (26 actions, 30 values) have only run
@@ -615,7 +630,7 @@ CI's included, are unsigned, which is what F-Droid wants.
   the release key as Play's app-signing key. Today the Release workflow signs the AAB with
   the release key, while `docs/distribution.md` says to keep the two apart.
 - **v3 signing** (key rotation): off until decided.
-- **The first version:** v0.1.0 on current `main`, or v0.2.0 (item 13).
+- ✅ **The first version:** v0.1.0 on current `main` (D5, decided 2026-10-15; item 13).
 - **A release environment (recommended):** a `release` environment with a required
   reviewer and deployments limited to `v*` tags, plus the `environment: release` line in
   the Release workflow's Android job (there as a comment), so the key reaches only a
@@ -631,40 +646,48 @@ CI's included, are unsigned, which is what F-Droid wants.
 
 ## 12. The website goes live (maintainer) — mostly done (2026-10-15)
 
-**Where it stands** (checked from outside on 2026-10-15; [docs/website.md,
-Deploy](website.md#deploy) has the setup, but its "Where it stands" and steps 1–3 of "The
-domain" predate these checks and still list the HSTS, NEL, `www` and DS work as to do;
-updating them is the rest of phase-8 M1-2). `https://perritodeck.dev` is live and serves `main` with the temporary
-`X-Robots-Tag: noindex`. That settles two earlier questions: the bare domain is the
-canonical address, and the domain is attached before launch (Play's closed test needs a
-live privacy policy, and the real-world passes can use the real catalogue), with noindex
-until launch day. `/plugins/index.json` lists the 24 plugins, also for the app's user
-agent. `http://` and `www` redirect to `https://perritodeck.dev` with a 301, keeping the
-path and query. Every response carries the policy and the two-year HSTS from `_headers`,
-with no `Nel` or `Report-To` header, so Cloudflare's own HSTS and Network Error Logging are
-off. DNSSEC is in force: the DS record is at the `.dev` registry and resolvers validate the
-answers. SPF and DMARC are in place (item 8).
+**Where it stands** (checked 2026-10-15; [docs/website.md, Deploy](website.md#deploy) has
+the setup and the same checks). `https://perritodeck.dev` is live with the temporary
+`X-Robots-Tag: noindex`. A Cloudflare Worker named `perritodeck` with static assets serves
+it on the custom domain: it isn't a Pages project, as the 2026-10-13 decision planned, and
+`perritodeck.pages.dev` doesn't exist. That settles two earlier questions: the bare domain
+is the canonical address, and the domain is attached before launch (Play's closed test
+needs a live privacy policy, and the real-world passes can use the real catalogue), with
+noindex until launch day. The site matches the current `main` (`6861f46`, checked by
+15:16 UTC and again at 15:46): `/README.md` answers 404, `/img/og.png` loads, and
+`/plugins/index.json` lists the 24 plugins, 13 of them marked Experimental, also for the
+app's user agent. `http://` redirects to `https://`, and `www` answers 301 to
+`https://perritodeck.dev`, keeping the path and query (one Redirect Rule, plus a proxied
+`A` record to 192.0.2.1 for `www`). HSTS is the site's own two-year header from
+`_headers`, and Network Error Logging is off. DNSSEC is in force: DS 2371/13/2 is at the
+`.dev` registry, and resolvers validate. From outside, the pages carry nothing Cloudflare
+injects and no Speed Brain header. Mail is set up as D2 decided (item 8).
 
 **Left:**
-- **Pages or a Worker (maintainer):** the live project has no `perritodeck.pages.dev`
-  address, redirects `/privacy.html` with a 307, answers `/nope` with an empty 404 instead
-  of `404.html`, and lacks the `X-Content-Type-Options: nosniff` Pages adds to everything.
-  A Worker with static assets behaves like that. Check in the dashboard, then follow
-  [docs/website.md, The project](website.md#the-project) (the 2026-10-13 decision says
-  Pages).
-- **Zone settings only the dashboard shows:** Web Analytics, Email Address Obfuscation,
-  Rocket Loader, Bot Fight Mode, Speed Brain and the Browser Cache TTL
-  ([The domain](website.md#the-domain), step 1). From outside, the pages carry nothing
-  Cloudflare injects and no Speed Brain header.
-- **Mail for dev@ (decision D2):** confirm the service, send a test, and decide how to
-  reply as dev@ (item 8).
+- **Whether pushes to `main` redeploy the site: to confirm with the maintainer.** After a
+  push at about 15:09 UTC on 2026-10-15, the site still served the old build several
+  minutes later. By 15:16 it served the new one, which doesn't tell a build started by the
+  push from a deploy by hand.
+- **Keep the Worker or move to Pages (decision D12 in `docs/plan/phase-8.md`):** the
+  Worker answers `/nope` with an empty 404 instead of `404.html`, redirects
+  `/privacy.html` with a 307, and lacks the `X-Content-Type-Options: nosniff` header Pages
+  would add. [docs/website.md, The project](website.md#the-project) lists what keeping the
+  Worker takes (a Wrangler config with `not_found_handling`, the header in `_headers`, the
+  `workers.dev` address and preview URLs off, and a DECISIONS entry, since the 2026-10-13
+  one says Pages), and how to move to Pages instead.
+- **Zone settings only the dashboard shows (to confirm with the maintainer):** SSL/TLS
+  Full (strict) and minimum TLS 1.2; Web Analytics, Email Address Obfuscation, Rocket
+  Loader, Bot Fight Mode and Speed Brain off; Browser Cache TTL set to respect the
+  headers ([docs/website.md, The domain](website.md#the-domain), "Left"). From outside,
+  the pages carry nothing Cloudflare injects and no Speed Brain header, but that doesn't
+  prove they're off. Bot Fight Mode matters most: it can challenge the app's `PerritoDeck`
+  user agent, and Look online then fails with a 403.
 - **Where the catalogue comes from (decision D3):** the live site builds it from `main`,
   so every plugin version bump reaches every app's "Look online" before a release, and
   manifests can't yet say which host version they need (item 17). Accept `main`, or deploy
   from a release branch.
-- **After the next push deploys:** `/README.md`, which still serves the old notes, answers
-  404; `/img/og.png` loads; `index.json` marks the experimental plugins; and Plugins →
-  Look online installs one from the live catalogue.
+- **Look online against the live catalogue:** Plugins → Look online installs a plugin
+  from it (not tried yet).
 - **Launch day:** [docs/website.md, Launch day](website.md#launch-day) removes the noindex
   header and the "Not released yet" lines, and lists the checks after the deploy.
 
@@ -692,12 +715,17 @@ answers. SPF and DMARC are in place (item 8).
   drafts and tags `release.yml` doesn't make are skipped, pre-releases count while the app
   is 0.x or a pre-release itself, and `-rc` style versions only for someone already on one
   (`host/crates/host/src/updates.rs`, DECISIONS).
-- **First version and tag (maintainer).** No tags exist in this repository or on GitHub.
-  Re-tag v0.1.0 on current `main` (rewrite `fastlane/.../changelogs/1.txt`, which
-  describes the very first slice) or release v0.2.0 (`scripts/release-version.py` raises
-  versionCode to 2, so `2.txt` is needed). The script has no same-version guard
+- **The first release is v0.1.0, Windows and Android only (D5, decided 2026-10-15).** It
+  publishes the NSIS installer and the APK; the MSI, macOS, the Linux packages and the
+  command-line archives aren't in it. No tags exist in this repository or on GitHub, and
+  no other clone has one. Every version field already says 0.1.0 / versionCode 1, so the
+  tag goes on current `main`; rewrite `fastlane/.../changelogs/1.txt`, which describes the
+  very first slice, before tagging. The script has no same-version guard
   (`scripts/release-version.py:177-182`). The F-Droid draft, PKGBUILD, Flatpak manifest
-  and metainfo hardcode 0.1.0.
+  and metainfo hardcode 0.1.0. `release.yml` publishes only what its `SHIP` list names,
+  `windows-nsis` for v0.1.0, besides the APK, the plugin catalogue, the licences and
+  `SHA256SUMS` (done 2026-10-15, phase-8 M3-12;
+  [releasing, What ships](releasing.md#what-ships)). It hasn't run on GitHub yet.
 - ✅ **The installed icons are the paw-of-keys (2026-10-15).** Perrito has the adaptive and
   monochrome set from `docs/assets/android/` and a plain vector for API 22–25
   (`LauncherIconTest` keeps them matching the SVGs); the desktop icons in
@@ -705,19 +733,23 @@ answers. SPF and DMARC are in place (item 8).
   `docs/assets/icon-master-rounded.svg`, and the Flatpak and AUR drafts take theirs from
   there; the desktop window's brand mark and the iOS AppIcon match. Not yet seen on a
   device (item 15).
-- **macOS (maintainer).** Built in CI once on 2026-10-11 and never run on a Mac. Since then
-  117 host commits (the second binary in the app bundle, the plugin `open` message, the
-  firewall code) haven't been compiled for macOS, and `release.yml`'s publish job needs
-  every leg to pass. Once CI runs: test the `.dmg` on a Mac or leave macOS out of the first
-  release (`website/download.html` already says "Not built yet").
-- **Linux on a real desktop.** 7 of the 17 commits from 2026-10-13 touch `host/` or
-  `android/` and haven't been compiled on Linux. Never done: a physical X11 or Wayland
-  desktop with a tablet on adb USB, the libei portal prompt, the tray on GNOME and KDE,
-  installing the `.deb`, `.rpm` or AppImage. (`docs/HANDOFF.md`, "Still open")
-- **The MSI (maintainer).** Built once in CI (`tauri.conf.json` bundle targets "all") but
-  never installed. Installing both it (per machine) and the NSIS installer (per user) gives
-  two copies and two autostart entries fighting over port 46710. Test it (install, upgrade,
-  uninstall, autostart, `perritodeck-mcp.exe` present) or drop it from the first release.
+- **macOS: not in v0.1.0 (D5).** Built in CI once on 2026-10-11 and never run on a Mac.
+  Since then 117 host commits (the second binary in the app bundle, the plugin `open`
+  message, the firewall code) haven't been compiled for macOS. It keeps building and
+  testing in CI once CI runs, and joins a later release after a test on a real Mac
+  (`website/download.html` says it's not in this release). A tag doesn't build it, so it
+  can't fail the release; a manual Release run with **untested** ticked builds the `.dmg`
+  to test.
+- **Linux on a real desktop, before Linux joins a release (not in v0.1.0, D5).** 7 of the
+  17 commits from 2026-10-13 touch `host/` or `android/` and haven't been compiled on
+  Linux. Never done: a physical X11 or Wayland desktop with a tablet on adb USB, the libei
+  portal prompt, the tray on GNOME and KDE, installing the `.deb`, `.rpm` or AppImage.
+  (`docs/HANDOFF.md`, "Still open")
+- **The MSI: not in v0.1.0 (D5).** Built once in CI (`tauri.conf.json` bundle targets
+  "all") but never installed. Installing both it (per machine) and the NSIS installer (per
+  user) gives two copies and two autostart entries fighting over port 46710. Test it
+  (install, upgrade, uninstall, autostart, `perritodeck-mcp.exe` present) before a release
+  adds it.
 - **Release notes.** The Release workflow's notes are a downloads table, the Android
   certificate and the Android changelog; there's no CHANGELOG, and the only pull request
   is Dependabot's #1, so `--generate-notes` adds little beyond a compare link
@@ -870,34 +902,38 @@ answers. SPF and DMARC are in place (item 8).
   test command); and the audio, windows, screenshot, soundboard, sysmon and clipboard
   READMEs, which now say what ran on Windows on 2026-10-12 and what didn't.
 - ✅ **Corrected after review (2026-10-15):** the store listing (`full_description.txt`)
-  names the desktop app "PerritoDeck Host", as the tablet apps do until the naming decision
-  (D10 in `docs/plan/phase-8.md`); lists the plugins that aren't experimental first (timers,
-  clocks, counters, the soundboard, the system monitor, screenshots, windows and apps, audio
-  devices, clipboard snippets, now playing, more OBS controls) and calls the rest
-  experimental without naming them; names other brands only where needed (OBS Studio and
-  Home Assistant, which are built in, Amazon Fire tablets, and the closing line, which says
-  it isn't affiliated with or endorsed by Elgato, Corsair or any company whose products it
-  works with); marks the built-in Home Assistant "still experimental" and takes its slider
-  and live-value examples from OBS, the computer and what's playing rather than from Home
-  Assistant (item 17); says USB needs USB debugging and Android's adb tool; says ⚠ shows
-  when an action fails
-  and ✓ when a command or a row of actions finishes; and names only Windows and Linux
-  (`docs/distribution.md`). `ARCHITECTURE.md`'s feedback, port and website lines,
-  `host/README.md` (now pointing at ARCHITECTURE's crate table) and the Stream Deck crate's
-  module comment (property inspectors are served) were fixed too.
+  names the desktop app "PerritoDeck" (D10 in `docs/plan/phase-8.md`; it said
+  "PerritoDeck Host" until that was decided); lists the plugins that aren't experimental
+  first (timers, clocks, counters, the soundboard, the system monitor, screenshots,
+  windows and apps, audio devices, clipboard snippets, now playing, more OBS controls)
+  and calls the rest experimental without naming them; names other brands only where
+  needed (OBS Studio and Home Assistant, which are built in, Amazon Fire tablets, and the
+  closing line, which says it isn't affiliated with or endorsed by Elgato, Corsair or any
+  company whose products it works with); marks the built-in Home Assistant "still
+  experimental" and takes its slider and live-value examples from OBS, the computer and
+  what's playing rather than from Home Assistant (item 17); says USB needs USB debugging
+  and Android's adb tool; says ⚠ shows when an action fails and ✓ when a command or a row
+  of actions finishes; and says the desktop app has an installer for Windows and runs on
+  Linux from source (D5, `docs/distribution.md`). `ARCHITECTURE.md`'s feedback, port and
+  website lines, `host/README.md` (now pointing at ARCHITECTURE's crate table) and the
+  Stream Deck crate's module comment (property inspectors are served) were fixed too.
 - **No long-session soak or sleep test** has been recorded: memory over hours, plugin
   restarts, OBS and Twitch connections held for a whole stream, PC sleep and resume, tablet
   doze, Wi-Fi dropping and coming back. Pair it with the OBS and Twitch passes (a 3–4 hour
   session with logs and memory sampled).
 - **Release identities can publish a legal name (maintainer):** an individual Apple
   Developer membership shows it as the seller and in every Developer ID signature; Azure
-  Trusted Signing for individuals puts it in the certificate; check what a personal Google
-  Play account shows. SignPath Foundation certificates name the foundation. Decide per
-  channel before signing anything (`docs/releasing.md`, "Signing secrets").
-- **Windows code signing (maintainer):** unsigned installers get SmartScreen's "Unknown
-  publisher". SignPath Foundation (free, needs the public repo), Azure Trusted Signing
-  (about USD 10 a month) or a hardware token (not usable from hosted CI). Sign, or say so
-  on the download page.
+  Artifact Signing for individuals puts it in the certificate (D1 checks that name before
+  wiring it in, next item); check what a personal Google Play account shows (D8).
+  SignPath Foundation certificates name the foundation. Decide per channel before signing
+  anything (`docs/releasing.md`, "Signing secrets").
+- **Windows code signing (D1, decided 2026-10-15):** the Azure Artifact Signing account
+  stays, and the maintainer is waiting for its identity validation and certificate.
+  v0.1.0 ships unsigned unless the certificate arrives first; unsigned installers get
+  SmartScreen's "Unknown publisher", so the download page should say so. Before wiring
+  the certificate in, check which name it shows as publisher (an individual validation
+  shows a legal name). SignPath Foundation (free, needs the public repo) stays the
+  alternative.
 
 ## Nice to have
 
@@ -940,6 +976,7 @@ answers. SPF and DMARC are in place (item 8).
 - **The Settings screenshots** (`docs/assets/screenshot-settings*.png`, made by
   `scripts/screenshots.mjs`) don't show the Open-source licences link yet; refresh them
   with the next round of screenshots.
-- **Store submissions** (IzzyOnDroid, F-Droid, the 14-day Play closed test, winget, Flathub,
-  AUR, Homebrew) and **release automation** for them; **announcement prep** (demo video,
-  launch post, good first issues). See `docs/launch-checklist.md` §8–9.
+- **Store submissions** (IzzyOnDroid, F-Droid, the 14-day Play closed test, winget;
+  Flathub, AUR and Homebrew once Linux and macOS are in a release, D5) and **release
+  automation** for them; **announcement prep** (demo video, launch post, good first
+  issues). See `docs/launch-checklist.md` §8–9.

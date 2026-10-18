@@ -293,10 +293,13 @@ public client ID instead is an open decision in `docs/next-steps.md`.
 5. T goes live: D2–D5, then C1–C7.
 6. Public chat: E1–E3, E5, E6.
 7. Chat settings: F1–F4.
-8. EventSub: L1–L10. Start M1 here and let it run in the background.
+8. EventSub: L1–L10.
 9. Moderation on V: G1–G9.
 10. H5 (shoutouts), then H1–H4 (raids).
-11. Errors and the token's life: A4–A6, A8–A12, A14, A15, M2–M6, N1, N2.
+11. Errors and the token's life: A4–A6, A9–A12, A14, A15, M2–M6, N1, N2. Then the two
+    long cases last: A8 (two and a half hours), then M1 (the 2-hour soak). M1 doesn't run
+    in the background during the other stages, because only one plugin process can hold
+    a sign-in.
 12. Affiliate cases, deferred to a later pass on an Affiliate's channel (M if it qualifies,
     or a consenting Affiliate's; §2.1). Offline first: J, then K (cancel predictions to
     refund). Live last: I2, then I3 (one 30 s ad).
@@ -353,10 +356,9 @@ Shield Mode during a real stream, AutoMod changes while live, raids.
    `--broadcaster <M> --main-channel <M> --no-skip-affiliate --only I,J,K` when that's M.
    The Affiliate channel is usually
    M, so with `--no-skip-affiliate` every other case with a public effect is refused unless
-   `--only` names it by its ID, and `--main-channel` is required. A8 and M1 run at the end of stage 11 (M1 not in the
-   background, because only one plugin process can hold a sign-in); the tools README lists
-   where else the harness differs from §3. `--soak-minutes`, `--validate-minutes` (A8) and
-   `--l10-minutes` set the long cases.
+   `--only` names it by its ID, and `--main-channel` is required. A8 and M1 close stage 11,
+   as the order above says; the tools README lists where the harness differs from §3.
+   `--soak-minutes`, `--validate-minutes` (A8) and `--l10-minutes` set the long cases.
 3. **The HTTP trace and recorder exist:** `plugins/tools/twitch_trace.py`. The harness runs
    the plugin under it by default (`--no-trace` runs `plugin.py` itself). It imports the
    plugin and patches `urllib` to log every request and answer to a JSONL file in the test

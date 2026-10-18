@@ -6,7 +6,8 @@ tags or anything visible to the world; only the maintainer does those.
 
 Status as of 2026-10-15: steps 1–2 re-checked by a sweep of the whole history on
 2026-10-13 (results below), and the ticked boxes are done. Everything else is open;
-`docs/next-steps.md` item 8 has the current state and the decisions it needs.
+`docs/next-steps.md` item 8 has the current state, and `docs/plan/phase-8.md` the
+decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15).
 
 ## 1. History and personal data
 
@@ -97,11 +98,13 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] Final screenshots in `docs/assets/`, referenced from the README.
 - [x] `docs/SECURITY.md` "Reporting" section points at `SECURITY.md` and
   dev@perritodeck.dev.
-- [ ] Make sure dev@perritodeck.dev actually receives mail (it's the CoC, security and
-  store contact). The nameservers are on Cloudflare since 2026-10-13, the `MX` records
-  point at ImprovMX, and the SPF and DMARC records are in place (checked 2026-10-15). The
-  maintainer still has to confirm the mail service (decision D2 in `docs/plan/phase-8.md`)
-  and send a test from an outside address (`docs/next-steps.md` item 8).
+- [x] dev@perritodeck.dev receives mail (it's the CoC, security and store contact):
+  ImprovMX forwards it to the maintainer's mailbox (D2 in `docs/plan/phase-8.md`, decided
+  2026-10-15). Cloudflare DNS has the `MX` records, SPF, one DMARC record (`p=none`) and
+  ImprovMX's two DKIM records. Replies as dev@ go through Gmail's "Send mail as", which
+  fails DMARC alignment, so DMARC stays at `p=none`. Google removes "Send mail as" for
+  custom domains in January 2027: before then, replies move to ImprovMX Premium's SMTP or
+  a free SMTP relay, and DMARC can go to `p=reject` (`docs/next-steps.md` item 8).
 - [x] Session-oriented docs (`docs/HANDOFF.md`, `CLAUDE.md`, `docs/next-steps.md` and
   others) trimmed in place into neutral contributor notes (decided 2026-10-13).
 - [x] The copyright holder is "PerritoDeck contributors" everywhere, `plugins/LICENSE`
@@ -128,9 +131,20 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 
 ## 4. Flip visibility **(maintainer)**
 
-- [ ] Review what becomes public with the repository: old Actions runs and artifacts (E2E
-  logs, the 2026-10-11 desktop bundles; decision D9 in `docs/plan/phase-8.md`) and
-  Dependabot's open pull request #1. There are no issues.
+- [x] Account security (2026-10-15): the app trusts perritodeck.dev for plugin code and
+  github.com/perritodeck for releases. 2FA is on for the maintainer's GitHub, Namecheap,
+  Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA
+  (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the
+  API); the domain auto-renews at Namecheap.
+- [ ] Confirm with the maintainer the two parts of account security that check didn't
+  cover: 2FA on the Azure account (D1 keeps it for Windows signing) and the registrar lock
+  at Namecheap.
+- [x] No stale tag can be pushed (2026-10-15): no other clone exists, and there are no
+  tags in this repository or on GitHub.
+- [ ] Right before the flip, delete all GitHub Actions runs and their artifacts (E2E logs,
+  logcat, the 2026-10-11 desktop bundles): Claude does it, with the maintainer's OK at
+  that moment (D9 in `docs/plan/phase-8.md`). Not done yet.
+- [ ] Review Dependabot's open pull request #1. There are no issues.
 - [ ] Settings → General → Danger Zone → **Change visibility → Public**.
 - [ ] CI runs again from here: it was blocked by billing from 2026-10-11 until the flip, by
   the maintainer's choice, because public repositories run Actions free. Run every
@@ -187,24 +201,30 @@ The steps are in [`docs/website.md`](website.md): "Deploy" for the setup, "Launc
 the day the release goes out. `docs/next-steps.md` item 12 has what's left and the
 decisions it needs.
 
-- [ ] Deploy `website/` as `docs/website.md` "Deploy" describes: Cloudflare Pages with
-  Git integration, whose build command `python3 plugins/build_catalog.py website/plugins`
-  publishes the catalogue on every deploy (`website/plugins/` is git-ignored). It works
-  while the repo is private. If the site is ever served without that build step (GitHub
+- [ ] Deploy `website/` from `main`, with the catalogue built by
+  `python3 plugins/build_catalog.py website/plugins` on every deploy (`website/plugins/`
+  is git-ignored). The site is live (2026-10-15): a Cloudflare Worker named `perritodeck`
+  with static assets serves it on the custom domain, and `perritodeck.pages.dev` doesn't
+  exist. It matches the current `main` (`6861f46`: `/README.md` answers 404, 13 plugins
+  are marked Experimental). **To confirm with the maintainer:** whether pushes to `main`
+  redeploy it. After a push at about 15:09 UTC the site still served the old build
+  several minutes later, and serving the new one by 15:16 doesn't show whether the push
+  or a deploy by hand put it there. The 2026-10-13 decision chose Pages, so keeping the
+  Worker or moving to Pages is decision D12 in `docs/plan/phase-8.md` ("The project" in
+  `docs/website.md`). If the site is ever served without the catalogue build step (GitHub
   Pages, say), unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into
-  `website/plugins/` before each deploy. The site is live and builds the catalogue from
-  `main` (checked 2026-10-15), but the project looks like a Worker rather than a Pages
-  project (no `pages.dev` address, an empty 404, no `nosniff` header): check which it is
-  and follow "The project" in `docs/website.md`.
-- [x] Custom domain `perritodeck.dev`, with `www` redirecting to it (301, path and query
-  kept), HTTPS enforced (`http://` gets a 301), HSTS from `_headers` (two years,
-  `includeSubDomains`, `preload`; Cloudflare's own HSTS and Network Error Logging are off)
-  and DNSSEC in force, the DS record being at the `.dev` registry (checked from outside on
-  2026-10-15; "The domain" in `docs/website.md` still lists these as to do). Mail for
-  `dev@` is §3 (decision D2).
-- [ ] If the site is a Pages project (see the first item), add its `pages.dev` address to
-  the `www` redirect ("The domain" in `docs/website.md`, step 2). Today there is no
-  `perritodeck.pages.dev`.
+  `website/plugins/` before each deploy.
+- [ ] The zone settings only the dashboard shows, to confirm with the maintainer
+  ("The domain" in `docs/website.md`, "Left"): SSL/TLS Full (strict) and minimum TLS 1.2;
+  Web Analytics, Email Address Obfuscation, Rocket Loader, Bot Fight Mode and Speed Brain
+  off; Browser Cache TTL respecting the headers. Bot Fight Mode can challenge the app's
+  `PerritoDeck` user agent, and Look online then fails with a 403.
+- [x] Custom domain `perritodeck.dev`, with `www` answering 301 to it, path and query kept
+  (one Redirect Rule, plus a proxied `A` record to 192.0.2.1 for `www`), HTTPS enforced
+  (`http://` gets a 301), HSTS from `_headers` only (two years, `includeSubDomains`,
+  `preload`; Cloudflare's own HSTS and Network Error Logging are off) and DNSSEC in force
+  (DS 2371/13/2 is at the `.dev` registry, and resolvers validate), checked 2026-10-15.
+  There's no `pages.dev` address to add to the redirect. Mail for `dev@` is §3 (D2).
 - [ ] Check `https://perritodeck.dev/plugins/index.json` loads and that the desktop app's
   Plugins → "Look online" installs a plugin from it. The first half is done (24 plugins,
   2026-10-15).
@@ -220,24 +240,39 @@ decisions it needs.
 
 Follow [docs/releasing.md](releasing.md). In short:
 
+**Scope (D5, decided 2026-10-15):** the first release is v0.1.0, Windows and Android only.
+It publishes the Windows NSIS installer and the Android APK. The MSI, macOS, the Linux
+packages and the command-line archives are not in it. Linux and macOS still build and
+test in CI, Linux keeps building from source, and they join a later release once tested
+on real hardware.
+
 - [ ] Android signing: the maintainer's new release key, three secrets
   (`PERRITO_KEYSTORE_BASE64`, `PERRITO_KEYSTORE_PASSWORD`, `PERRITO_KEY_PASSWORD`) and two
   variables (`PERRITO_KEY_ALIAS`, and `PERRITO_CERT_SHA256`, recommended for the first
   release), and the certificate's fingerprint in `website/download.html`
   (`#android-certificate`). A tag build fails without the key. `docs/next-steps.md`
-  item 11 has the steps. Apple and Windows signing are optional.
-- [ ] `python3 scripts/release-version.py X.Y.Z`, changelog in
-  `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`.
+  item 11 has the steps.
+- [ ] Windows signing (D1): v0.1.0 ships unsigned unless the Azure Artifact Signing
+  certificate arrives first. Before wiring it in, check which name the certificate shows
+  as publisher (an individual validation shows a legal name). Apple signing isn't needed
+  for v0.1.0.
+- [x] `release.yml` publishes only v0.1.0's scope (2026-10-15, `docs/plan/phase-8.md`
+  M3-12): its `SHIP` list is `windows-nsis`, so a tag builds the NSIS installer and no
+  MSI, Linux, macOS or command-line files, and the draft gets the installer, the APK, the
+  plugin catalogue zip, `third-party-licenses.txt` and `SHA256SUMS`, with notes for those
+  alone ("What ships" in `docs/releasing.md`). Not yet run on GitHub.
+- [ ] Versions: every version field already says 0.1.0 / versionCode 1
+  (`python3 scripts/release-version.py --check 0.1.0`). Rewrite
+  `fastlane/metadata/android/en-US/changelogs/1.txt`, which describes the very first
+  slice.
 - [x] The full licence texts for the release: `release.yml` runs
   `scripts/third-party-notices.py --check --full` and puts `third-party-licenses.txt` in
   the release, the command-line archives and the desktop installers.
 - [x] The third-party notices in the APK and a licences screen in Perrito (§3, 2026-10-15),
   so every app in the release carries the texts.
-- [ ] Decide whether the first public release is `v0.1.0` on current `main` or `v0.2.0`.
-  There are no tags in this repository or on GitHub. A stale local `v0.1.0` tag (on
-  `9f47509`, before most features) is left in one other clone and was never pushed;
-  delete it there. Every version field is still 0.1.0 / versionCode 1. Details in
-  `docs/next-steps.md` item 13.
+- [x] The first public release is `v0.1.0` on current `main` (D5, 2026-10-15). There are
+  no tags in this repository or on GitHub, and no other clone exists (2026-10-15).
+  Details in `docs/next-steps.md` item 13.
 - [ ] Windows installer, from the NSIS test on 2026-10-13 (`docs/next-steps.md` item 5):
   - Unsigned, a downloaded installer will get SmartScreen's "Windows protected your PC" with
     "Unknown publisher" (More info → Run anyway). This wasn't seen in testing, because a file
@@ -249,8 +284,9 @@ Follow [docs/releasing.md](releasing.md). In short:
     wording would need custom NSIS language strings.
   - Uninstall leaves `HKCU\Software\PerritoDeck` (install path and language) behind.
   - The login entry's path isn't quoted (upstream `auto-launch`); it still works.
-- [ ] Tag, let the Release workflow build the draft, test installers on every OS and the
-  APK on the Fire 7, publish.
+- [ ] Tag, let the Release workflow build the draft, check it has the NSIS installer and
+  the APK and none of the MSI, macOS, Linux or command-line files, test the installer on
+  Windows and the APK on the Fire 7, publish.
 
 ## 8. Stores and package managers
 
@@ -260,8 +296,10 @@ See [docs/distribution.md](distribution.md) for each channel's requirements.
 - [ ] **F-Droid:** merge request to `fdroiddata` from the draft in `docs/fdroid/`.
 - [ ] **Google Play:** start the 12-tester, 14-day closed test early; data safety form;
   upload the `play-bundle` artifact.
-- [ ] **Desktop:** winget (`wingetcreate new`), Flathub and AUR from `packaging/`,
-  Homebrew cask once notarised.
+- [ ] **Desktop:** winget (`wingetcreate new` with the NSIS installer) is the Windows
+  channel after the first release. Flathub and AUR (from `packaging/`) wait for the
+  release that adds Linux, and a Homebrew cask for the one that adds macOS, best once
+  notarised (D5).
 - [ ] Amazon Appstore (optional, for Fire tablet owners).
 
 ## 9. Announcement
