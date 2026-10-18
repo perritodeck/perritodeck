@@ -4,10 +4,11 @@ Everything to do, in order, to take `perritodeck/perritodeck` from private to pu
 ship the first release. Steps marked **(maintainer)** change repository settings, secrets,
 tags or anything visible to the world; only the maintainer does those.
 
-Status as of 2026-10-15: steps 1–2 re-checked by a sweep of the whole history on
+Status as of 2026-10-17: steps 1–2 re-checked by a sweep of the whole history on
 2026-10-13 (results below), and the ticked boxes are done. Everything else is open;
 `docs/next-steps.md` item 8 has the current state, and `docs/plan/phase-8.md` the
-decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15).
+decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15, and D3, D6, D7 and
+D8 on 2026-10-17).
 
 ## 1. History and personal data
 
@@ -112,8 +113,16 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] Add `publish = false` to the `perritodeck-*` crates.
 - [x] Set `wildcards = "deny"` in `host/deny.toml` (cargo-deny 0.20.2 passes licences, bans
   and sources on both workspaces, 2026-10-13).
-- [ ] Decide on RUSTSEC-2026-0192 (`ttf-parser`, behind `ab_glyph`, is unmaintained): replace
-  it or accept it in `deny.toml` with a reason. Then add `cargo deny check licenses bans sources` and
+- [x] RUSTSEC-2026-0192 (`ttf-parser`, behind `ab_glyph`, is unmaintained; not a
+  vulnerability): accepted in `host/deny.toml` with a reason, and the library is replaced
+  in a later release (D6, 2026-10-17).
+- [ ] The advisories published since 2026-10-13, which still fail `cargo deny check
+  advisories` on both workspaces (2026-10-17): `rustls` 0.23.45 (fixed in 0.23.46), `zip`
+  2.4.2 (fixed in 9.0.0), and the unmaintained `zvariant`, `zbus_names` and
+  `zvariant_derive`. The app's workspace also flags the older unmaintained
+  `proc-macro-error` notice (RUSTSEC-2024-0370, through GTK on Linux).
+  `docs/next-steps.md` item 8 has the IDs.
+- [ ] Add `cargo deny check licenses bans sources` and
   `python3 scripts/third-party-notices.py --check` to a push workflow. Today only the
   Release workflow runs the notices check (its licences job), so a release with stale
   notices fails at tag time; nothing runs `cargo deny`.
@@ -136,9 +145,10 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA
   (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the
   API); the domain auto-renews at Namecheap.
-- [ ] Confirm with the maintainer the two parts of account security that check didn't
-  cover: 2FA on the Azure account (D1 keeps it for Windows signing) and the registrar lock
-  at Namecheap.
+- [x] The two parts of account security that check didn't cover, confirmed on 2026-10-17:
+  passkey 2FA on the Azure account (D1 keeps it for Windows signing), and Namecheap's
+  Domain Lock on perritodeck.dev (the `.dev` registry's RDAP shows "client transfer
+  prohibited", checked 2026-10-17).
 - [x] No stale tag can be pushed (2026-10-15): no other clone exists, and there are no
   tags in this repository or on GitHub.
 - [ ] Right before the flip, delete all GitHub Actions runs and their artifacts (E2E logs,
@@ -292,8 +302,10 @@ See [docs/distribution.md](distribution.md) for each channel's requirements.
 
 - [ ] **IzzyOnDroid:** request inclusion (needs the public repo and a release APK).
 - [ ] **F-Droid:** merge request to `fdroiddata` from the draft in `docs/fdroid/`.
-- [ ] **Google Play:** start the 12-tester, 14-day closed test early; data safety form;
-  upload the `play-bundle` artifact.
+- **Google Play: not for now** (D8 in `docs/plan/phase-8.md`, 2026-10-17). v0.1.0's
+  Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid. The closed test,
+  the data safety form and the `play-bundle` upload are off the launch path; the notes for
+  later are under "Google Play" in `docs/distribution.md`.
 - [ ] **Desktop:** winget (`wingetcreate new` with the NSIS installer) is the Windows
   channel after the first release. Flathub and AUR (from `packaging/`) wait for the
   release that adds Linux, and a Homebrew cask for the one that adds macOS, best once

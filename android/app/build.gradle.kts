@@ -68,7 +68,7 @@ android {
                 keyAlias = env("PERRITO_KEY_ALIAS")
                 keyPassword = env("PERRITO_KEY_PASSWORD")
                 // v1 (JAR signing) is what Android 5.1 and 6 check, v2 is what 7 and newer check.
-                // v3 (key rotation) stays off until it's decided; see docs/releasing.md.
+                // v3 (key rotation) stays off (D7 in docs/plan/phase-8.md); see docs/releasing.md.
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = false

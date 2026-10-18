@@ -1,6 +1,6 @@
 # Distribution
 
-Where PerritoDeck ships, what each channel needs, and what's ready. Store text and images live in [`fastlane/metadata/android/`](../fastlane/metadata/android/) — F-Droid, IzzyOnDroid and Google Play (via `fastlane supply`) all read that layout.
+Where PerritoDeck ships, what each channel needs, and what's ready. Store text and images live in [`fastlane/metadata/android/`](../fastlane/metadata/android/) — F-Droid and IzzyOnDroid read that layout, and so would Google Play (via `fastlane supply`), which isn't used for now (D8).
 
 ## Identifiers (never change after first release)
 
@@ -16,6 +16,8 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 
 ## Android channels
 
+**v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid.** There's no Google Play for now (decision D8 in [`plan/phase-8.md`](plan/phase-8.md), 2026-10-17); its notes are kept [below](#google-play) for later.
+
 ### F-Droid (main repo)
 - Needs: FOSS license ✔, no proprietary dependencies ✔, no Google Play Services ✔, `dependenciesInfo` block disabled ✔, fastlane metadata ✔, a tagged release (`v0.1.0`, decision D5 in [`plan/phase-8.md`](plan/phase-8.md); see [`next-steps.md`](next-steps.md) item 13), reproducible build (optional but planned).
 - Submit a merge request to `gitlab.com/fdroid/fdroiddata` adding `metadata/dev.perritodeck.client.yml`. The draft, the lint/build steps and the reproducible-build plan are in [`fdroid/`](fdroid/README.md).
@@ -30,10 +32,11 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 - The Release workflow attaches `perrito-<version>.apk`, signed with the release key, to each tagged release, and the notes give the certificate's fingerprint. Obtainium users can then track it directly.
 
 ### Google Play
-- **Developer account:** personal accounts created after Nov 2023 must run a **closed test with at least 12 testers for 14 continuous days** before production access. Start this early.
-- **Identity verification** for the developer account takes a few days. The developer name can be "PerritoDeck", but a personal account may also show the legal name, country and email; which identity to use is decision D8 in [`plan/phase-8.md`](plan/phase-8.md).
+- **Not for now** (D8 in [`plan/phase-8.md`](plan/phase-8.md), decided 2026-10-17). Nothing in this section is on the launch path: not the Play account, the closed test, the listing or the data safety form. Revisit if people ask for it. The notes below are kept for then.
+- **Developer account:** personal accounts created after Nov 2023 must run a **closed test with at least 12 testers for 14 continuous days** before production access.
+- **Identity verification** for the developer account takes a few days. The developer name can be "PerritoDeck", but a personal account would also publicly show the legal name, country and developer email, and an organization account needs a registered company. That's why D8 says not for now.
 - **Target API:** new apps must target the latest required level (currently API 36) ✔.
-- **App signing:** enrol in Play App Signing; upload an AAB signed with an upload key. Keep the upload key and the release key (GitHub Releases, IzzyOnDroid, and F-Droid once builds are reproducible) separate and backed up offline. Which key uploads to Play is still to decide ([`next-steps.md`](next-steps.md) item 11): today the Release workflow signs the `play-bundle` AAB with the release key.
+- **App signing (D7, decided 2026-10-17):** Play App Signing with the app-signing key Google generates, and our release key as the upload key. The Release workflow already signs the `play-bundle` AAB with the release key, so nothing in it changes. v3 key rotation stays off. Google's key signs what Play installs, so Play installs and GitHub, IzzyOnDroid or F-Droid installs can't update each other: switching means uninstalling first.
 - **Data safety form** — answers:
   - Does the app collect or share user data? **No.**
   - Is data encrypted in transit? **Yes**: the tablet and the computer talk over TLS with a pinned certificate, on the local network only.
@@ -43,7 +46,12 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 - **Permissions declaration:** none needed. The app asks for `INTERNET` and `CAMERA`; the camera only scans the pairing QR code while the scanner is open, and nothing it sees is stored or sent. Neither permission needs a special declaration.
 
 ### Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery
-- Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after Play.
+- Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after IzzyOnDroid and F-Droid.
+
+### Android developer verification (from 2027): to watch
+- Google's Android developer verification goes global in 2027. Apps installed on Google-certified Android devices, sideloaded ones included, will have to come from a verified developer.
+- That affects the GitHub, IzzyOnDroid and F-Droid builds, but not Fire tablets, which aren't Google-certified.
+- It's an open item for after the release (M4 in [`plan/phase-8.md`](plan/phase-8.md)), not a decision.
 
 ## Desktop channels (Phase 6)
 
@@ -66,7 +74,7 @@ join a later release once tested on real hardware.
 
 ## Still needed
 - [x] Phone and 10" tablet screenshots: `images/phoneScreenshots/` has two at 1080×1920 and `images/tenInchScreenshots/` three at 1920×1200.
-- [x] Feature graphic 1024×500 (`images/featureGraphic.png`) for Play.
+- [x] Feature graphic 1024×500 (`images/featureGraphic.png`) for Play (not used for now, D8).
 - [x] Store icon: `images/icon.png` is the final paw-of-keys artwork.
 - [x] The same icon in the apps themselves (2026-10-15): Perrito's adaptive and monochrome launcher icons from `docs/assets/android/`, with a plain vector for API 22–25; the desktop icons, made with `npx tauri icon` from `docs/assets/icon-master-rounded.svg`, which the Flatpak and AUR drafts also use; and the iOS app icon. Not yet seen on a device ([`next-steps.md`](next-steps.md) item 15).
 - [x] Release signing config and a `release.yml` workflow that builds, signs, checks (`apksigner`, and the `PERRITO_CERT_SHA256` pin when it's set) and attaches the APK on tags, with the certificate's fingerprint in the release notes. A tag build fails without the key.

@@ -66,7 +66,7 @@ Not bumped automatically:
 Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a version with a suffix never gets the MSI, even once `SHIP` lists it. Every `0.x` and every `-suffix` version is marked pre-release on GitHub, but only the suffix drops the MSI: `v0.2.0` gets one if `SHIP` lists `windows-msi`.
 
 ### 3. Write the changelog
-- [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid, IzzyOnDroid and Play show it, and the release notes include it. The workflow fails without it.
+- [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid and IzzyOnDroid show it, and the release notes include it. The workflow fails without it.
 - [ ] Optional: a `<release>` entry in `packaging/flatpak/dev.perritodeck.PerritoDeck.metainfo.xml`.
 
 ### 4. Check locally, commit
@@ -86,7 +86,7 @@ To try the build **without** a release, go to Actions → Release → Run workfl
 | Job | Output |
 |---|---|
 | Check versions | fails early if any version or the changelog is missing, and works out from `SHIP` which desktop and command-line builds run |
-| Android APK | `perrito-X.Y.Z.apk`, signed and checked (see [what CI checks](#android-the-release-key)). A manual run without the key and without "publish" gives `perrito-X.Y.Z-unsigned.apk`. The APK carries `assets/third-party-licenses.txt`, generated at build time, which Perrito shows under Open-source licences. The Play bundle `perrito-X.Y.Z.aab` stays a workflow artifact (`play-bundle`), not a release asset |
+| Android APK | `perrito-X.Y.Z.apk`, signed and checked (see [what CI checks](#android-the-release-key)). A manual run without the key and without "publish" gives `perrito-X.Y.Z-unsigned.apk`. The APK carries `assets/third-party-licenses.txt`, generated at build time, which Perrito shows under Open-source licences. The Play bundle `perrito-X.Y.Z.aab` stays a workflow artifact (`play-bundle`), not a release asset; it's kept for Google Play, which isn't used for now (D8) |
 | Third-party licence texts | `third-party-licenses.txt`: every dependency's licence text, from `scripts/third-party-notices.py --check --full` (run after `cargo fetch` and `npm ci`, since it reads each package's own licence files). `--check` fails the release if `THIRD_PARTY_NOTICES.md` is out of date, and a fixed `PYTHONHASHSEED` gives the same file on every run |
 | Command-line host | Skipped on a v0.1.0 tag: `SHIP` lists no `cli-*`. With "untested": `perritodeck-host-X.Y.Z-linux-x86_64.tar.gz`, `-windows-x86_64.zip`, `-macos-universal.tar.gz` (`perritodeck-host`, `perritodeck-mcp` and `perritodeck-fakedeck`, plus LICENSE, `third-party-licenses.txt` and README) |
 | Desktop app | On a v0.1.0 tag, Windows only: `perritodeck-X.Y.Z-windows-x64-setup.exe` (NSIS, per user, no admin). With "untested", also `-windows-x64.msi` (per machine), `-macos-universal.dmg`, `-linux-x86_64.AppImage`, `-linux-amd64.deb` and `-linux-x86_64.rpm`. `third-party-licenses.txt` goes in the app's resource folder, and the first-party plugins inside come with their MIT licence (`plugins/LICENSE`) |
@@ -102,7 +102,7 @@ Cost: a v0.1.0 tag runs 5 Linux jobs and 1 Windows job (2× rate); a manual run 
 - [ ] Press **Publish release**.
 - [ ] The website: it's a Cloudflare Worker with static assets ([`docs/website.md`](website.md#where-it-stands)), and a push to `main` redeploys it within a minute or so. So the release commit from step 4, which bumped the links in `download.html`, is already live, and from that push until **Publish release** the download page links to files that return 404: tag and publish promptly. Whatever deploys it builds the plugin catalogue (`website/plugins/` isn't committed); if a deploy ever skips that, unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into `website/plugins/` before deploying.
 - [ ] First release only: work through "Launch day" under "Deploy" in `docs/website.md`, then commit, push to `main` and check that the live site shows the change.
-- [ ] Stores: F-Droid picks up new tags by itself once listed; IzzyOnDroid picks up the APK; upload the `play-bundle` artifact to Play. The Flathub and AUR recipes (`packaging/README.md`) wait until Linux ships ([What ships](#what-ships)).
+- [ ] Stores: F-Droid picks up new tags by itself once listed; IzzyOnDroid picks up the APK. There's no Google Play for now (D8), so the `play-bundle` artifact isn't uploaded anywhere. The Flathub and AUR recipes (`packaging/README.md`) wait until Linux ships ([What ships](#what-ships)).
 
 ## Signing secrets (none are set yet)
 
@@ -142,14 +142,14 @@ On macOS use `base64 -i perrito-release.p12 | gh secret set ...`. In PowerShell:
 What CI checks, so a bad key stops the release rather than reaching users:
 - the keystore opens with the password and has the alias, before anything is built;
 - Gradle runs with `--no-configuration-cache`, so the passwords aren't stored in its cache, and the decoded keystore is deleted afterwards whether the build worked or not;
-- `apksigner verify --verbose --print-certs --min-sdk-version 22` passes, with exactly one signer and both v1 and v2 signatures verified (Android 5.1 and 6 check v1, Android 7 and newer check v2). v3, which allows moving to a new key later, stays off until that's decided;
+- `apksigner verify --verbose --print-certs --min-sdk-version 22` passes, with exactly one signer and both v1 and v2 signatures verified (Android 5.1 and 6 check v1, Android 7 and newer check v2). v3, which allows moving to a new key later, stays off (D7, 2026-10-17);
 - if the repository variable `PERRITO_CERT_SHA256` is set, the certificate must match it, so the wrong key in the secrets fails the build. Without the variable the job only warns.
 
 The certificate's SHA-256 goes in the Android job summary and the release notes. Publish it once on the download page (step 1) for people who verify APKs; it stays the same for every release.
 
 To try a signed build locally (for testing only; never publish a locally built APK): set the four environment variables Gradle reads (`PERRITO_KEYSTORE`, the path to the `.p12`, and `PERRITO_KEYSTORE_PASSWORD`, `PERRITO_KEY_ALIAS` and `PERRITO_KEY_PASSWORD`) in that shell only, run `./gradlew --no-configuration-cache assembleRelease` in `android/`, check it with `apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`, and clear the variables afterwards. The release app (`dev.perritodeck.client`) installs next to the debug one (`dev.perritodeck.client.debug`) and pairs separately.
 
-Google Play uses a separate **upload key** registered in the Play Console; Play re-signs with its own app-signing key. Keep the two apart. For now the workflow signs the `play-bundle` artifact with the release key, so decide on the upload key before the first Play upload.
+Google Play isn't used for now (D8). If it ever is, D7 (2026-10-17) settles the keys: Play App Signing with the app-signing key Google generates, and this release key as the **upload key**. That's how the workflow already signs the `play-bundle` artifact, so nothing changes. Google's key signs what Play installs, so a Play install and an install from GitHub, IzzyOnDroid or F-Droid can't update each other.
 
 #### Once the repository is public: a release environment
 Repository secrets reach every workflow run, from any branch. A GitHub environment holds them back until a reviewer approves a run from a version tag. A private repository on the Free plan can't have environments; once the repository is public they cost nothing. Then:
@@ -185,4 +185,4 @@ Unsigned installers trigger SmartScreen until they build up reputation. The main
 Once it's set up, add a Windows-only step in the desktop job before "Build and bundle", behind a secret check like the macOS one, so a missing secret means an unsigned build and never a failed release.
 
 ## Not automated yet
-winget manifest (`wingetcreate new` after the first release), Homebrew cask, Flathub and AUR submissions (drafts in `packaging/`), Play upload (`fastlane supply`), signed `SHA256SUMS` (minisign, or GitHub artifact attestations, which need a public repository), Linux ARM64 builds (GitHub's free ARM runners are for public repositories).
+winget manifest (`wingetcreate new` after the first release), Homebrew cask, Flathub and AUR submissions (drafts in `packaging/`), a Play upload (`fastlane supply`) if Play is ever used (D8), signed `SHA256SUMS` (minisign, or GitHub artifact attestations, which need a public repository), Linux ARM64 builds (GitHub's free ARM runners are for public repositories).

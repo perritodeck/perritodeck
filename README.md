@@ -62,8 +62,10 @@ The first release isn't out yet. When it is, everything will be on the
 [download page](https://perritodeck.dev/download.html) and on
 [GitHub Releases](https://github.com/perritodeck/perritodeck/releases):
 
-- **Windows** (installer or MSI), **macOS** (universal `.dmg`, once it has been tried on a Mac), **Linux** (AppImage, `.deb`, `.rpm`; Flatpak and AUR later)
-- **Perrito for Android** as an APK, then on F-Droid, IzzyOnDroid and Google Play
+- **Windows**: the installer. The first release (v0.1.0) is Windows and Android only;
+  Linux and macOS join a later release once they've been tried on real hardware, and Linux
+  builds from source until then.
+- **Perrito for Android** as an APK, then on IzzyOnDroid and F-Droid (not on Google Play for now)
 
 Until then, build from source (below).
 

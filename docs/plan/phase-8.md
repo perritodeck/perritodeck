@@ -3,9 +3,10 @@
 The plan for everything still open, in order. Each item was checked against the tree on
 2026-10-13, and again on 2026-10-15, when M1-1 to M1-4, M2-2, M3-1 to M3-5 and M3-12
 landed, the maintainer decided D1, D2, D4, D5, D9 and D10, D11 was settled by
-measurement, M1-7 and M1-8 were done, and so was most of M1-5. The details behind each
-one are in [next-steps](../next-steps.md) (items 8–18), the steps in order in the
-[launch checklist](../launch-checklist.md), and the release mechanics in
+measurement, M1-7 and M1-8 were done, and so was most of M1-5. On 2026-10-17 the
+maintainer decided D3, D6, D7 and D8 and confirmed the last two parts of M1-7. The
+details behind each one are in [next-steps](../next-steps.md) (items 8–18), the steps in
+order in the [launch checklist](../launch-checklist.md), and the release mechanics in
 [releasing](../releasing.md).
 
 **Milestones**
@@ -33,8 +34,7 @@ one are in [next-steps](../next-steps.md) (items 8–18), the steps in order in 
   `/plugins/index.json` lists the 24 plugins with 13 marked Experimental (checked by 15:16
   UTC and again at 15:46). Pushes to `main` redeploy the Worker by themselves (a push at
   03:02:14 UTC on 2026-10-17 was live by 03:02:42). To confirm: the zone settings only the
-  dashboard shows ([website.md, The domain](../website.md#the-domain), "Left"), and two
-  parts of M1-7 that weren't in its check.
+  dashboard shows ([website.md, The domain](../website.md#the-domain), "Left").
 - **The OBS real-world pass is done.** It ran on 2026-10-13 against OBS 31.0.3 (93 of 110
   cases), and all 22 findings were fixed (OBS plugin 1.0.3 and the host) and re-checked
   against the same OBS on 2026-10-15
@@ -53,23 +53,28 @@ one are in [next-steps](../next-steps.md) (items 8–18), the steps in order in 
   first on Ubuntu 26 (`ubuntu-latest` moves from 2026-10-19). Every workflow has to go
   green once before the first tag (launch checklist §4).
 - **Decided on 2026-10-15:** D1, D2, D4, D5, D9 and D10, and D11 by measurement (the
-  table below). Account security (M1-7) and the stale tag (M1-8) are done.
+  table below). The stale tag (M1-8) is done.
+- **Decided on 2026-10-17:** D3, D6, D7 and D8 (the table below). There's no Google Play
+  for now (D8): v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and
+  F-Droid, so the Play closed test is off the launch path (M3-19). Account security
+  (M1-7) is fully done: the maintainer confirmed passkey 2FA on the Azure account, and
+  Namecheap's Domain Lock is on for perritodeck.dev.
 
 ## Decisions only the maintainer can make
 
-Open: D3, D6, D7, D8 and D12. The rest were decided on 2026-10-15 (D11 by measurement),
-and each is in [DECISIONS](../DECISIONS.md).
+Open: D12. D3, D6, D7 and D8 were decided on 2026-10-17 and the rest on 2026-10-15 (D11
+by measurement), and each is in [DECISIONS](../DECISIONS.md).
 
 | # | Decision | Recommendation, or what was decided | Blocks |
 |---|---|---|---|
 | ✅ D1 | **Whose name signs the Windows builds.** Azure Artifact Signing allows no custom name: an *individual* validation puts the legal name, city, state and country into every signature and the SmartScreen prompt (US and Canada only). Only a registered legal entity passing *organization* validation shows a project name. [SignPath Foundation](https://signpath.org/) signs open-source projects for free as "SignPath Foundation", but needs a public repo with a release already out | **Decided 2026-10-15:** keep the Azure Artifact Signing account. The maintainer is waiting for its identity validation and certificate. v0.1.0 ships unsigned unless the certificate arrives first. Before wiring it in, check which name the certificate shows as publisher (an individual validation shows a legal name). SignPath stays the alternative | Windows signing (M3/M4) |
 | ✅ D2 | **Mail for dev@perritodeck.dev:** which service receives it, and how to reply as dev@ | **Decided 2026-10-15:** ImprovMX (a grandfathered Light plan) forwards dev@ to the maintainer's mailbox. Cloudflare DNS has its `MX` records, SPF (`include:spf.improvmx.com ~all`), one DMARC record (`p=none`, aggregate reports to Cloudflare's DMARC Management) and ImprovMX's two DKIM `CNAME` records. Replies as dev@ go through Gmail's "Send mail as" with Gmail's own SMTP, so they fail DMARC alignment for perritodeck.dev. That's why DMARC stays at `p=none`: `p=reject` would bounce the maintainer's own replies. A mail-tester run scored this route about 5/10 for a real message. The upgrade is ImprovMX Premium (its SMTP; the DKIM records are already in DNS) or a free SMTP relay, either of which allows `p=reject`. **Before January 2027**, when Google removes "Send mail as" for custom domains, replies need another route | M1 (the contact everywhere) |
-| D3 | **Where the plugin catalogue is built from:** `main` (plugin updates reach everyone before a release) or a release branch. The live site builds it from `main` today | `main` for now; revisit when manifests get a minimum host version | M1-5 |
+| ✅ D3 | **Where the plugin catalogue is built from:** `main` (plugin updates reach everyone before a release) or a release branch. The live site builds it from `main` today | **Decided 2026-10-17:** `main`. The site rebuilds the catalogue on every push to `main`, so plugin fixes reach users without an app release. Revisit when plugin manifests can declare a minimum host version | M1-5 |
 | ✅ D4 | **Sign off the nominative Stream Deck, Elgato and Companion naming** (compatibility only, no logos) | **Decided 2026-10-15:** signed off as written | M1 |
 | ✅ D5 | **First release scope:** the version, and which platforms and packages ship (the MSI was built once and never installed; macOS has never run on a real Mac) | **Decided 2026-10-15:** v0.1.0, Windows and Android only. The release publishes the Windows NSIS installer and the Android APK. The MSI, macOS, the Linux packages and the command-line archives are not in it. Linux and macOS still build and test in CI, and Linux keeps building from source; they join a later release once tested on real hardware. minSdk stays 22 (DECISIONS, 2026-10-12) | M3 |
-| D6 | **RUSTSEC-2026-0192:** `ttf-parser` (behind `ab_glyph`, used to draw key titles) is unmaintained. Not a vulnerability | Accept it with a reason in `host/deny.toml` for now; replace later | CI running advisories |
-| D7 | **Play:** a separate upload key or the release key; turn on v3 signing or not | Separate upload key (Play App Signing); v3 off | Play closed test |
-| D8 | **Store and verification identities:** a personal Play account shows the legal name, country and email; Android developer verification (global in 2027) is another identity check | Check which name each one shows before using it, as for D1 | Play, Android verification |
+| ✅ D6 | **RUSTSEC-2026-0192:** `ttf-parser` (behind `ab_glyph`, used to draw key titles) is unmaintained. Not a vulnerability | **Decided 2026-10-17:** accepted for now, with a reason in `host/deny.toml` (`[advisories] ignore`), and the library is replaced in a later release. `cargo deny check advisories` still fails on other advisories ([next-steps](../next-steps.md) item 8) | CI running advisories |
+| ✅ D7 | **Play:** a separate upload key or the release key; turn on v3 signing or not | **Decided 2026-10-17**, for whenever Play happens: Play App Signing with the app-signing key Google generates, and our release key as the upload key. The Release workflow already signs the `play-bundle` AAB with the release key, so nothing in it changes. Play installs and GitHub, IzzyOnDroid or F-Droid installs can't update each other. v3 key rotation stays off | Play (not for now, D8) |
+| ✅ D8 | **Store and verification identities:** a personal Play account shows the legal name, country and email; Android developer verification (global in 2027) is another identity check | **Decided 2026-10-17:** no Google Play for now. v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid; revisit if people ask for it. A personal Play account would publicly show the legal name, country and developer email, and an organization account needs a registered company. So the Play closed test (12 testers for 14 days), the Play listing, the data safety form and the Play account are off the launch path. The fastlane metadata stays: F-Droid and IzzyOnDroid use it. Google's Android developer verification isn't part of the decision: it's an open item to watch in M4 | Play |
 | ✅ D9 | **Old Actions runs and artifacts** become public at the flip (E2E logs, the 2026-10-11 bundles) | **Decided 2026-10-15:** delete all runs and their artifacts right before the flip. Claude does it with the maintainer's OK at that moment (M1-10). Not done yet | M1 |
 | ✅ D10 | **One name for the desktop app.** "PerritoDeck" is `tauri.conf.json`'s `productName` and so the window title, tray tooltip, installer, Start menu and uninstall entry, Windows version info, macOS bundle and Linux `.desktop` name (`tauri.conf.json:3,16`, `src-tauri/src/lib.rs:704,764-766`, `packaging/flatpak/dev.perritodeck.PerritoDeck.desktop:3` and `.metainfo.xml:5`, `packaging/aur/PKGBUILD:76`), and the website's "PerritoDeck desktop app" (`index.html:104`, `privacy.html:46`). "PerritoDeck Host" was what the tablet apps told people to start: Android `strings.xml:14,18,32`, `net/Pairing.kt:64`, `net/DeckConnection.kt:474`; iOS `ScanView.swift:44`, `HomeView.swift:22,69`, `Info.plist:50`, `PerritoKit/Pairing.swift:43`, `PerritoKit/PinnedWebSocket.swift:31`; the website's `download.html:7,13,53` and `privacy.html:55`. The command-line program stays `perritodeck-host` either way | **Decided 2026-10-15:** "PerritoDeck", the `productName`. "PerritoDeck Host" is retired everywhere people see it: the tablet strings, the website and the store text change in one commit (renamed in the tree on 2026-10-15, not yet committed). The tablet app stays "Perrito", and the command-line binary keeps its file name, `perritodeck-host` | The store listing (M3) |
 | ✅ D11 | **Reproducible Android builds and the startup profile.** `assets/dexopt/baseline.prof`, the ART startup profile R8 rewrites for the minified code, records the checksum of `classes.dex`, so it matches whenever the dex does. Measured on 2026-10-15 on one Windows PC (JDK 17, AGP 8.11.1): three clean release builds with the build cache off, in three folders on two drives, gave the same APK (2,179,425 bytes unsigned), while an incremental Kotlin compile changed the dex and so the profile (six classes when the compile came from the user-level build cache). With R8's profile rewriting off (only `android { experimentalProperties[...] }` does it; the `gradle.properties` flag has no effect on AGP 8.11.1) builds still match, but only 464 of the profile's 35,030 rules name a class in the obfuscated code (8,666 of 8,738 with it on), so the startup profile is effectively lost; turning off the ArtProfile tasks loses it outright on API 24+ | **Settled 2026-10-15 by measurement**, so no maintainer decision is needed: keep AGP's defaults and compare clean builds made with `--no-build-cache` ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide again only if CI's and F-Droid's builds differ; no comparison between machines has been run yet | The reproducible-build comparison and F-Droid's `Binaries` (M4) |
@@ -83,9 +88,9 @@ and each is in [DECISIONS](../DECISIONS.md).
 | 2. ✅ Bring the website, mail and DNS docs in line with reality (nameservers already moved, the mail service, NEL and Speed Brain off, DNSSEC, the privacy URL). Done 2026-10-15: the site's notes moved to [`docs/website.md`](../website.md), whose "Deploy", "Where it stands" and "The domain" describe the live Worker, `www`, HSTS, NEL, DNSSEC and D2's mail, and whose "The project" asks which to keep (D12). Next-steps, the launch checklist, distribution and "Right now" above say the same | C | |
 | 3. ✅ `bootstrap-gradle-wrapper.yml` no longer pushes to `main`. Done 2026-10-15, differently from planned: it pushes a signed-off `gradle-wrapper-<version>` branch and links a compare page from which a person opens the PR, so "Allow GitHub Actions to create and approve pull requests" stays off (DECISIONS). It hasn't run on GitHub yet (CI is blocked) | C | |
 | 4. ✅ Stale docs from today's review (Actions permissions are already read-only; MSI and Linux lines in HANDOFF; the Twitch Affiliate item, decided). Done 2026-10-15; the Affiliate decision is in DECISIONS, the Twitch test plan and the tools README | C | |
-| 5. **Website:** attach `perritodeck.dev`, `www` and the redirects, zone settings, DNSSEC ([docs/website.md](../website.md#deploy)). Mostly done 2026-10-15: a Cloudflare Worker named `perritodeck` with static assets serves the custom domain (not a Pages project; there's no `perritodeck.pages.dev`), with HSTS from `_headers`, NEL off, `www` answering 301 to the bare domain (one Redirect Rule and a proxied `A` record to 192.0.2.1) and DNSSEC in force (DS 2371/13/2 at the `.dev` registry). Pushes to `main` redeploy it by themselves (seen 2026-10-17). Left, to confirm with the maintainer: the zone settings only the dashboard shows (Look online itself works: the app's `PerritoDeck` user agent gets the catalogue, and only Python's default user agent is refused, by the Browser Integrity Check) ([website.md, The domain](../website.md#the-domain), "Left"); and D12 | M | D3, D12 |
+| 5. **Website:** attach `perritodeck.dev`, `www` and the redirects, zone settings, DNSSEC ([docs/website.md](../website.md#deploy)). Mostly done 2026-10-15: a Cloudflare Worker named `perritodeck` with static assets serves the custom domain (not a Pages project; there's no `perritodeck.pages.dev`), with HSTS from `_headers`, NEL off, `www` answering 301 to the bare domain (one Redirect Rule and a proxied `A` record to 192.0.2.1) and DNSSEC in force (DS 2371/13/2 at the `.dev` registry). Pushes to `main` redeploy it by themselves (seen 2026-10-17). Left, to confirm with the maintainer: the zone settings only the dashboard shows (Look online itself works: the app's `PerritoDeck` user agent gets the catalogue, and only Python's default user agent is refused, by the Browser Integrity Check) ([website.md, The domain](../website.md#the-domain), "Left"); and D12. D3 keeps the catalogue on `main` (2026-10-17) | M | D12 |
 | 6. Checks after attaching: headers, redirects, 404, `/plugins/index.json`, **Look online** installing from it. Partly done 2026-10-15 from outside: the headers, `http://` and `www` redirects, a 404 status (with an empty body, not `404.html`), `/README.md` gone and `index.json` (24 plugins, 13 marked Experimental) are right. Left: the 404 page (D12) and Look online installing from the live catalogue | C | 5 |
-| 7. ✅ Account security. Done 2026-10-15: 2FA is on for the maintainer's GitHub, Namecheap, Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the API); auto-renew is on at Namecheap. Two parts of the item as planned weren't in that check, so they're to confirm with the maintainer: 2FA on the Azure account D1 keeps, and the registrar lock at Namecheap | M | |
+| 7. ✅ Account security. Done 2026-10-15: 2FA is on for the maintainer's GitHub, Namecheap, Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the API); auto-renew is on at Namecheap. The two parts that check didn't cover were confirmed on 2026-10-17: the maintainer has passkey 2FA on the Azure account D1 keeps, and Namecheap's Domain Lock is on for perritodeck.dev (the `.dev` registry's RDAP shows "client transfer prohibited", checked 2026-10-17). Nothing is left to confirm | M | |
 | 8. ✅ The stale `v0.1.0` tag. Done 2026-10-15: no other clone exists, and there are no tags in the repository or on GitHub | M | |
 | 9. Create the `triage` and `plugin` labels the issue forms use | C+M | the maintainer's OK |
 | 10. Right before the flip, delete every GitHub Actions run and its artifacts (D9: Claude does it with the maintainer's OK at that moment), and review Dependabot PR #1 | C+M | the maintainer's OK then |
@@ -118,7 +123,7 @@ and each is in [DECISIONS](../DECISIONS.md).
 |---|---|---|
 | 7. First CI run on the ~180 commits since 2026-10-11 (Host and Desktop on all platforms, by hand) and fix the fallout; then put CI back on push | C+M | M1-14 |
 | 8. Review and merge Dependabot PR #1 | C+M | 7 |
-| 9. Android release key: generate, back up twice, set 3 secrets + 2 variables, publish the fingerprint ([releasing](../releasing.md)) | M | D7; the `release` environment once public |
+| 9. Android release key: generate, back up twice, set 3 secrets + 2 variables, publish the fingerprint ([releasing](../releasing.md)). If Play ever happens, the same key is its upload key (D7) | M | the `release` environment once public |
 | 10. Finish the minified-APK checks: API 22 emulator, QR decoding, USB, sliders; also the licences screen, the launcher icons (fallback on API 22–25, themed on API 33+) and edge to edge on API 35+, where `SystemBarsTest` covers the Home, Licences and Pair screens once e2e runs | C+M | tablet/emulator time |
 | 11. Linux: compile and test today's commits (Linux isn't in v0.1.0, but it still builds and tests in CI and builds from source, D5); a real Linux desktop with a tablet before Linux joins a release | C+M | Linux hardware for the second part |
 | 12. ✅ MSI and macOS: dropped from v0.1.0 (D5), and so are the Linux packages and the command-line archives. Done 2026-10-15: `SHIP`, at the top of `release.yml`, lists what a release publishes (`windows-nsis` for v0.1.0), and a tag runs only those build jobs, so a platform that isn't listed can't fail the release. The publish job checks that the draft gets exactly the NSIS installer, the APK, the plugin catalogue zip and `third-party-licenses.txt` (the desktop app's licences link points at the release's copy), plus `SHA256SUMS`, and the notes have rows only for those. A manual run with **untested** ticked builds the rest as workflow artifacts ([releasing, What ships](../releasing.md#what-ships)). It hasn't run on GitHub yet (CI is blocked). Testing the MSI and macOS moves to the release that adds them | C | |
@@ -128,8 +133,8 @@ and each is in [DECISIONS](../DECISIONS.md).
 | 16. Soak test (hours), sleep/resume, Wi-Fi drop | C+M | hardware time |
 | 17. Remaining Windows manual test-plan steps | M | PC + tablet time |
 | 18. `fdroid lint` and `fdroid build` on the recipe | C+M | OK to install fdroidserver |
-| 19. Play closed test (12 testers, 14 days), started as soon as a signed AAB exists | M | 9, D7, D8, M1-5 |
-| 20. **Tag, check the draft, test the NSIS installer and the APK, publish** | M | all of the above |
+| 19. **Not for now (D8):** the Play closed test (12 testers, 14 days), the Play upload key (settled by D7 if Play happens) and the Play listing with its data safety form. Off the launch path; the notes for later are in [distribution, Google Play](../distribution.md#google-play) | — | D8, if it's revisited |
+| 20. **Tag, check the draft, test the NSIS installer and the APK, publish** | M | all of the above but 19 |
 | 21. Launch-day site edits (the pre-release text, download links, the fingerprint) and post-launch checks | C | 20 |
 
 ## M4: after the release
@@ -140,9 +145,14 @@ and each is in [DECISIONS](../DECISIONS.md).
 - **Linux and macOS in a release** (D5), each once tested on real hardware: a real Linux
   desktop with a tablet (M3-11), a real Mac. The MSI too, once it's been installed and
   tested.
-- Store submissions: IzzyOnDroid, the F-Droid merge request, Play production, winget (the
-  NSIS installer); Flathub and AUR once Linux is in a release (the drafts need the current
-  plugin list and the MCP bridge).
+- Store submissions: IzzyOnDroid, the F-Droid merge request, winget (the NSIS installer);
+  Flathub and AUR once Linux is in a release (the drafts need the current plugin list and
+  the MCP bridge). Google Play isn't one of them for now (D8).
+- **To watch: Google's Android developer verification** (global from 2027). Apps
+  installed on Google-certified Android devices, sideloaded ones included, will have to
+  come from a verified developer. That affects the GitHub, IzzyOnDroid and F-Droid builds,
+  but not Fire tablets, which aren't Google-certified. It's an open item, not a decision
+  yet, and another identity check, as in D1 and D8.
 - macOS entitlements and usage strings, Apple signing (D1-style identity question).
 - A form with **Test connection** for built-in OBS, Home Assistant and Companion instead of
   hand-editing `integrations.toml`.
@@ -161,13 +171,16 @@ and each is in [DECISIONS](../DECISIONS.md).
 ## Claude's queue, in order
 
 Done by 2026-10-15, in the tree: the OBS pass and its fixes, the Twitch test tools, M1-1
-to M1-4, M2-2, M3-1 to M3-5, M3-12 and D10's renames.
+to M1-4, M2-2, M3-1 to M3-5, M3-12 and D10's renames. On 2026-10-17: D6's ignore in
+`host/deny.toml`, and D3, D6, D7, D8 and M1-7 written up in these docs.
 
 1. Commit the 2026-10-15 work in reviewed pieces, with D10's renames (tablet strings,
    website, store text) as one commit.
-2. Ask the maintainer what only the dashboard shows: the zone settings and D12 (M1-5), and the two parts of M1-7 its check didn't
-   cover.
+2. Ask the maintainer what only the dashboard shows: the zone settings and D12 (M1-5).
 3. M2-1, and the rest of M1-6: the 404 page once D12 is decided, and Look online
    installing from the live catalogue.
 4. M3-6 after the Twitch pass. Right before the flip: M1-10 (delete every Actions run and
    its artifacts, with the maintainer's OK then) and M1-11.
+5. The advisories `cargo deny check advisories` flags besides D6's
+   ([next-steps](../next-steps.md) item 8): update the crates that have a fix, and take
+   the rest to the maintainer (ignoring one is a decision), before CI runs advisories.

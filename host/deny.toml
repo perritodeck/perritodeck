@@ -27,7 +27,10 @@ feature-depth = 1
 
 [advisories]
 # `cargo deny check advisories` fetches the RustSec database; run it in CI, not offline.
-ignore = []
+# Each ignored advisory is a decision: record it in docs/DECISIONS.md and give it a reason.
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser, pulled in by ab_glyph to draw key titles, is unmaintained, not a vulnerability. Accepted for now and replaced in a later release (decision D6, 2026-10-17)" },
+]
 
 [licenses]
 confidence-threshold = 0.93

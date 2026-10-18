@@ -264,8 +264,8 @@ Left, all in the dashboard, since none of it can be checked from outside:
    the list. The `www` Redirect Rule can't match it, because `pages.dev` isn't in the zone.
 
 The privacy policy's address is `https://perritodeck.dev/privacy` (`/privacy.html`
-redirects there). That's the one for Play Console's privacy policy field and the other
-store listings, and Play's closed test needs it to load.
+redirects there). That's the one for the store listings, and for Play Console's privacy
+policy field if Google Play is ever used (not for now, D8 in `docs/plan/phase-8.md`).
 
 ### Headers (`_headers`)
 
@@ -312,9 +312,10 @@ store listings, and Play's closed test needs it to load.
       stores on `guide/getting-started.html`; and "The online catalogue isn't published
       yet" on `guide/plugins.html`.
 - [ ] Signing and stores. v0.1.0 ships unsigned on Windows unless the certificate arrives
-      first (D1 in `docs/plan/phase-8.md`), and F-Droid, IzzyOnDroid and Google Play are
-      still "Coming". The "Signed installers and store listings" lines (the last "Not yet"
-      on `index.html` and the last line of "Not there yet" on `features.html`) end by
+      first (D1 in `docs/plan/phase-8.md`), and F-Droid and IzzyOnDroid are still
+      "Coming" (Google Play says "Not for now", D8). The "Signed installers and store
+      listings" lines (the last "Not yet" on `index.html` and the last line of "Not
+      there yet" on `features.html`) end by
       saying you can build it yourself in the meantime. Replace only that ending
       with what's still missing (the Windows installer's signature, the stores Perrito
       isn't in yet), and remove the lines once both are done. If Windows signing is in

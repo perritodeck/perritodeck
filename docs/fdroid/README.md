@@ -6,7 +6,7 @@ Nothing here has been submitted. Both stores need the repository to be **public*
 | File | What it is |
 |---|---|
 | [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Draft build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`) |
-| [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid, IzzyOnDroid and Play all read this layout straight from the repository |
+| [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid and IzzyOnDroid read this layout straight from the repository (so would Play, which isn't used for now) |
 
 ## Readiness checklist
 
@@ -75,7 +75,7 @@ Known risks to check when doing step 2:
 - **Incremental Kotlin compiles can give a different `classes.dex`.** When only some files are recompiled, the Compose compiler can infer an argument's stability differently and pass different `$changed` flags (on 2026-10-15, six classes, all in files edited since the last full compile). A fresh checkout isn't enough to avoid it: `android/gradle.properties` turns on Gradle's build cache, and the user-level cache (`~/.gradle/caches/build-cache-1`) can hold `compileReleaseKotlin` output from an incremental compile of the same sources. That day a fresh copy of the tree took `compileReleaseKotlin` from the cache and gave a different APK from the same copy built with the cache off. Compare builds made with the build cache off: `clean assembleRelease --no-build-cache`. CI isn't affected, because its cache entries come from full compiles on fresh runners.
 - **JDK and build-tools versions** must match: JDK 17 (Temurin in CI, OpenJDK on F-Droid), and build-tools 35.0.0, now pinned with `buildToolsVersion`. R8 output can change between JDK vendors only in rare cases.
 - **No comparison between machines has been run yet** (the builds above were all on one Windows PC with one JDK). The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
-- The `minSdk 22` APK is signed with v1 + v2 signatures (set explicitly in the signing config; v3 is off). `apksigcopier` handles both.
+- The `minSdk 22` APK is signed with v1 + v2 signatures (set explicitly in the signing config; v3 is off, D7). `apksigcopier` handles both.
 
 ## IzzyOnDroid
 
@@ -89,4 +89,4 @@ Faster than F-Droid (days) and serves the APKs from our GitHub Releases as they 
 - After inclusion, new GitHub Releases are picked up automatically, with no action needed per release.
 
 ## Google Play
-See [`../distribution.md`](../distribution.md#google-play): the 12-tester closed test, data safety answers and Play App Signing. The Release workflow keeps `perrito-<version>.aab` as the `play-bundle` workflow artifact for upload.
+Not for now (D8 in `docs/plan/phase-8.md`, decided 2026-10-17): v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid. The notes for later are in [`../distribution.md`](../distribution.md#google-play): the 12-tester closed test, the data safety answers, and Play App Signing as D7 settles it (our release key as the upload key). The Release workflow still keeps `perrito-<version>.aab` as the `play-bundle` workflow artifact.
