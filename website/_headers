@@ -8,6 +8,10 @@
 # attributes (deck.js, download.js, catalogue.js and the .css files hold them instead), so
 # keep it that way when editing a page or plugins/build_catalog.py's catalogue template.
 # Nothing fetches at runtime, so connect-src stays at the default 'none'.
+#
+# no-transform keeps Cloudflare from rewriting pages at the edge: no Web Analytics beacon
+# (the zone had automatic injection on without anyone turning it on, against the privacy page), no
+# email obfuscation, no Rocket Loader. Keep it even with Web Analytics off in the dashboard.
 
 /*
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
@@ -17,6 +21,7 @@
   Cross-Origin-Opener-Policy: same-origin
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
+  Cache-Control: no-transform
   X-Robots-Tag: noindex
 # ^ TEMPORARY: the X-Robots-Tag line keeps search engines out until the public launch.
 #   Delete it on public launch day.

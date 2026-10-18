@@ -124,9 +124,12 @@ HTTP with `curl -sI`.
 - **Cloudflare Web Analytics injects its beacon** (`static.cloudflareinsights.com/beacon.min.js`)
   into the pages for browsers: seen 2026-10-15 with a Chrome user agent, while curl's gets a
   clean page. The CSP blocks it, so it collects nothing, but each visit logs a CSP error and
-  the privacy page promises no analytics: turn Web Analytics off for the site (maintainer,
-  in the dashboard). There's no Rocket Loader, Email Address Obfuscation or `Speculation-Rules`
-  header from Speed Brain.
+  the privacy page promises no analytics. `_headers` now sends `Cache-Control: no-transform`,
+  which stops Cloudflare rewriting pages at all (its FAQ: no beacon is injected then), and
+  Web Analytics should be off in the dashboard too: it's at the account level (Analytics &
+  Logs → Web Analytics → the site → Manage site → turn off the automatic JS snippet), not in
+  the zone's menu, and the site may need adding there before the switch appears. There's no
+  Rocket Loader, Email Address Obfuscation or `Speculation-Rules` header from Speed Brain.
 - Cloudflare's Browser Integrity Check refuses Python's default user agent
   (`Python-urllib`) with error 1010; the app's `PerritoDeck`, curl and browsers get the
   catalogue. A script that fetches it should send a user agent of its own.
