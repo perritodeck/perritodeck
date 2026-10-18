@@ -31,10 +31,8 @@ one are in [next-steps](../next-steps.md) (items 8–18), the steps in order in 
   resolvers validate. Mail for dev@ is set up as D2 says. The site matches the current
   `main` (`6861f46`): `/README.md` answers 404, `/img/og.png` loads, and
   `/plugins/index.json` lists the 24 plugins with 13 marked Experimental (checked by 15:16
-  UTC and again at 15:46). **To confirm with the maintainer:** whether pushes to `main`
-  redeploy the Worker. After the push at about 15:09 UTC the site still served the old
-  build several minutes later, and serving the new one by 15:16 doesn't tell a build
-  started by the push from a deploy by hand. Also to confirm: the zone settings only the
+  UTC and again at 15:46). Pushes to `main` redeploy the Worker by themselves (a push at
+  03:02:14 UTC on 2026-10-17 was live by 03:02:42). To confirm: the zone settings only the
   dashboard shows ([website.md, The domain](../website.md#the-domain), "Left"), and two
   parts of M1-7 that weren't in its check.
 - **The OBS real-world pass is done.** It ran on 2026-10-13 against OBS 31.0.3 (93 of 110
@@ -85,7 +83,7 @@ and each is in [DECISIONS](../DECISIONS.md).
 | 2. ✅ Bring the website, mail and DNS docs in line with reality (nameservers already moved, the mail service, NEL and Speed Brain off, DNSSEC, the privacy URL). Done 2026-10-15: the site's notes moved to [`docs/website.md`](../website.md), whose "Deploy", "Where it stands" and "The domain" describe the live Worker, `www`, HSTS, NEL, DNSSEC and D2's mail, and whose "The project" asks which to keep (D12). Next-steps, the launch checklist, distribution and "Right now" above say the same | C | |
 | 3. ✅ `bootstrap-gradle-wrapper.yml` no longer pushes to `main`. Done 2026-10-15, differently from planned: it pushes a signed-off `gradle-wrapper-<version>` branch and links a compare page from which a person opens the PR, so "Allow GitHub Actions to create and approve pull requests" stays off (DECISIONS). It hasn't run on GitHub yet (CI is blocked) | C | |
 | 4. ✅ Stale docs from today's review (Actions permissions are already read-only; MSI and Linux lines in HANDOFF; the Twitch Affiliate item, decided). Done 2026-10-15; the Affiliate decision is in DECISIONS, the Twitch test plan and the tools README | C | |
-| 5. **Website:** attach `perritodeck.dev`, `www` and the redirects, zone settings, DNSSEC ([docs/website.md](../website.md#deploy)). Mostly done 2026-10-15: a Cloudflare Worker named `perritodeck` with static assets serves the custom domain (not a Pages project; there's no `perritodeck.pages.dev`), with HSTS from `_headers`, NEL off, `www` answering 301 to the bare domain (one Redirect Rule and a proxied `A` record to 192.0.2.1) and DNSSEC in force (DS 2371/13/2 at the `.dev` registry). Left, all to confirm with the maintainer: whether pushes to `main` redeploy the Worker (after a push at about 15:09 UTC the site still served the old build several minutes later); the zone settings only the dashboard shows, among them Bot Fight Mode, which can make Look online fail with a 403 ([website.md, The domain](../website.md#the-domain), "Left"); and D12 | M | D3, D12 |
+| 5. **Website:** attach `perritodeck.dev`, `www` and the redirects, zone settings, DNSSEC ([docs/website.md](../website.md#deploy)). Mostly done 2026-10-15: a Cloudflare Worker named `perritodeck` with static assets serves the custom domain (not a Pages project; there's no `perritodeck.pages.dev`), with HSTS from `_headers`, NEL off, `www` answering 301 to the bare domain (one Redirect Rule and a proxied `A` record to 192.0.2.1) and DNSSEC in force (DS 2371/13/2 at the `.dev` registry). Pushes to `main` redeploy it by themselves (seen 2026-10-17). Left, to confirm with the maintainer: the zone settings only the dashboard shows (Look online itself works: the app's `PerritoDeck` user agent gets the catalogue, and only Python's default user agent is refused, by the Browser Integrity Check) ([website.md, The domain](../website.md#the-domain), "Left"); and D12 | M | D3, D12 |
 | 6. Checks after attaching: headers, redirects, 404, `/plugins/index.json`, **Look online** installing from it. Partly done 2026-10-15 from outside: the headers, `http://` and `www` redirects, a 404 status (with an empty body, not `404.html`), `/README.md` gone and `index.json` (24 plugins, 13 marked Experimental) are right. Left: the 404 page (D12) and Look online installing from the live catalogue | C | 5 |
 | 7. ✅ Account security. Done 2026-10-15: 2FA is on for the maintainer's GitHub, Namecheap, Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the API); auto-renew is on at Namecheap. Two parts of the item as planned weren't in that check, so they're to confirm with the maintainer: 2FA on the Azure account D1 keeps, and the registrar lock at Namecheap | M | |
 | 8. ✅ The stale `v0.1.0` tag. Done 2026-10-15: no other clone exists, and there are no tags in the repository or on GitHub | M | |
@@ -167,8 +165,7 @@ to M1-4, M2-2, M3-1 to M3-5, M3-12 and D10's renames.
 
 1. Commit the 2026-10-15 work in reviewed pieces, with D10's renames (tablet strings,
    website, store text) as one commit.
-2. Ask the maintainer what only the dashboard shows: whether pushes to `main` redeploy
-   the site, the zone settings and D12 (M1-5), and the two parts of M1-7 its check didn't
+2. Ask the maintainer what only the dashboard shows: the zone settings and D12 (M1-5), and the two parts of M1-7 its check didn't
    cover.
 3. M2-1, and the rest of M1-6: the 404 page once D12 is decided, and Look online
    installing from the live catalogue.

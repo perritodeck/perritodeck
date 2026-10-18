@@ -74,7 +74,7 @@ Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a v
 python3 scripts/release-version.py --check 0.2.0
 cd host && cargo test && cd app/src-tauri && cargo check --locked
 ```
-Commit ("release: v0.2.0"), push to `main` and let CI pass. If pushes to `main` redeploy the website (still to confirm with the maintainer, see step 7), this push puts the new download links live, and they return 404 until the release is published, so go on to the tag straight away.
+Commit ("release: v0.2.0"), push to `main` and let CI pass. Pushes to `main` redeploy the website, so this push puts the new download links live, and they return 404 until the release is published, so go on to the tag straight away.
 
 ### 5. Tag (maintainer only)
 ```sh
@@ -100,7 +100,7 @@ Cost: a v0.1.0 tag runs 5 Linux jobs and 1 Windows job (2× rate); a manual run 
 ### 7. Publish
 - [ ] Open the draft. Check the asset list against [What ships](#what-ships) (the APK must not be `-unsigned`), check that the certificate SHA-256 in the notes is the one on the download page, try the Windows installer on a PC and the APK on a tablet, and compare a couple of checksums.
 - [ ] Press **Publish release**.
-- [ ] The website: it's a Cloudflare Worker with static assets ([`docs/website.md`](website.md#where-it-stands)), and whether a push to `main` redeploys it is still to confirm with the maintainer. If it does, the release commit from step 4, which bumped the links in `download.html`, is already live, and from that push until **Publish release** the download page links to files that return 404, so tag and publish promptly. If it doesn't, deploy the site once the release is published. Whatever deploys it builds the plugin catalogue (`website/plugins/` isn't committed); if a deploy ever skips that, unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into `website/plugins/` before deploying.
+- [ ] The website: it's a Cloudflare Worker with static assets ([`docs/website.md`](website.md#where-it-stands)), and a push to `main` redeploys it within a minute or so. So the release commit from step 4, which bumped the links in `download.html`, is already live, and from that push until **Publish release** the download page links to files that return 404: tag and publish promptly. Whatever deploys it builds the plugin catalogue (`website/plugins/` isn't committed); if a deploy ever skips that, unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into `website/plugins/` before deploying.
 - [ ] First release only: work through "Launch day" under "Deploy" in `docs/website.md`, then commit, push to `main` and check that the live site shows the change.
 - [ ] Stores: F-Droid picks up new tags by itself once listed; IzzyOnDroid picks up the APK; upload the `play-bundle` artifact to Play. The Flathub and AUR recipes (`packaging/README.md`) wait until Linux ships ([What ships](#what-ships)).
 

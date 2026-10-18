@@ -206,10 +206,8 @@ decisions it needs.
   is git-ignored). The site is live (2026-10-15): a Cloudflare Worker named `perritodeck`
   with static assets serves it on the custom domain, and `perritodeck.pages.dev` doesn't
   exist. It matches the current `main` (`6861f46`: `/README.md` answers 404, 13 plugins
-  are marked Experimental). **To confirm with the maintainer:** whether pushes to `main`
-  redeploy it. After a push at about 15:09 UTC the site still served the old build
-  several minutes later, and serving the new one by 15:16 doesn't show whether the push
-  or a deploy by hand put it there. The 2026-10-13 decision chose Pages, so keeping the
+  are marked Experimental). Pushes to `main` redeploy it by themselves (a push at
+  03:02:14 UTC on 2026-10-17 was live by 03:02:42). The 2026-10-13 decision chose Pages, so keeping the
   Worker or moving to Pages is decision D12 in `docs/plan/phase-8.md` ("The project" in
   `docs/website.md`). If the site is ever served without the catalogue build step (GitHub
   Pages, say), unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into

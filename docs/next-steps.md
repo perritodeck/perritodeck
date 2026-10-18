@@ -664,10 +664,6 @@ app's user agent. `http://` redirects to `https://`, and `www` answers 301 to
 injects and no Speed Brain header. Mail is set up as D2 decided (item 8).
 
 **Left:**
-- **Whether pushes to `main` redeploy the site: to confirm with the maintainer.** After a
-  push at about 15:09 UTC on 2026-10-15, the site still served the old build several
-  minutes later. By 15:16 it served the new one, which doesn't tell a build started by the
-  push from a deploy by hand.
 - **Keep the Worker or move to Pages (decision D12 in `docs/plan/phase-8.md`):** the
   Worker answers `/nope` with an empty 404 instead of `404.html`, redirects
   `/privacy.html` with a 307, and lacks the `X-Content-Type-Options: nosniff` header Pages

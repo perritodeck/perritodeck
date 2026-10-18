@@ -140,12 +140,12 @@ HTTP with `curl -sI`.
   everything. `_headers` now sets `nosniff` itself; the CORS header isn't needed, since the
   app fetches the catalogue directly, not from a web page.
 
+**Pushes to `main` redeploy it by themselves.** A push at 03:02:14 UTC on 2026-10-17 was
+live by 03:02:42 with nobody deploying by hand (one on 2026-10-15 took about 7 minutes to
+show).
+
 **To confirm with the maintainer**, because none of this shows from outside:
 
-- Whether pushes to `main` redeploy the Worker. After a push at about 15:09 UTC on
-  2026-10-15, the site still served the old build several minutes later. By 15:16 UTC it
-  served that push's build (the link-preview tags, `img/og.png`, `/README.md` gone), which
-  doesn't tell a build started by the push from a deploy by hand.
 - How it's deployed: whether the Worker is connected to the GitHub repository, its build
   command (something builds the catalogue), and the folder it publishes. There's no
   Wrangler config in the repository, so those settings are either in the dashboard (if the
