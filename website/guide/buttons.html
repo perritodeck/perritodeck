@@ -268,7 +268,8 @@
 
 <h3 id="export">Share or back up a profile</h3>
 <p><span class="ui">Profile options</span> → <span class="ui">Export…</span> saves the profile and all its images as one <code>.perritoprofile</code> file. Use <span class="ui">Import a profile…</span> to load one on another computer, or to restore it.</p>
-<p>Passwords and tokens for OBS, Home Assistant and plugins are never part of a profile, so exported files are safe to share.</p>
+<p>When a profile you import has keys that run things, PerritoDeck lists them before adding it: keys that run a program or command, open a file, use a plugin, or type text and press Enter. Each shows its page, its position and exactly what it does. Choose <span class="ui">Import everything</span> only if you trust whoever made the file. <span class="ui">Import with these keys off</span> keeps how they look but removes what's listed, so you can see where they were and set them up yourself. <span class="ui">Cancel</span> adds nothing. Profiles without such keys are added straight away.</p>
+<p>Passwords and tokens you've saved for OBS, Home Assistant and plugins are never part of a profile. What's on the keys is: text a key types, commands and their arguments, web addresses, plugin settings and live values in titles. Look through those before you share a file.</p>
 
 <h2 id="file">Editing the profile file by hand</h2>
 <p>Every profile is a plain text file in a format called TOML, and the editor is just a friendly way to change it. You never need to touch the file, but some people like to: it's quick to copy many buttons, and you can keep notes in it. Use <span class="ui">Profile options</span> → <span class="ui">Open the file</span> to open it in your text editor.</p>

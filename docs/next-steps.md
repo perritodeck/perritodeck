@@ -798,10 +798,16 @@ and the checks):
   makes isn't owner-only. Plugins already get generated settings forms with masked
   passwords. This is the hardest setup
   step for newcomers and the first thing the OBS pass hits.
-- **Importing a `.perritoprofile` gives no warning** about Command, Launch or plugin keys
-  that run on the next press (`host/app/src-tauri/src/lib.rs:341-358`,
-  `docs/SECURITY.md:20,24`). MCP edits that add such keys need the separate "run" permission;
-  imports have no equivalent.
+- ✅ **Imports ask about keys that run things (2026-10-24).** Importing a
+  `.perritoprofile` now lists every key that runs a program, opens a file, uses a plugin,
+  or types text and presses Enter, on every page, state, step and slider, before anything
+  is written; the person picks Import with these keys off, Import everything, or Cancel
+  (`host/crates/host/src/import.rs`, `perritodeck_profile::risk`, `ImportCheck.svelte`).
+  MCP's `set_key` uses the same rules, so typing that presses Enter now needs the "run"
+  permission too. Live-value arguments (`{plugin:…:…:argument}`) aren't listed yet
+  (`docs/SECURITY.md`). Not yet tried in the real app: one manual pass with a starter
+  export (the dialog lists Run a command, Narrator reads the heading and intro, Escape
+  cancels, and Import with this key off leaves the key as a label).
 - **macOS bundle:** no entitlements or usage strings (the `macOS` block of
   `tauri.conf.json`), though the host and five plugins drive other apps through
   `osascript`, and ad-hoc signing likely makes users grant Accessibility again after every
