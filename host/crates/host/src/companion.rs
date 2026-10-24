@@ -58,7 +58,6 @@ impl Bridge {
                             }
                             Status::Disconnected { reason } => reason.clone(),
                         };
-                        *state.lock().expect("companion state poisoned") = text;
                         match status {
                             Status::Connecting => {}
                             Status::Connected { .. } => deck.remote_status(None),
@@ -66,6 +65,10 @@ impl Bridge {
                                 deck.remote_status(Some("Companion\noffline"))
                             }
                         }
+                        // Set only after the deck has been told, so the status never runs
+                        // ahead of the keys: once it reads "Connected", a tablet that connects
+                        // is no longer shown "Connecting to Companion".
+                        *state.lock().expect("companion state poisoned") = text;
                     }
                     Event::Key {
                         surface,

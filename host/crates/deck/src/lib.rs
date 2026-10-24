@@ -709,7 +709,14 @@ impl Deck {
     /// Let `remote` draw devices that show a Companion profile.
     pub fn set_remote(&self, remote: Arc<dyn RemoteSurfaces>) {
         *self.remote.lock().expect("remote poisoned") = Some(remote);
-        *self.remote_note.lock().expect("note poisoned") = "Connecting to\nCompanion".into();
+        {
+            // The remote is already running and may have said how it is (through
+            // `remote_status`) before it was handed over; only "Set up" is out of date.
+            let mut note = self.remote_note.lock().expect("note poisoned");
+            if *note == NO_COMPANION {
+                *note = "Connecting to\nCompanion".into();
+            }
+        }
         let mut st = self.lock();
         let ids: Vec<String> = st.devices.keys().cloned().collect();
         for id in ids {

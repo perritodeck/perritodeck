@@ -1022,6 +1022,59 @@ fn companion_profiles_show_companions_buttons() {
     );
 }
 
+fn companion_deck() -> (Arc<Deck>, Arc<Sent>) {
+    let (deck, sent, _) = setup();
+    deck.load_profile(
+        "companion",
+        Profile::parse("schema_version = 1\nname = \"Companion\"\ncompanion = true\n").unwrap(),
+        None,
+    );
+    deck.assign("tab", Some("companion"));
+    (deck, sent)
+}
+
+/// The remote starts before it's handed to the deck, so it can say how it is first.
+#[test]
+fn what_companion_said_before_set_remote_stands() {
+    for (status, note) in [
+        (None, ""),
+        (Some("Companion\noffline"), "Companion\noffline"),
+    ] {
+        let (deck, _) = companion_deck();
+        deck.remote_status(status);
+        deck.set_remote(Arc::new(FakeCompanion::default()));
+        let l = deck.initial_layout(&hello());
+        assert_eq!(l.keys[0].title, note, "after remote_status({status:?})");
+    }
+}
+
+/// The note shows only while Companion has drawn nothing, even if it was never cleared.
+#[test]
+fn the_note_goes_once_companion_draws() {
+    let (deck, sent) = companion_deck();
+    connect(&deck, true);
+    sent.take();
+    deck.set_remote(Arc::new(FakeCompanion::default()));
+    let Some(Message::Layout(l)) = sent.take().into_iter().next() else {
+        panic!("a layout first")
+    };
+    assert_eq!(l.keys[0].title, "Connecting to\nCompanion");
+
+    deck.remote_key(
+        "tab",
+        4,
+        RemoteKey {
+            title: "Cam 2".into(),
+            ..Default::default()
+        },
+    );
+    let msgs = sent.take();
+    let Some(Message::Layout(l)) = msgs.first() else {
+        panic!("the first key redraws the page: {msgs:?}")
+    };
+    assert_eq!(titles(l), ["", "", "", "", "Cam 2", ""]);
+}
+
 #[derive(Default)]
 struct FakeAgents(Mutex<Vec<String>>);
 

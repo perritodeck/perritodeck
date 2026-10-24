@@ -1249,29 +1249,61 @@ async fn tablets_that_fell_back_to_the_cable_are_named() {
     tablet.close().await;
 }
 
-/// A tablet showing a Companion profile appears in (a fake) Companion, shows what it
-/// draws, and sends presses and releases back.
-#[tokio::test(flavor = "multi_thread")]
-async fn tablets_become_companion_surfaces() {
-    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+/// A fake Companion that the host has connected to (it hasn't said BEGIN yet).
+struct FakeCompanion {
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::net::tcp::OwnedReadHalf>>,
+    write: tokio::net::tcp::OwnedWriteHalf,
+}
 
+impl FakeCompanion {
+    /// Send `text`, one or more lines, in one write.
+    async fn say(&mut self, text: &str) {
+        use tokio::io::AsyncWriteExt;
+        self.write
+            .write_all(format!("{text}\n").as_bytes())
+            .await
+            .unwrap();
+    }
+
+    /// The next line from the host that isn't a ping, within 10 s. Pings are answered as
+    /// Companion does, so the host doesn't give up on a fake that's only listening (it
+    /// would after 10 s of silence, and a test would then fail for the wrong reason).
+    async fn hear(&mut self) -> perritodeck_companion::Line {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let l = tokio::time::timeout_at(deadline, self.lines.next_line())
+                .await
+                .expect("the host said something within 10 s")
+                .unwrap()
+                .expect("the connection is open");
+            match l.strip_prefix("PING") {
+                Some(payload) => self.say(&format!("PONG{payload}")).await,
+                None => return perritodeck_companion::line::parse(&l),
+            }
+        }
+    }
+}
+
+const COMPANION_BEGIN: &str =
+    "BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0\nCAPS BITMAP_FORMATS=rgb,png";
+
+/// A host whose tablets show a Companion profile, and the fake Companion it connected to.
+async fn companion_host(dir: &Path) -> (Host, FakeCompanion) {
     let companion = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = companion.local_addr().unwrap().port();
-    let dir = tempfile::tempdir().unwrap();
     std::fs::write(
-        dir.path().join("integrations.toml"),
+        dir.join("integrations.toml"),
         format!("[companion]\nhost = \"127.0.0.1\"\nport = {port}\n"),
     )
     .unwrap();
-    let profile = dir.path().join("profiles").join("default.toml");
+    let profile = dir.join("profiles").join("default.toml");
     std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
     std::fs::write(
         &profile,
         "schema_version = 1\nname = \"Companion\"\ncompanion = true\n",
     )
     .unwrap();
-    let mut opts = HostOptions::new(dir.path().to_owned());
+    let mut opts = HostOptions::new(dir.to_owned());
     opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
     opts.port = 0;
     opts.mdns = false;
@@ -1285,22 +1317,20 @@ async fn tablets_become_companion_surfaces() {
         .integrations
         .contains(&"Companion".to_string()));
 
-    let (sock, _) = companion.accept().await.unwrap();
-    let (r, mut w) = sock.into_split();
-    let mut lines = BufReader::new(r).lines();
-    w.write_all(b"BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0\nCAPS BITMAP_FORMATS=rgb,png\n")
+    let (sock, _) = tokio::time::timeout(Duration::from_secs(10), companion.accept())
         .await
+        .expect("the host connects to Companion")
         .unwrap();
-    let mut hear = async move || loop {
-        let l = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        if !l.starts_with("PING") {
-            return perritodeck_companion::line::parse(&l);
-        }
-    };
+    let (read, write) = sock.into_split();
+    let lines = tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(read));
+    (host, FakeCompanion { lines, write })
+}
+
+/// A tablet with a 4 × 2 grid that shows images connects; returns it and its first page.
+async fn companion_tablet(
+    host: &Host,
+) -> (perritodeck_fakedeck::Client, perritodeck_protocol::Layout) {
+    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
 
     let ep = Endpoint {
         addr: host.addr.to_string(),
@@ -1312,62 +1342,109 @@ async fn tablets_become_companion_surfaces() {
         Some(perritodeck_protocol::Grid { cols: 4, rows: 2 }),
     );
     hello.capabilities.push("images".into());
-    let (mut tablet, _, layout) = Client::handshake(&ep, hello).await.unwrap();
+    let (tablet, _, layout) = Client::handshake(&ep, hello).await.unwrap();
     assert_eq!(layout.keys.len(), 8);
+    (tablet, layout)
+}
+
+/// Companion takes the tablet it was offered and draws "Go live" on key 2. The tablet
+/// gets the page again with Companion's key, then its image; returns that page.
+async fn companion_draws_key_2(
+    companion: &mut FakeCompanion,
+    tablet: &mut perritodeck_fakedeck::Client,
+) -> perritodeck_protocol::Layout {
+    let text = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "Go live");
+    companion
+        .say(&format!(
+            "ADD-DEVICE OK DEVICEID=perritodeck-tab-1\n\
+             KEY-STATE DEVICEID=perritodeck-tab-1 KEY=2 COLOR=#00ff00 TEXTCOLOR=#000000 TEXT={text}"
+        ))
+        .await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (mut page, mut image) = (None, false);
+        while page.is_none() || !image {
+            match tablet.recv_msg(Duration::from_secs(10)).await.unwrap().msg {
+                perritodeck_protocol::Message::Layout(l) if l.keys[2].title == "Go live" => {
+                    page = Some(l)
+                }
+                perritodeck_protocol::Message::SetImage(i) if i.key_index == 2 => image = true,
+                _ => {}
+            }
+        }
+        page.unwrap()
+    })
+    .await
+    .expect("Companion's key and its image on the tablet")
+}
+
+/// A tablet showing a Companion profile appears in (a fake) Companion, shows what it
+/// draws, and sends presses and releases back.
+#[tokio::test(flavor = "multi_thread")]
+async fn tablets_become_companion_surfaces() {
+    let dir = tempfile::tempdir().unwrap();
+    let (host, mut companion) = companion_host(dir.path()).await;
+    companion.say(COMPANION_BEGIN).await;
+    // The tablet comes once the host has heard Companion. One that comes sooner is told
+    // the host is still connecting (the next test).
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while host.status().companion.as_deref() != Some("Connected to Companion 4.1.0") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("Companion: {:?}", host.status().companion));
+
+    let (mut tablet, layout) = companion_tablet(&host).await;
     assert!(
         layout.keys.iter().all(|k| k.title.is_empty()),
-        "blank until Companion draws"
+        "blank until Companion draws: {layout:?}"
     );
-
-    let add = hear().await;
+    let add = companion.hear().await;
     assert_eq!(add.command, "ADD-DEVICE");
     assert_eq!(add.get("DEVICEID"), Some("perritodeck-tab-1"));
     assert_eq!(add.get("KEYS_TOTAL"), Some("8"));
     assert_eq!(add.get("BITMAP_FORMAT"), Some("png"));
-    w.write_all(b"ADD-DEVICE OK DEVICEID=perritodeck-tab-1\n")
-        .await
-        .unwrap();
-    let text = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "Go live");
-    w.write_all(
-        format!("KEY-STATE DEVICEID=perritodeck-tab-1 KEY=2 COLOR=#00ff00 TEXTCOLOR=#000000 TEXT={text}\n")
-            .as_bytes(),
-    )
-    .await
-    .unwrap();
-
-    // The tablet gets the page again with Companion's key, then its image.
-    let mut got_layout = false;
-    let mut got_image = false;
-    for _ in 0..20 {
-        let Ok(env) = tablet.recv_msg(Duration::from_secs(5)).await else {
-            break;
-        };
-        match env.msg {
-            perritodeck_protocol::Message::Layout(l) if l.keys[2].title == "Go live" => {
-                assert_eq!(l.keys[2].bg_color, "#00ff00");
-                got_layout = true;
-            }
-            perritodeck_protocol::Message::SetImage(i) if i.key_index == 2 => got_image = true,
-            _ => {}
-        }
-        if got_layout && got_image {
-            break;
-        }
-    }
-    assert!(got_layout && got_image);
+    let page = companion_draws_key_2(&mut companion, &mut tablet).await;
+    assert_eq!(page.keys[2].bg_color, "#00ff00");
 
     tablet.key_down(2).await.unwrap();
     tablet.key_up(2).await.unwrap();
-    let down = hear().await;
+    let down = companion.hear().await;
     assert_eq!(
         (down.command.as_str(), down.get("KEY"), down.get("PRESSED")),
         ("KEY-PRESS", Some("2"), Some("true"))
     );
-    assert_eq!(hear().await.get("PRESSED"), Some("false"));
+    assert_eq!(companion.hear().await.get("PRESSED"), Some("false"));
 
     tablet.close().await;
-    let rm = hear().await;
+    let rm = companion.hear().await;
     assert_eq!(rm.command, "REMOVE-DEVICE");
+}
+
+/// A tablet that comes while the host is still connecting to Companion says so on its
+/// first key, and becomes a surface as soon as Companion answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn tablets_that_come_before_companion_become_surfaces_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let (host, mut companion) = companion_host(dir.path()).await;
+    // Companion hasn't said BEGIN, so the host can't have connected yet.
+    let (mut tablet, layout) = companion_tablet(&host).await;
+    assert_eq!(layout.keys[0].title, "Connecting to\nCompanion");
+
+    companion.say(COMPANION_BEGIN).await;
+    let add = companion.hear().await;
+    assert_eq!(
+        (add.command.as_str(), add.get("DEVICEID")),
+        ("ADD-DEVICE", Some("perritodeck-tab-1"))
+    );
+    // The note was cleared when Companion answered, but the tablet keeps showing it until
+    // Companion's first key redraws the page. (The rule that hides the note once Companion
+    // draws is the deck's, tested in `the_note_goes_once_companion_draws`.)
+    let page = companion_draws_key_2(&mut companion, &mut tablet).await;
+    assert_eq!(page.keys[0].title, "", "the redrawn page has no note");
+
+    tablet.close().await;
+    assert_eq!(companion.hear().await.command, "REMOVE-DEVICE");
 }
 
 #[tokio::test]
