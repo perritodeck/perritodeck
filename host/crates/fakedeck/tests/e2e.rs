@@ -136,6 +136,49 @@ async fn handshake_press_and_ack() {
     );
 }
 
+/// A device connecting again while its old connection is still open (Wi-Fi switched off,
+/// then the cable) replaces it. The old one is reported gone before the new one is
+/// reported, and its teardown reports nothing more: the device is still connected.
+#[tokio::test]
+async fn a_newer_connection_replaces_the_old_one() {
+    let mut h = insecure().await;
+    let (mut old, _, _) = Client::handshake(&h.insecure_ep(), fake_hello("dev-1", None, None))
+        .await
+        .unwrap();
+    assert!(
+        matches!(next_event(&mut h).await, ServerEvent::Connected { device_id, .. } if device_id == "dev-1")
+    );
+    let (mut new, _, _) = Client::handshake(&h.insecure_ep(), fake_hello("dev-1", None, None))
+        .await
+        .unwrap();
+    // The old connection is closed by the host.
+    timeout(T, async { while let Ok(Some(_)) = old.recv().await {} })
+        .await
+        .expect("the old connection closes");
+    assert!(
+        matches!(next_event(&mut h).await, ServerEvent::Disconnected { device_id, reason }
+        if device_id == "dev-1" && reason.contains("replaced"))
+    );
+    assert!(
+        matches!(next_event(&mut h).await, ServerEvent::Connected { device_id, .. } if device_id == "dev-1")
+    );
+    assert_eq!(h.handle.devices(), vec!["dev-1".to_owned()]);
+
+    // Next comes the press, not the old connection's teardown.
+    new.key_down(3).await.unwrap();
+    assert_eq!(
+        next_event(&mut h).await,
+        ServerEvent::KeyDown {
+            device_id: "dev-1".into(),
+            key_index: 3
+        }
+    );
+    new.close().await;
+    assert!(
+        matches!(next_event(&mut h).await, ServerEvent::Disconnected { device_id, .. } if device_id == "dev-1")
+    );
+}
+
 #[tokio::test]
 async fn first_message_must_be_hello_or_pair() {
     let h = insecure().await;

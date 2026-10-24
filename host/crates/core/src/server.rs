@@ -42,6 +42,8 @@ pub type LayoutProvider = Arc<dyn Fn(&Hello) -> Layout + Send + Sync>;
 const MAX_CLIENT_MESSAGE: usize = 64 * 1024;
 const MAX_DEVICE_ID_LEN: usize = 128;
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Why a device's older connection is closed when it connects again.
+const REPLACED: &str = "replaced by a newer connection from the same device";
 
 /// How connections are secured.
 #[derive(Clone)]
@@ -185,21 +187,42 @@ impl ServerHandle {
         ids
     }
 
-    fn register(&self, device_id: &str, conn_id: u64) -> mpsc::UnboundedReceiver<Outbound> {
+    /// Make `conn_id` the device's connection and report it with `connected`. A connection
+    /// it replaces is kicked and reported gone first. Both happen under the lock, so the
+    /// events for a device always end with the connection it has now, whichever of the
+    /// two finishes first.
+    fn register(
+        &self,
+        device_id: &str,
+        conn_id: u64,
+        events: &mpsc::UnboundedSender<ServerEvent>,
+        connected: ServerEvent,
+    ) -> mpsc::UnboundedReceiver<Outbound> {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut reg = self.registry.lock().expect("registry poisoned");
         if let Some(old) = reg
             .devices
             .insert(device_id.to_owned(), DeviceEntry { conn_id, tx })
         {
-            let _ = old.tx.send(Outbound::Kick(
-                "replaced by a newer connection from the same device",
-            ));
+            let _ = old.tx.send(Outbound::Kick(REPLACED));
+            let _ = events.send(ServerEvent::Disconnected {
+                device_id: device_id.to_owned(),
+                reason: REPLACED.to_owned(),
+            });
         }
+        let _ = events.send(connected);
         rx
     }
 
-    fn unregister(&self, device_id: &str, conn_id: u64) {
+    /// Forget `conn_id` and report the device gone, unless a newer connection has taken
+    /// its place: that was reported when it happened, and the device is still connected.
+    fn unregister(
+        &self,
+        device_id: &str,
+        conn_id: u64,
+        events: &mpsc::UnboundedSender<ServerEvent>,
+        reason: String,
+    ) {
         let mut reg = self.registry.lock().expect("registry poisoned");
         if reg
             .devices
@@ -207,6 +230,10 @@ impl ServerHandle {
             .is_some_and(|d| d.conn_id == conn_id)
         {
             reg.devices.remove(device_id);
+            let _ = events.send(ServerEvent::Disconnected {
+                device_id: device_id.to_owned(),
+                reason,
+            });
         }
     }
 }
@@ -327,11 +354,7 @@ impl Connection {
         let layout = (self.config.layout)(&hello);
         let grid = layout.grid();
         let device_id = hello.device_id.clone();
-        let mut outbound = self.handle.register(&device_id, self.id);
-
-        info!(peer = %self.peer, device = %device_id, name = %hello.device_name,
-              "device connected ({}×{})", grid.cols, grid.rows);
-        let _ = self.events.send(ServerEvent::Connected {
+        let connected = ServerEvent::Connected {
             device_id: device_id.clone(),
             device_name: hello.device_name.clone(),
             peer: self.peer,
@@ -342,7 +365,13 @@ impl Connection {
             app_version: hello.app_version.clone(),
             os_version: hello.os_version.clone(),
             network_failed: hello.network_failed,
-        });
+        };
+        let mut outbound = self
+            .handle
+            .register(&device_id, self.id, &self.events, connected);
+
+        info!(peer = %self.peer, device = %device_id, name = %hello.device_name,
+              "device connected ({}×{})", grid.cols, grid.rows);
 
         let welcome = Message::Welcome(Welcome {
             host_name: self.config.host_name.clone(),
@@ -357,15 +386,15 @@ impl Connection {
         }
         .await;
 
-        self.handle.unregister(&device_id, self.id);
         let reason = match &result {
             Ok(r) => r.clone(),
             Err(e) => e.to_string(),
         };
         info!(device = %device_id, "device disconnected: {reason}");
-        let _ = self
-            .events
-            .send(ServerEvent::Disconnected { device_id, reason });
+        // Reported only if this is still the device's connection: one that was replaced
+        // must not take the device away from the connection that replaced it.
+        self.handle
+            .unregister(&device_id, self.id, &self.events, reason);
         let _ = ws.close(None).await;
         result.map(|_| ())
     }

@@ -511,6 +511,152 @@ async fn a_key_press_has_one_number_in_the_log() {
     tablet.close().await;
 }
 
+/// A tablet that comes back over the cable while its Wi-Fi connection is still open
+/// (Wi-Fi switched off: no FIN ever arrives) replaces that connection. The old one's
+/// teardown must not take the tablet off the deck: presses, live values and sliders all
+/// keep working on the new connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_newer_connection_from_the_same_tablet_keeps_working() {
+    use perritodeck_fakedeck::{fake_hello, Client, ClientSecurity, Endpoint};
+    use perritodeck_protocol::{Message, SliderValue};
+
+    let dir = tempfile::tempdir().unwrap();
+    let profile = default_profile_path(dir.path());
+    std::fs::create_dir_all(profile.parent().unwrap()).unwrap();
+    std::fs::write(
+        &profile,
+        r#"schema_version = 1
+name = "Keys"
+[grid]
+cols = 4
+rows = 3
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Next"
+nav = { page = "Two" }
+[[pages.keys]]
+at = [0, 1]
+title = "Scene {obs:scene}"
+[[pages.keys]]
+at = [0, 2]
+slider = { type = "obs", input = "Mic" }
+[[pages]]
+name = "Two"
+[[pages.keys]]
+at = [0, 0]
+title = "Second page"
+"#,
+    )
+    .unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.insecure = true;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    let host = Host::start(opts).await.unwrap();
+    let ep = Endpoint {
+        addr: host.addr.to_string(),
+        security: ClientSecurity::Insecure,
+    };
+    let hello = |id: &str| {
+        let mut h = fake_hello(id, None, None);
+        h.capabilities.push("sliders".into());
+        h
+    };
+    /// The first message `want` accepts, skipping the rest, within five seconds.
+    async fn wait_for(tablet: &mut Client, what: &str, want: impl Fn(&Message) -> bool) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tablet.recv_msg(left).await {
+                Ok(env) if want(&env.msg) => return,
+                Ok(_) => {}
+                Err(e) => panic!("no {what}: {e}"),
+            }
+        }
+    }
+
+    let mut events = host.subscribe();
+    // Another tablet on the same page sees the slider move.
+    let (mut other, _, _) = Client::handshake(&ep, hello("tab-2")).await.unwrap();
+    // Over Wi-Fi: it stays open, nobody reads it.
+    let (mut wifi, _, _) = Client::handshake(&ep, hello("tab-1")).await.unwrap();
+    // Over the cable, same tablet.
+    let (mut cable, _, _) = Client::handshake(&ep, hello("tab-1")).await.unwrap();
+
+    // The host closes the Wi-Fi connection. Its teardown is reported before the close
+    // frame goes out, so once it's closed, whatever the host makes of it is queued
+    // ahead of everything below.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Ok(Some(_)) = wifi.recv().await {}
+    })
+    .await
+    .expect("the replaced connection is closed");
+
+    // A live value reaches the key showing it.
+    host.deck
+        .set_live([("obs:scene".to_owned(), "Gameplay".to_owned())]);
+    wait_for(
+        &mut cable,
+        "title with the live value",
+        |m| matches!(m, Message::SetTitle(t) if t.key_index == 1 && t.title == "Scene Gameplay"),
+    )
+    .await;
+
+    // A slider move is taken: the other tablet is told the new level.
+    cable
+        .send(Message::SliderChange(SliderValue {
+            key_index: 2,
+            value: 70,
+        }))
+        .await
+        .unwrap();
+    wait_for(
+        &mut other,
+        "slider echo",
+        |m| matches!(m, Message::SetValue(v) if v.key_index == 2 && v.value == 70),
+    )
+    .await;
+
+    // A press runs its key: it turns the page.
+    cable.key_down(0).await.unwrap();
+    cable.key_up(0).await.unwrap();
+    wait_for(&mut cable, "page Two", |m| {
+        matches!(m, Message::Layout(l) if l.keys.first().is_some_and(|k| k.title == "Second page"))
+    })
+    .await;
+
+    // The deck still has it, and the app last heard that it's connected.
+    assert!(host
+        .deck
+        .connected_devices()
+        .iter()
+        .any(|(id, _)| id == "tab-1"));
+    let mut last = None;
+    while let Ok(e) = events.try_recv() {
+        match e {
+            HostEvent::Connected { ref device_id, .. }
+            | HostEvent::Disconnected { ref device_id }
+                if device_id == "tab-1" =>
+            {
+                last = Some(matches!(e, HostEvent::Connected { .. }));
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(last, Some(true), "the app was last told tab-1 disconnected");
+    assert!(host
+        .devices()
+        .iter()
+        .any(|d| d.id == "tab-1" && d.connected));
+    cable.close().await;
+    other.close().await;
+}
+
 #[tokio::test]
 async fn profiles_create_copy_rename_delete() {
     let dir = tempfile::tempdir().unwrap();
