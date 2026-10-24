@@ -14,7 +14,8 @@ Nothing here has been submitted. Both stores need the repository to be **public*
 |---|---|
 | FOSS licence (Apache-2.0), no proprietary dependencies, no Play Services, no analytics | ✔ (`android/app/build.gradle.kts`, `gradle/libs.versions.toml`) |
 | Only Google Maven, Maven Central and the Gradle Plugin Portal as repositories | ✔ (`android/settings.gradle.kts`) |
-| No prebuilt binaries in the tree except the official Gradle wrapper jar (F-Droid allows it) and a font | ✔ (checked with `git ls-files`) |
+| No prebuilt binaries in the tree except the official Gradle wrapper jar (F-Droid allows it) and a font | ✔ (checked with `git ls-files`; F-Droid's scanner removes the wrapper jar and finds nothing else) |
+| Every `package.json`, `Cargo.toml` and `pubspec.yaml` in the tree has a lockfile next to it or above it | ✔ F-Droid's scanner scans the whole repository, not just `android/`, and stops the build on a dependency file without a lock. `plugins/sdk-node/package-lock.json` exists for this alone (the SDK has no dependencies) |
 | `dependenciesInfo` block disabled (F-Droid flags the encrypted blob) | ✔ |
 | Release build unsigned when no key is present (F-Droid signs itself) | ✔ (signing only when `PERRITO_KEYSTORE` is set) |
 | `title.txt` (≤ 50; Play ≤ 30) | ✔ 28 characters |
@@ -46,7 +47,7 @@ The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>` on each
 ## F-Droid (main repository)
 
 1. Make the repository public and push the release tag (maintainer).
-2. Fork `gitlab.com/fdroid/fdroiddata`, copy the draft to `metadata/dev.perritodeck.client.yml`, then in that checkout:
+2. Fork `gitlab.com/fdroid/fdroiddata` and copy the draft, unchanged, to `metadata/dev.perritodeck.client.yml`. The draft is exactly what `fdroid rewritemeta` writes, so it has no comments: fdroiddata's CI runs `fdroid rewritemeta` on the merge request and fails it if the file changes, and rewritemeta drops comments. Reviewers usually swap `commit: v0.1.0` for the tag's full commit hash. Then in that checkout:
    ```sh
    fdroid readmeta && fdroid rewritemeta dev.perritodeck.client && fdroid lint dev.perritodeck.client
    fdroid build -v -l dev.perritodeck.client   # needs the Android SDK; or let the MR's CI do it
@@ -54,11 +55,14 @@ The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>` on each
 3. Open the merge request with the "New app" template. Reviews take from a few days to several weeks.
 4. Later releases need nothing from us: `UpdateCheckMode: Tags` picks up new `vX.Y.Z` tags (the regex skips `-rc` pre-releases), and `AutoUpdateMode: Version` adds the build entry.
 
-**Unverified (fdroidserver hasn't been run on the draft yet):**
-- `fdroid lint` and `fdroid build` have not been run on the draft.
-- The F-Droid build server uses Debian's JDK 17 by default. AGP 8.11 needs 17, so no `sudo:` block is included. If the build reports the wrong Java version, add `sudo: [apt-get update, apt-get install -y openjdk-17-jdk-headless, update-alternatives --auto java]`.
-- The draft assumes `fdroid` handles `subdir: android/app` with `settings.gradle.kts` one level up and the `../protocol/fixtures` path (it's used only by unit tests, which F-Droid doesn't run).
-- Gradle 8.14.3 (from `gradle-wrapper.properties`) must be in fdroidserver's `gradlew-fdroid` list. Recent fdroidserver versions include it.
+**Checked on 2026-10-24** in WSL Ubuntu, with fdroidserver 2.4.5 (PyPI) and git master (`2d1e622`, with Debian trixie's ruamel.yaml 0.18.10, as fdroiddata's CI runs it):
+- The draft as it is here passes `fdroid lint`, `fdroid lint -f`, fdroiddata CI's rewritemeta check (`fdroid rewritemeta`, then `git diff --exit-code`), yamllint with fdroiddata's `.yamllint` and fdroiddata's JSON schema, with no warnings.
+- `fdroid build -v -l` of a test copy (`Repo:` a local clone, `commit:` a commit of `main`) builds the APK, and `fdroid scanner` finds nothing in it. Before that, two things stopped the build, both fixed now:
+  - The scanner stopped it at `plugins/sdk-node/package.json`, which had no lockfile (see the checklist above).
+  - Gradle couldn't find a JDK 17 for `kotlin { jvmToolchain(17) }`. F-Droid's build server and fdroiddata's CI run Debian trixie, whose default JDK is 21 and which has no `openjdk-17` package, and the build server turns off toolchain downloads. The `sudo:` lines install bookworm's OpenJDK 17 and make it the default `java`, a common pattern in fdroiddata. They keep F-Droid on JDK 17, like CI, which matters for reproducible builds. `fdroid build` skips `sudo:` unless it runs on a build server, so locally JDK 17 has to be the `java` on the PATH.
+- `subdir: android/app` works with `settings.gradle.kts` one level up. Gradle 8.14.3 is in `gradlew-fdroid`'s table, and `fdroid build` uses it in place of the wrapper, which the scanner removes.
+- Not run: the build on F-Droid's own build server, where the `sudo:` lines run. The merge request's CI runs it.
+- The lockfile has to be in the tagged commit: the build of `v0.1.0` fails without it.
 
 ## Reproducible builds
 
@@ -66,15 +70,24 @@ Making the builds reproducible lets F-Droid ship **our** signed APK after checki
 
 1. Set up release signing (see [`../releasing.md`](../releasing.md)), then publish the first release with `perrito-<version>.apk` attached.
 2. Build the same tag twice in clean checkouts (CI and locally on Linux, locally with `--no-build-cache`; see the incremental-compile risk below) and compare: `diffoscope a.apk b.apk`, or `apksigcopier compare`. The reference build is the one CI makes. Windows builds can differ because of line endings (`core.autocrlf`).
-3. If they match, uncomment `Binaries:` and `AllowedAPKSigningKeys:` in the draft. The key is the lowercase SHA-256 of the certificate with no colons. The Release workflow prints it in the Android job summary and the release notes.
+3. If they match, add two fields to the draft, where `fdroid rewritemeta` puts them: `Binaries:` on the line after `Repo:`, and `AllowedAPKSigningKeys:` after the `Builds:` block, with a blank line before it. F-Droid then builds from source, compares with our signed APK and, if they match, publishes ours.
+   ```yaml
+   Repo: https://github.com/perritodeck/perritodeck.git
+   Binaries: https://github.com/perritodeck/perritodeck/releases/download/v%v/perrito-%v.apk
+
+   # ... Builds: unchanged ...
+
+   AllowedAPKSigningKeys: <lowercase SHA-256 of the release certificate, no colons>
+   ```
+   The Release workflow prints the key in the Android job summary and the release notes (or `keytool -printcert -jarfile perrito-<version>.apk`, without the colons). Run `fdroid rewritemeta` and `fdroid lint` again afterwards, and keep what rewritemeta writes (it puts the key in quotes if YAML would read it as a number). This placement was checked with both fdroidserver versions above on 2026-10-24.
 
 Known risks to check when doing step 2:
 - **`META-INF/version-control-info.textproto`**: AGP 8.3+ writes the git commit into release APKs, so a build from a source tarball wouldn't match one from git. Release builds now leave it out (`vcsInfo { include = false }` in `android/app/build.gradle.kts`); check that the file is absent when comparing.
 - **Native-lib stripping depends on the build machine.** The APK carries 12 prebuilt `.so` files (`libandroidx.graphics.path` and two CameraX libraries, for four ABIs each). AGP strips their debug symbols only if a matching NDK is installed: GitHub's Ubuntu runners have NDKs, F-Droid's build server has none unless asked, and a local build may have either. So the same commit could give different `.so` files. Release builds now keep them exactly as they come (`keepDebugSymbols` for `**/*.so` in `android/app/build.gradle.kts`); check that the `.so` files match when comparing.
-- **Baseline profiles** (`assets/dexopt/baseline.prof`, which Compose libraries ship): older AGP versions wrote them non-deterministically. Measured on 2026-10-15 with AGP 8.11: three release builds with the build cache off, in three different folders on two drives, gave byte-identical APKs. `baseline.prof` records the checksum of `classes.dex`, so it differs whenever the dex does.
+- **Baseline profiles are not deterministic: this blocks step 3.** (`assets/dexopt/baseline.prof` and `baseline.profm`, built from the profiles Compose and other libraries ship.) On 2026-10-15 three release builds on Windows gave byte-identical APKs, but on 2026-10-24 nine clean builds of the same commit in WSL (Temurin 17, an empty build cache each time; five with `./gradlew clean assembleRelease --no-build-cache`, three by `fdroid build` and one more in `fdroid build`'s checkout) gave three different APKs. `classes.dex` and every other entry were identical each time; only the two profile files differed, and the same tree gave different results run after run. The cause is R8's rewriting of the profile (`r8_art_profile/release/minifyReleaseWithR8/baseline-prof.txt` had 8,736, 8,738 or 8,740 lines): it sometimes leaves out the constructors of classes that R8's horizontal class merging made (`kotlinx.coroutines.DeferredCoroutine`, a merged lambda class in `MainActivityKt`). D11 kept the profile because the builds matched; this needs deciding again before `Binaries:` is added. The options: turn off R8's profile rewriting (through `android { experimentalProperties[...] }`; D11 measured it as keeping builds identical but leaving most rules naming classes that no longer exist), leave the profile out of release APKs, or try a newer R8. `baseline.prof` also records the checksum of `classes.dex`, so it differs whenever the dex does.
 - **Incremental Kotlin compiles can give a different `classes.dex`.** When only some files are recompiled, the Compose compiler can infer an argument's stability differently and pass different `$changed` flags (on 2026-10-15, six classes, all in files edited since the last full compile). A fresh checkout isn't enough to avoid it: `android/gradle.properties` turns on Gradle's build cache, and the user-level cache (`~/.gradle/caches/build-cache-1`) can hold `compileReleaseKotlin` output from an incremental compile of the same sources. That day a fresh copy of the tree took `compileReleaseKotlin` from the cache and gave a different APK from the same copy built with the cache off. Compare builds made with the build cache off: `clean assembleRelease --no-build-cache`. CI isn't affected, because its cache entries come from full compiles on fresh runners.
 - **JDK and build-tools versions** must match: JDK 17 (Temurin in CI, OpenJDK on F-Droid), and build-tools 35.0.0, now pinned with `buildToolsVersion`. R8 output can change between JDK vendors only in rare cases.
-- **No comparison between machines has been run yet** (the builds above were all on one Windows PC with one JDK). The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
+- **Builds by `fdroid build` and our own build give the same `classes.dex`, resources and native libraries** (2026-10-24, WSL Ubuntu on the same PC, Temurin 17 for both, the same commit): only the baseline-profile files differ, as above. Not compared yet: F-Droid's build server (Debian OpenJDK 17) with CI (Temurin 17 on GitHub's runners), and builds on different machines. The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
 - The `minSdk 22` APK is signed with v1 + v2 signatures (set explicitly in the signing config; v3 is off, D7). `apksigcopier` handles both.
 
 ## IzzyOnDroid

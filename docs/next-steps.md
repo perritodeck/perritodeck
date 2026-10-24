@@ -854,11 +854,14 @@ and the checks):
   slider-feel and haptics checks. More Kindles are on order. (`docs/DECISIONS.md:14,16`)
 - **Page switches stall the main thread on slow tablets** (~560 ms of long frames per
   switch on the Fire 7; item 6 has the numbers). Try per-key image state in the deck screen.
-- **Reproducible builds have never been compared between machines, and `fdroid lint` /
-  `fdroid build` never run (maintainer, an install)** (`docs/fdroid/README.md`). On one PC,
-  clean release builds with the build cache off match byte for byte across folders and
-  drives (2026-10-15); an incremental Kotlin compile, or one taken from the build cache,
-  doesn't. Whether to keep the startup profile is decision D11 in `docs/plan/phase-8.md`.
+- **Release APKs aren't reproducible yet: the baseline profile varies from build to build**
+  (`docs/fdroid/README.md`, Reproducible builds). `fdroid lint` and `fdroid build` ran on
+  2026-10-24: the recipe lints clean and builds. Nine clean builds of one commit in WSL gave
+  identical `classes.dex` but three different `baseline.prof` files, because R8's profile
+  rewriting sometimes drops the constructors of classes it merged. That reopens D11 in
+  `docs/plan/phase-8.md` (keep the profile, turn off R8's rewriting of it, or leave it out)
+  before `Binaries:` goes into the recipe. Still not compared: F-Droid's build server or CI
+  with a local build.
 
 ## 16. CI
 
