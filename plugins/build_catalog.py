@@ -5,14 +5,19 @@ index.html, a page listing them for people.
     python3 plugins/build_catalog.py [OUT_DIR]
 
 OUT_DIR defaults to website/plugins/. Publish that folder at
-https://perritodeck.dev/plugins/ (the app reads index.json there). Zips are
-reproducible: same files in, same bytes (and SHA-256) out. Tests and caches are
-left out, and each zip carries this folder's MIT LICENSE unless the plugin has
-its own. The page loads ../style.css, ../catalogue.css and ../catalogue.js from
-the website, so it has no inline code for the site's Content-Security-Policy to
-allow. Plugins listed in catalogue_status.json are marked Experimental, with a
-note on what they were tested against, in index.json and on the page; their
-manifests and zips stay as they are. Standard library only.
+https://perritodeck.dev/plugins/ (the app reads index.json there). Building into a
+folder that holds an earlier catalogue replaces its zips and icons, so old
+versions don't linger. Zips are reproducible: same files in, same bytes (and
+SHA-256) out, on any OS. Files are stored uncompressed, because zlib builds
+deflate differently (Python 3.14 on Windows has zlib-ng), and each file's mode
+is the one git has for it, 0755 or 0644, because Windows has no executable bit.
+Tests and caches are left out, and each zip carries this folder's MIT LICENSE
+unless the plugin has its own. The page loads ../style.css, ../catalogue.css and
+../catalogue.js from the website, so it has no inline code for the site's
+Content-Security-Policy to allow. Plugins listed in catalogue_status.json are
+marked Experimental, with a note on what they were tested against, in
+index.json and on the page; their manifests and zips stay as they are.
+Standard library, plus git for the file modes.
 """
 
 import hashlib
@@ -20,6 +25,7 @@ import html
 import json
 import os
 import re
+import subprocess
 import sys
 import zipfile
 
@@ -57,13 +63,37 @@ def zip_entries(folder):
     return entries
 
 
+def git_executables(folder):
+    """The files in `folder` that git has as executable (mode 100755), relative to it with "/"
+    between folders; none outside a git checkout. The disk can't say: os.access calls every
+    file executable on Windows, and so does a Windows drive mounted in WSL."""
+    top = os.path.abspath(folder)
+    while not os.path.exists(os.path.join(top, ".git")):
+        if os.path.dirname(top) == top:
+            return set()
+        top = os.path.dirname(top)
+    # Without git's answer every file would be 0644, and the zips would differ from a proper build's.
+    try:
+        git = subprocess.run(["git", "ls-files", "--stage", "-z"], cwd=folder, capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        why = e.stderr.decode(errors="replace").strip() if isinstance(e, subprocess.CalledProcessError) else e
+        sys.exit(f"{folder} is in a git checkout, but git couldn't list its files: {why}")
+    # Each entry is "<mode> <object> <stage>\t<path>", the path relative to `folder`.
+    return {os.fsdecode(entry.split(b"\t", 1)[1]) for entry in git.stdout.split(b"\0") if entry.startswith(b"100755 ")}
+
+
 def build_zip(folder, dest):
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+    executable = git_executables(folder)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_STORED) as z:
         for rel, path in zip_entries(folder):
             info = zipfile.ZipInfo(rel, FIXED_TIME)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            executable = os.access(path, os.X_OK)
-            info.external_attr = (0o100755 if executable else 0o100644) << 16
+            # Stored, not deflated: deflate's output depends on the zlib build, and the zip's
+            # bytes mustn't depend on the machine.
+            info.compress_type = zipfile.ZIP_STORED
+            # Unix modes, marked as made on Unix wherever it's built (zipfile says Windows
+            # there), so unpacking keeps an executable file executable.
+            info.create_system = 3
+            info.external_attr = (0o100755 if rel in executable else 0o100644) << 16
             with open(path, "rb") as f:
                 z.writestr(info, f.read())
 
@@ -115,6 +145,7 @@ def build(src, out, experimental):
     unknown = sorted(set(experimental) - {m["id"] for _, m in plugins})
     if unknown:
         sys.exit(f"{os.path.basename(STATUS)} lists plugins that aren't here: {', '.join(unknown)}")
+    clear(out)
     os.makedirs(out, exist_ok=True)
     entries = []
     for folder, m in plugins:
@@ -145,12 +176,34 @@ def build(src, out, experimental):
             }
         )
         print(f"{zip_name}  {digest}")
-    with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as f:
+    # "\n" line ends on every OS, like the zips' bytes.
+    with open(os.path.join(out, "index.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump({"version": 1, "plugins": entries}, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "index.html"), "w", encoding="utf-8", newline="\n") as f:
         f.write(page(entries))
     return entries
+
+
+def clear(out):
+    """Removes the zips and icons an earlier build left in `out`. Their names carry the
+    version, so an old version would stay beside the new one, and so would a plugin that's
+    gone. Only a folder holding a catalogue (an index.json listing plugins) is cleared, and
+    nothing else in it; any other folder that isn't empty is refused, since the files are
+    found by type and could be someone's own."""
+    if not os.path.isdir(out) or not os.listdir(out):
+        return
+    try:
+        with open(os.path.join(out, "index.json"), encoding="utf-8") as f:
+            catalogue = isinstance(json.load(f).get("plugins"), list)
+    except (OSError, ValueError, AttributeError):
+        catalogue = False
+    if not catalogue:
+        sys.exit(f"{out} isn't empty and holds no plugin catalogue: build into a new or empty folder")
+    for name in os.listdir(out):
+        path = os.path.join(out, name)
+        if name.lower().endswith((".zip", *ICON_TYPES)) and os.path.isfile(path):
+            os.remove(path)
 
 
 ICON_TYPES = (".svg", ".png", ".webp")
@@ -230,6 +283,9 @@ def page(entries):
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plugins — PerritoDeck</title>
   <meta name="description" content="Plugins that add actions and live values to PerritoDeck: OBS Studio, Home Assistant helpers, Proxmox, timers and more.">

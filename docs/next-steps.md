@@ -290,21 +290,28 @@ The original list:
 **Deployed:** the site is live (item 12 has what's left). [`docs/website.md`](website.md)
 has the setup and the build command.
 
-**Decision: keep it in this repo, in `website/`.**
+**Decision: the source stays in this repo, in `website/`.**
 - The guide describes the app's features and changes in the same commits as the code.
 - The plugin catalogue is built from `plugins/`.
 - `scripts/release-version.py` updates `download.html`.
 - CI workflows already filter by path, so website-only commits trigger no builds.
-- A separate repo would mean cross-repo syncing for all three, for no gain. Cloudflare Pages
-  can serve the site from this repo while it's still private.
 - Revisit only if the site grows its own framework or outside contributors who shouldn't need
   the code.
 
-**Deploy** (done): the plan here was Cloudflare Pages, as in `docs/website.md` ("Deploy"),
-with the build command `python3 plugins/build_catalog.py website/plugins` so the catalogue
-publishes too, and the output directory `website`. The live site is a Cloudflare Worker
-with static assets on the custom domain instead (item 12). Once the repo is public, GitHub
-Pages also works for free.
+Two reasons this list gave on 2026-10-13 were superseded by D12 (2026-10-17, DECISIONS):
+"a separate repo would mean cross-repo syncing for all three, for no gain", and "Cloudflare
+Pages can serve the site from this repo while it's still private". GitHub Pages now serves
+the site from a separate public repository, `perritodeck/perritodeck.github.io`, but it
+holds only what `scripts/publish_site.py` builds from `website/` and `plugins/` here, so
+nothing is synced by hand and `website/` is still the only source. GitHub's Free plan
+publishes Pages only from public repositories, and in this setup only the site repository
+has to be public.
+
+**Deploy:** the plan here was Cloudflare Pages, with the build command
+`python3 plugins/build_catalog.py website/plugins` and the output directory `website`. The
+live site has been a Cloudflare Worker with static assets on the custom domain since
+2026-10-15, and moves to GitHub Pages at the cutover (item 12; the runbook is in
+[`docs/website.md`](website.md#cutover-runbook)).
 
 **Build out:**
 - **Home page:**
@@ -368,7 +375,7 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 | Old `v0.1.0` tag | Done (2026-10-15): no other clone exists, and there are no tags in this repository or on GitHub. Every version field is still 0.1.0 / versionCode 1, and the first release is v0.1.0 from current `main` (D5, item 13) |
 | `ci/e2e-*` branches | Done (2026-10-13): E2E no longer pushes them (its screenshots and logs are workflow artifacts), and the four branches were deleted on GitHub with the maintainer's OK |
 | gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run once more right before the flip |
-| `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). RUSTSEC-2026-0192 is accepted with a reason in `deny.toml` (D6, 2026-10-17): `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained, not a vulnerability, and the library is replaced in a later release (its author suggests `skrifa`). `cargo deny check advisories` still fails on both workspaces (2026-10-17) on advisories published since 2026-10-13: four in `rustls` 0.23.45 (RUSTSEC-2026-0346 to 0349, fixed in 0.23.46), three in `zip` 2.4.2 (RUSTSEC-2026-0367 to 0369, fixed in 9.0.0), and the unmaintained `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, through `enigo`'s `ashpd`, and in the app also Tauri's opener and single-instance plugins). The app's workspace also flags the unmaintained `proc-macro-error` (RUSTSEC-2024-0370, through GTK on Linux). Deal with them before CI runs advisories |
+| `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). RUSTSEC-2026-0192 is accepted with a reason in `deny.toml` (D6, 2026-10-17): `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained, not a vulnerability, and the library is replaced in a later release (its author suggests `skrifa`). Of the advisories published since 2026-10-13, the four in `rustls` 0.23.45 (RUSTSEC-2026-0346 to 0349) and the three in `zip` 2.4.2 (RUSTSEC-2026-0367 to 0369) are fixed (2026-10-18): both lockfiles have `rustls` 0.23.46 and `zip` 9.0.5. `cargo deny check advisories` still fails on both workspaces on the unmaintained `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, through `enigo`'s `ashpd`, and in the app also Tauri's opener and single-instance plugins), which have no fixed version. The app's workspace also flags the unmaintained `proc-macro-error` (RUSTSEC-2024-0370, through GTK on Linux). Accept or replace them (the maintainer's call) before CI runs advisories |
 | `cargo deny` and `third-party-notices.py --check` in CI | The Release workflow's licences job runs `third-party-notices.py --check` (2026-10-13), so a release fails if `THIRD_PARTY_NOTICES.md` is stale. No push workflow runs it or `cargo deny` yet (item 16). The notices check passes locally |
 | `third-party-licenses.txt` in releases | `release.yml` generates it (2026-10-13), attaches it to the release and puts it in the command-line archives and the desktop installers (in the app's resource folder, merged in with `tauri build --config`). The APK carries its own list, generated at build time (next row) |
 | Licences screen in the apps | Done (2026-10-15). **Android:** a Gradle task writes `assets/third-party-licenses.txt` from the release runtime classpath (86 libraries; licences from each POM and its parents, resolved through Gradle, not Play Services' oss-licenses, which F-Droid forbids), and Open-source licences on Perrito's home screen shows it, so the APK carries every licence text (launch checklist §3). **Desktop:** Settings → Version → Open-source licences opens the installers' `third-party-licenses.txt`, or the notices on `main` in a build without it. iOS: none yet (not part of the first release). Neither screen has been looked at on a device yet (item 15) |
@@ -411,6 +418,10 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 3. **Website and visibility together:** the site is live (with noindex) and links to the
    GitHub repo throughout, where visitors get a 404 until the flip, and the repo links to
    the site. Keep the noindex until the flip, and flip soon after the site is complete.
+   With D12 (2026-10-17) the site repository, `perritodeck/perritodeck.github.io`, is
+   public from the cutover on, so the site's source can be read on github.com before
+   launch, where the noindex tags don't reach (accepted in D12): keep its description
+   neutral, with no website link until launch.
 4. ✅ **Trademark sign-off (D4, 2026-10-15):** the nominative naming of Stream Deck,
    Elgato and Companion on the website's compatibility page, in the Key Light plugin, the
    README and the store text (with the not-affiliated line) is signed off as written.
@@ -647,15 +658,16 @@ CI's included, are unsigned, which is what F-Droid wants.
 - `docs/fdroid/dev.perritodeck.client.yml`: fill in `AllowedAPKSigningKeys` and `Binaries`
   once the builds match.
 
-## 12. The website goes live (maintainer) — mostly done (2026-10-15)
+## 12. The website goes live (maintainer) — live (2026-10-15), moving to GitHub Pages (D12)
 
-**Where it stands** (checked 2026-10-15; [docs/website.md, Deploy](website.md#deploy) has
-the setup and the same checks). `https://perritodeck.dev` is live with the temporary
-`X-Robots-Tag: noindex`. A Cloudflare Worker named `perritodeck` with static assets serves
-it on the custom domain: it isn't a Pages project, as the 2026-10-13 decision planned, and
-`perritodeck.pages.dev` doesn't exist. That settles two earlier questions: the bare domain
-is the canonical address, and the domain is attached before launch (the store listings
-link the privacy policy, and the real-world passes can use the real catalogue), with
+**Where it stands** (checked 2026-10-15; [docs/website.md, Until the
+cutover](website.md#until-the-cutover) has the details). `https://perritodeck.dev` is live
+with the temporary `X-Robots-Tag: noindex`. A Cloudflare Worker named `perritodeck` with
+static assets serves it on the custom domain: it isn't a Pages project, as the 2026-10-13
+decision planned, and `perritodeck.pages.dev` doesn't exist. That settles two earlier
+questions: the bare domain is the canonical address, and the domain is attached before
+launch (the store listings link the privacy policy, and the real-world passes can use the
+real catalogue), with
 noindex until launch day. The site matches the current `main` (`6861f46`, checked by
 15:16 UTC and again at 15:46): `/README.md` answers 404, `/img/og.png` loads, and
 `/plugins/index.json` lists the 24 plugins, 13 of them marked Experimental, also for the
@@ -666,29 +678,42 @@ app's user agent. `http://` redirects to `https://`, and `www` answers 301 to
 `.dev` registry, and resolvers validate. From outside, the pages carry nothing Cloudflare
 injects and no Speed Brain header. Mail is set up as D2 decided (item 8).
 
-**Left:**
-- **Keep the Worker or move to Pages (decision D12 in `docs/plan/phase-8.md`):** the
-  Worker answers `/nope` with an empty 404 instead of `404.html`, redirects
-  `/privacy.html` with a 307, and lacks the `X-Content-Type-Options: nosniff` header Pages
-  would add. [docs/website.md, The project](website.md#the-project) lists what keeping the
-  Worker takes (a Wrangler config with `not_found_handling`, the header in `_headers`, the
-  `workers.dev` address and preview URLs off, and a DECISIONS entry, since the 2026-10-13
-  one says Pages), and how to move to Pages instead.
-- **Zone settings only the dashboard shows (to confirm with the maintainer):** SSL/TLS
-  Full (strict) and minimum TLS 1.2; Web Analytics, Email Address Obfuscation, Rocket
-  Loader, Bot Fight Mode and Speed Brain off; Browser Cache TTL set to respect the
-  headers ([docs/website.md, The domain](website.md#the-domain), "Left"). From outside,
-  the pages carry nothing Cloudflare injects and no Speed Brain header, but that doesn't
-  prove they're off. Bot Fight Mode matters most: it can challenge the app's `PerritoDeck`
-  user agent, and Look online then fails with a 403.
-- ✅ **Where the catalogue comes from (D3, decided 2026-10-17):** `main`. The site
-  rebuilds it on every push to `main`, so plugin fixes reach every app's "Look online"
-  without an app release. Manifests can't yet say which host version they need (item 17);
-  revisit D3 once they can.
+**Decided (D12, 2026-10-17): GitHub Pages, the way evi-ai.dev works.** A separate public
+repository, `perritodeck/perritodeck.github.io`, is the organization's Pages site (Deploy
+from a branch, `main`, `/`, with a `CNAME` file and `.nojekyll`), and Cloudflare does DNS
+only, never proxied. `website/` stays the only source; `scripts/publish_site.py` builds the
+site and the catalogue from `main` into a clone of the site repository, by hand from WSL
+until the flip and then through the Site publish workflow. GitHub Pages can't send
+headers, so the CSP (without `frame-ancestors`), the referrer policy and noindex are
+`<meta>` tags at the top of every page and of the catalogue template, and the other
+headers in `_headers` are given up (DECISIONS has the list). `website/_headers` stays until
+the Worker is deleted, a few stable days after the cutover; the meta and header policies
+both apply until the cutover, and both pass. In the tree, not yet committed: the tags and
+their tests, a catalogue build that's the same on any OS, the publish script and its
+tests, the Site publish workflow, and the weekly drift check (the Site check workflow).
+
+**Left** (the [cutover runbook](website.md#cutover-runbook) has the steps, who does each,
+and the checks):
+- **The cutover (`docs/plan/phase-8.md` M1-5):** commit the D12 changes; read Billing and
+  plans; verify `perritodeck.dev` for the organization; create the site repository; the
+  first publish by hand, which also shows whether the site repository's Pages builds run
+  despite the billing block (if they don't, keep the Worker); the custom domain in Pages
+  before DNS; the DNS swap, at least several days before the flip, since HTTPS may be down
+  for up to 48 hours; Enforce HTTPS; then, after a few stable days, the Worker, the
+  Cloudflare GitHub app and the Web Analytics entry deleted, and `website/_headers` deleted
+  with the CSP test made meta-only. The zone settings only the
+  dashboard shows were never confirmed, and stop mattering at the cutover.
+- ✅ **Where the catalogue comes from (D3, decided 2026-10-17):** `main`. Each publish
+  rebuilds it (by hand until the flip, then on every push to `main` that touches
+  `website/` or `plugins/`), so plugin fixes reach every app's "Look online" without an
+  app release. Manifests can't yet say which host version they need (item 17); revisit D3
+  once they can.
 - **Look online against the live catalogue:** Plugins → Look online installs a plugin
-  from it (not tried yet).
+  from it (not tried yet; one of the checks after the cutover).
+- **At the flip:** the `site` environment and `SITE_PUBLISH_TOKEN`, and first manual runs
+  of Site publish and Site check.
 - **Launch day:** [docs/website.md, Launch day](website.md#launch-day) removes the noindex
-  header and the "Not released yet" lines, and lists the checks after the deploy.
+  tags and the "Not released yet" lines, and lists the checks after the publish.
 
 ## 13. Before the first release: what else blocks it
 
@@ -871,8 +896,8 @@ injects and no Speed Brain header. Mail is set up as D2 decided (item 8).
 ## 17. Plugins and integrations
 
 - **The catalogue tracks `main`, and manifests can't say which host they need.** The
-  catalogue is rebuilt from `main` on every push (`docs/releasing.md` step 7,
-  `docs/website.md` "Deploy"), so plugin bumps reach every app's Look online before a
+  catalogue is rebuilt from `main` at every publish of the site (`docs/releasing.md` step
+  7, `docs/website.md` "Deploy"), so plugin bumps reach every app's Look online before a
   release; D3 (2026-10-17) keeps it that way. There's no minimum host version or
   supported-OS field (`plugins/PROTOCOL.md`), so a plugin that needs a newer host feature
   can install onto an older host. Add the fields before third parties publish, then

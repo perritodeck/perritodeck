@@ -7,8 +7,8 @@ tags or anything visible to the world; only the maintainer does those.
 Status as of 2026-10-17: steps 1–2 re-checked by a sweep of the whole history on
 2026-10-13 (results below), and the ticked boxes are done. Everything else is open;
 `docs/next-steps.md` item 8 has the current state, and `docs/plan/phase-8.md` the
-decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15, and D3, D6, D7 and
-D8 on 2026-10-17).
+decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15, and D3, D6, D7, D8
+and D12 on 2026-10-17).
 
 ## 1. History and personal data
 
@@ -85,7 +85,7 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   tracked) and that the new Android release key is backed up twice, offline
   (`docs/next-steps.md` item 11).
 - [ ] Review repository and organisation secrets and variables: only what `docs/releasing.md`
-  lists.
+  lists, plus `SITE_PUBLISH_TOKEN` in the `site` environment once it exists (§4, D12).
   Secrets are not exposed to workflows triggered from forks, but check that no workflow
   uses `pull_request_target` with a checkout of the PR head (none does today).
 
@@ -116,11 +116,11 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] RUSTSEC-2026-0192 (`ttf-parser`, behind `ab_glyph`, is unmaintained; not a
   vulnerability): accepted in `host/deny.toml` with a reason, and the library is replaced
   in a later release (D6, 2026-10-17).
-- [ ] The advisories published since 2026-10-13, which still fail `cargo deny check
-  advisories` on both workspaces (2026-10-17): `rustls` 0.23.45 (fixed in 0.23.46), `zip`
-  2.4.2 (fixed in 9.0.0), and the unmaintained `zvariant`, `zbus_names` and
-  `zvariant_derive`. The app's workspace also flags the older unmaintained
-  `proc-macro-error` notice (RUSTSEC-2024-0370, through GTK on Linux).
+- [ ] The advisories published since 2026-10-13. `rustls` 0.23.45 and `zip` 2.4.2 are
+  fixed (0.23.46 and 9.0.5, 2026-10-18). The unmaintained `zvariant`, `zbus_names` and
+  `zvariant_derive`, which have no fixed version, still fail `cargo deny check
+  advisories` on both workspaces, and the app's workspace also flags the older
+  unmaintained `proc-macro-error` notice (RUSTSEC-2024-0370, through GTK on Linux).
   `docs/next-steps.md` item 8 has the IDs.
 - [ ] Add `cargo deny check licenses bans sources` and
   `python3 scripts/third-party-notices.py --check` to a push workflow. Today only the
@@ -163,6 +163,14 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   get them all green before §7's tag. They're the first runs since 2026-10-11 and the first
   on Ubuntu 26 (`ubuntu-latest` moves from 2026-10-19), so a failure may be the new image,
   not the code.
+- [ ] The website's publishing (D12; "At the flip" in the cutover runbook in
+  `docs/website.md`): Settings → Environments → `site`, with deployment branches limited to
+  `main`, and `SITE_PUBLISH_TOKEN` in it (a fine-grained token, the perritodeck
+  organization as resource owner, `perritodeck.github.io` only, Contents read and write;
+  or a write deploy key). Run **Site publish** by hand and expect "site: no change", and
+  **Site check**, which passes (or skips itself if the cutover hasn't happened yet).
+  - `SITE_PUBLISH_TOKEN` expires on: *(write the date here when it's made, and renew it
+    before then; a deploy key doesn't expire)*
 - [ ] Settings → General → Features: Issues on; Discussions on (optional, for Q&A);
   Wiki off; Projects as preferred.
 - [ ] Description, website `https://perritodeck.dev`, topics (`stream-deck`, `macro-pad`,
@@ -207,39 +215,48 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 
 ## 6. Website and plugin catalogue (perritodeck.dev)
 
-The steps are in [`docs/website.md`](website.md): "Deploy" for the setup, "Launch day" for
-the day the release goes out. `docs/next-steps.md` item 12 has what's left and the
-decisions it needs.
+The steps are in [`docs/website.md`](website.md): "Deploy" for the setup and publishing,
+"Cutover runbook" for the move to GitHub Pages (D12, decided 2026-10-17), "Launch day" for
+the day the release goes out. `docs/next-steps.md` item 12 has what's left.
 
-- [ ] Deploy `website/` from `main`, with the catalogue built by
-  `python3 plugins/build_catalog.py website/plugins` on every deploy (`website/plugins/`
-  is git-ignored). The site is live (2026-10-15): a Cloudflare Worker named `perritodeck`
-  with static assets serves it on the custom domain, and `perritodeck.pages.dev` doesn't
-  exist. It matches the current `main` (`6861f46`: `/README.md` answers 404, 13 plugins
-  are marked Experimental). Pushes to `main` redeploy it by themselves (a push at
-  03:02:14 UTC on 2026-10-17 was live by 03:02:42). The 2026-10-13 decision chose Pages, so keeping the
-  Worker or moving to Pages is decision D12 in `docs/plan/phase-8.md` ("The project" in
-  `docs/website.md`). If the site is ever served without the catalogue build step (GitHub
-  Pages, say), unzip the release's `perritodeck-X.Y.Z-plugin-catalogue.zip` into
-  `website/plugins/` before each deploy.
-- [ ] The zone settings only the dashboard shows, to confirm with the maintainer
-  ("The domain" in `docs/website.md`, "Left"): SSL/TLS Full (strict) and minimum TLS 1.2;
-  Web Analytics, Email Address Obfuscation, Rocket Loader, Bot Fight Mode and Speed Brain
-  off; Browser Cache TTL respecting the headers. Bot Fight Mode can challenge the app's
-  `PerritoDeck` user agent, and Look online then fails with a 403.
-- [x] Custom domain `perritodeck.dev`, with `www` answering 301 to it, path and query kept
-  (one Redirect Rule, plus a proxied `A` record to 192.0.2.1 for `www`), HTTPS enforced
-  (`http://` gets a 301), HSTS from `_headers` only (two years, `includeSubDomains`,
-  `preload`; Cloudflare's own HSTS and Network Error Logging are off) and DNSSEC in force
-  (DS 2371/13/2 is at the `.dev` registry, and resolvers validate), checked 2026-10-15.
-  There's no `pages.dev` address to add to the redirect. Mail for `dev@` is §3 (D2).
+- [x] The site is live (2026-10-15): a Cloudflare Worker named `perritodeck` with static
+  assets serves `perritodeck.dev` until the cutover, and pushes to `main` redeploy it by
+  themselves (a push at 03:02:14 UTC on 2026-10-17 was live by 03:02:42). It matches the
+  current `main` (`6861f46`: `/README.md` answers 404, 13 plugins are marked
+  Experimental).
+- [ ] **The cutover to GitHub Pages** (D12), at least several days before §4's flip, while
+  noindex is on and no release is out: the cutover runbook in `docs/website.md`, from
+  reading Billing and plans and verifying the domain for the organization to the DNS swap
+  and Enforce HTTPS. HTTPS may be down for up to 48 hours in between. If the site
+  repository's first Pages build hits the billing block, keep the Worker and sort out
+  billing before the flip. A few stable days later the Worker, the Cloudflare GitHub app
+  and the Web Analytics entry go, and Claude then deletes `website/_headers` and makes the
+  CSP test read the `<meta>` tag alone; the zone settings only the dashboard shows then
+  stop mattering.
+- [ ] Until the flip, publish by hand from WSL after each change to `website/` or
+  `plugins/` on `main` ("Publishing by hand" in `docs/website.md`), with the maintainer's
+  OK for each push to the site repository.
+- [ ] Until the flip, after the cutover, check by hand now and then, and after any DNS
+  change, that the site hasn't drifted to the state that took evi-ai.dev down (there's no
+  weekly run before the flip):
+  `python3 scripts/publish_site.py --check-live` (only GitHub's addresses for the apex and
+  `www`, `Server: GitHub.com` on `/`, `/plugins/index.json` and `www`'s 301, a certificate
+  with more than 21 days left)
+  and `gh api repos/perritodeck/perritodeck.github.io/pages --jq .https_certificate.state`
+  (`approved`).
+- [x] Custom domain `perritodeck.dev`, with `www` answering 301 to it, path and query kept,
+  HTTPS enforced (`http://` gets a 301) and DNSSEC in force (DS 2371/13/2 is at the `.dev`
+  registry, and resolvers validate), checked 2026-10-15 on the Worker. At the cutover
+  `www` becomes a `CNAME` to `perritodeck.github.io` and GitHub does the redirects;
+  DNSSEC and mail for `dev@` (§3, D2) don't change.
 - [ ] Check `https://perritodeck.dev/plugins/index.json` loads and that the desktop app's
-  Plugins → "Look online" installs a plugin from it. The first half is done (24 plugins,
-  2026-10-15).
+  Plugins → "Look online" installs a plugin from it, after the cutover. The first half is
+  done on the Worker (24 plugins, 2026-10-15).
 - [ ] **Launch day**, after step 7 publishes the release: work through "Launch day" in
-  `docs/website.md`. It removes the temporary `noindex` header and the "Not released
-  yet" notice and other pre-release lines, checks the status lines, and lists the checks
-  after the deploy. The home page's Download links already point at `download.html`.
+  `docs/website.md`. It removes the temporary `noindex` tags and the "Not released yet"
+  notice and other pre-release lines, checks the status lines, and lists the checks after
+  the publish. The home page's Download links already point at `download.html`. Then
+  give the site repository its website link, `https://perritodeck.dev` (maintainer).
 - [x] Self-host the two web fonts instead of loading them from Google Fonts, in keeping
   with "nothing leaves your desk": done (`website/fonts/`); no page, the plugin catalogue
   included, makes a third-party request.

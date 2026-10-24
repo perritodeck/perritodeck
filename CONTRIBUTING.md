@@ -61,7 +61,7 @@ don't carry one; they aren't rewritten.
 | Stream Deck plugin host | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
 | Plugin SDKs and first-party plugins | `plugins/` | `python3 plugins/test_all.py` |
 | iOS/iPadOS app (needs a Mac) | `ios/` | `cd ios/PerritoKit && swift test`; `cd ios && xcodegen`, then Xcode |
-| Website | `website/` | static; open `index.html`, and see `docs/website.md`. `cd plugins && python3 -m unittest test_build_catalog` checks the pages and stylesheets for anything the CSP in `website/_headers` would block |
+| Website | `website/` | static; open `index.html`, and see `docs/website.md`. `cd plugins && python3 -m unittest test_build_catalog` checks the pages and stylesheets for anything the CSP would block, and the policy `<meta>` tags at the top of every page; `cd scripts && python3 -m unittest test_publish_site` tests the publish script |
 | Licences | repo root | `cd host && cargo deny check licenses bans sources`; `python3 scripts/third-party-notices.py --check` |
 
 Only one host can run at a time: the command-line host and the desktop app both listen

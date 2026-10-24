@@ -1,0 +1,124 @@
+name: Site publish
+
+# Publishes website/ to perritodeck.dev. GitHub Pages serves the site from the public
+# repository perritodeck/perritodeck.github.io (Deploy from a branch: main, /, with a CNAME
+# file and .nojekyll), and Cloudflare only does the domain's DNS. That repository holds
+# generated output only. website/ here is the one source: scripts/publish_site.py builds the
+# plugin catalogue and mirrors the result into a checkout of it, and this job commits and
+# pushes. Nobody edits the site repository by hand; the next publish would undo it.
+#
+# Publishing needs a token, because GITHUB_TOKEN can't push to another repository. It's
+# SITE_PUBLISH_TOKEN, a secret of the "site" environment, which only main may deploy from
+# (Settings > Environments > site > Deployment branches), with write access to the site
+# repository's contents and nothing else. Until it exists, and for pull requests and other
+# branches, the job builds and checks against an empty stand-in folder instead and pushes
+# nothing, so a broken site fails review instead of going live.
+#
+# Actions don't run here until the repository is public (docs/DECISIONS.md, 2026-10-15). Until
+# then the same script is run by hand from WSL, into a clone of the site repository, and whoever
+# runs it commits and pushes:  python3 scripts/publish_site.py <clone of perritodeck.github.io>
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "plugins/**"
+      - "!plugins/tools/**"   # the plugins' test tools, which the catalogue leaves out
+      - "scripts/publish_site.py"
+      - "scripts/test_publish_site.py"
+      - ".github/workflows/site-publish.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "plugins/**"
+      - "!plugins/tools/**"
+      - "scripts/publish_site.py"
+      - "scripts/test_publish_site.py"
+      - ".github/workflows/site-publish.yml"
+  workflow_dispatch:   # publish again without a change, e.g. once the token exists
+
+permissions:
+  contents: read
+
+# Never two publishes at once, and never one cancelled halfway. Only main publishes; every other
+# ref (a pull request's refs/pull/N/merge, or a branch run by hand) only builds, so it gets a
+# group of its own rather than waiting behind main's publishes, or taking the place of one
+# that's pending (a new run in a group cancels the pending one).
+concurrency:
+  group: site-publish${{ github.ref != 'refs/heads/main' && format('-{0}', github.ref) || '' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only a run that may publish asks for the environment, so a pull request never gets the
+    # token (and isn't stopped by the environment's branch rule).
+    environment: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'site' || '' }}
+    env:
+      PUBLISH: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.SITE_PUBLISH_TOKEN != '' }}
+    defaults:
+      run:
+        working-directory: perritodeck
+    steps:
+      # Two checkouts side by side: the site's inside this one would make its tree dirty, which
+      # publish_site.py refuses.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: perritodeck
+
+      - name: Say whether this run publishes
+        run: |
+          if [ "$PUBLISH" = true ]; then
+            echo "Publishing to perritodeck/perritodeck.github.io."
+          elif [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::warning::SITE_PUBLISH_TOKEN isn't set in the site environment, so this run only builds and checks."
+          else
+            echo "Not main, so this run only builds and checks."
+          fi
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      # No pip install: publish_site.py and build_catalog.py are standard library only.
+      - name: Test the publish script
+        working-directory: perritodeck/scripts
+        run: python3 -m unittest test_publish_site
+
+      # Inline code the CSP would block, files a page loads that aren't there, the sitemap: a
+      # page that would break live is never published. (The Plugins workflow runs these too.)
+      - name: Check the pages
+        working-directory: perritodeck/plugins
+        run: python3 -m unittest test_build_catalog
+
+      - name: Check out the site repository
+        if: env.PUBLISH == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: perritodeck/perritodeck.github.io
+          token: ${{ secrets.SITE_PUBLISH_TOKEN }}
+          path: site
+
+      - name: Build and check, into a stand-in (no publishing)
+        if: env.PUBLISH != 'true'
+        run: python3 scripts/publish_site.py ../site --verify
+
+      - name: Build and check, into the site repository
+        if: env.PUBLISH == 'true'
+        run: python3 scripts/publish_site.py ../site
+
+      - name: Publish
+        if: env.PUBLISH == 'true'
+        working-directory: site
+        run: |
+          git config user.name "perritodeck-site-bot"
+          git config user.email "noreply@github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "site: no change"
+          else
+            git commit -m "site: publish from perritodeck@${GITHUB_SHA::7}"
+            git push
+          fi

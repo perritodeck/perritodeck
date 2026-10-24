@@ -42,7 +42,7 @@ folder into the host's settings folder under `plugins/`.
 ## Online catalogue
 
 `python3 plugins/build_catalog.py` writes `website/plugins/index.json`, a browsable
-`index.html` and one reproducible zip per plugin. Publishing that folder at `https://perritodeck.dev/plugins/`
+`index.html` and one reproducible zip per plugin, byte for byte the same whichever OS builds it. Publishing that folder at `https://perritodeck.dev/plugins/`
 makes the plugins available from the app's Plugins page ("Look online"). The app
 refuses a zip whose SHA-256 doesn't match the index.
 

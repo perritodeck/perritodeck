@@ -1,6 +1,6 @@
-"""Tests for build_catalog.py: plugin zips, plugin icons, Experimental marks and the
-catalogue page, plus the website's Content-Security-Policy, which the catalogue page shares
-with every other page."""
+"""Tests for build_catalog.py: plugin zips, plugin icons, Experimental marks, the build's
+folder and the catalogue page, plus the website's Content-Security-Policy and the other
+policies in its <meta> tags, which the catalogue page shares with every other page."""
 
 import contextlib
 import glob
@@ -8,10 +8,14 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
+import zlib
 from html.parser import HTMLParser
+from unittest import mock
 
 import build_catalog as bc
 
@@ -99,6 +103,41 @@ class Zips(unittest.TestCase):
         with open(first, "rb") as a, open(second, "rb") as b:
             self.assertEqual(a.read(), b.read())
 
+    def test_a_zip_is_the_same_whatever_os_builds_it(self):
+        # What a Windows build sees differently: os.access says every file is executable,
+        # zipfile marks entries as made on Windows, and Python's zlib is zlib-ng, which
+        # deflates differently (level 0 stands in for it here).
+        deflate = zlib.compressobj
+        with mock.patch("sys.platform", "linux"), mock.patch("os.access", return_value=False):
+            linux = self.build("linux.zip")
+        with mock.patch("sys.platform", "win32"), mock.patch("os.access", return_value=True), mock.patch(
+            "zlib.compressobj", lambda level, *rest: deflate(0, *rest)
+        ):
+            windows = self.build("windows.zip")
+        with open(linux, "rb") as a, open(windows, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        with zipfile.ZipFile(windows) as z:
+            self.assertEqual({(i.create_system, i.external_attr >> 16) for i in z.infolist()}, {(3, 0o100644)})
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_file_git_has_as_executable_stays_executable(self):
+        # Whatever the disk says: on Linux the script is 0644 on disk, and on Windows os.access
+        # calls every file executable. The plugin is a folder below the checkout's top.
+        write(os.path.join(self.folder, "bin", "run.sh"), "#!/bin/sh\n")
+        for args in (["init", "-q"], ["add", "plugin"], ["update-index", "--chmod=+x", "plugin/bin/run.sh"]):
+            subprocess.run(["git", *args], cwd=self.tmp.name, check=True, capture_output=True)
+        with zipfile.ZipFile(self.build()) as z:
+            modes = {i.filename: i.external_attr >> 16 for i in z.infolist()}
+        self.assertEqual(modes.pop("bin/run.sh"), 0o100755)
+        self.assertEqual(set(modes.values()), {0o100644})
+
+    def test_a_checkout_git_cant_read_stops_the_build(self):
+        # Rather than zips with every file 0644, which would differ from a proper build's.
+        write(os.path.join(self.folder, ".git"), "")
+        with self.assertRaises(SystemExit) as stopped:
+            self.build()
+        self.assertIn("git couldn't list its files", str(stopped.exception.code))
+
     def test_every_real_plugin_zip_says_it_is_mit_licensed(self):
         # None of the first-party plugins has a licence file of its own.
         for manifest in glob.glob(os.path.join(bc.HERE, "*", "perritodeck-plugin.json")):
@@ -152,31 +191,76 @@ UNTRIED = re.compile(
 )
 
 
-class Experimental(unittest.TestCase):
-    """Plugins tested only against stand-ins are marked Experimental in index.json and on the
-    page, from catalogue_status.json, without touching their manifests or zips."""
+class Plugins(unittest.TestCase):
+    """Two plugins in a temporary folder, to build a catalogue from."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.src = os.path.join(self.tmp.name, "plugins")
         for plugin_id in ("dev.example.a", "dev.example.b"):
-            manifest = {"id": plugin_id, "name": plugin_id[-1].upper(), "version": "1.0.0", "runtime": "python"}
-            write(os.path.join(self.src, plugin_id, "perritodeck-plugin.json"), json.dumps(manifest))
+            self.manifest(plugin_id)
             write(os.path.join(self.src, plugin_id, "plugin.py"), "print('hi')\n")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def status(self, listed):
-        path = os.path.join(self.tmp.name, "status.json")
-        write(path, json.dumps({"about": ["…"], "experimental": listed}))
-        return bc.load_status(path)
+    def manifest(self, plugin_id, **fields):
+        manifest = {"id": plugin_id, "name": plugin_id[-1].upper(), "version": "1.0.0", "runtime": "python", **fields}
+        write(os.path.join(self.src, plugin_id, "perritodeck-plugin.json"), json.dumps(manifest))
 
     def build(self, out, experimental):
         out = os.path.join(self.tmp.name, out)
         with contextlib.redirect_stdout(io.StringIO()):
             entries = bc.build(self.src, out, experimental)
         return out, entries
+
+
+class Output(Plugins):
+    """What a build leaves in its folder."""
+
+    def test_building_again_replaces_the_last_catalogue(self):
+        # Zip and icon names carry the version, so a plugin's old version would otherwise stay
+        # beside the new one and be published with it, and so would a plugin that's gone.
+        out = os.path.join(self.tmp.name, "out")
+        os.makedirs(out)  # an empty folder is fine
+        write(os.path.join(self.src, "dev.example.a", "icon.svg"), "<svg/>")
+        self.manifest("dev.example.a", icon="icon.svg")
+        self.build("out", {})
+        write(os.path.join(out, "Thumbs.db"), "")  # not the catalogue's, so it stays
+        self.manifest("dev.example.a", version="1.0.1", icon="icon.svg")
+        shutil.rmtree(os.path.join(self.src, "dev.example.b"))
+        _, entries = self.build("out", {})
+        self.assertEqual([p["url"] for p in entries], ["dev.example.a-1.0.1.zip"])
+        self.assertEqual(
+            sorted(os.listdir(out)),
+            ["Thumbs.db", "dev.example.a-1.0.1.svg", "dev.example.a-1.0.1.zip", "index.html", "index.json"],
+        )
+
+    def test_a_folder_holding_something_else_isnt_built_into(self):
+        # Zips and icons are found by type, so clearing this folder would delete its picture.
+        out = os.path.join(self.tmp.name, "site")
+        for name in ("style.css", "og.png"):
+            write(os.path.join(out, name), "")
+        with self.assertRaises(SystemExit) as stopped:
+            self.build("site", {})
+        self.assertIn("holds no plugin catalogue", str(stopped.exception.code))
+        self.assertEqual(sorted(os.listdir(out)), ["og.png", "style.css"])
+
+    def test_the_index_and_the_page_end_lines_the_same_on_every_os(self):
+        out, _ = self.build("out", {})
+        for name in ("index.json", "index.html"):
+            with self.subTest(name), open(os.path.join(out, name), "rb") as f:
+                self.assertNotIn(b"\r", f.read())
+
+
+class Experimental(Plugins):
+    """Plugins tested only against stand-ins are marked Experimental in index.json and on the
+    page, from catalogue_status.json, without touching their manifests or zips."""
+
+    def status(self, listed):
+        path = os.path.join(self.tmp.name, "status.json")
+        write(path, json.dumps({"about": ["…"], "experimental": listed}))
+        return bc.load_status(path)
 
     def test_listed_plugins_are_marked_in_the_index_and_on_the_page_and_their_zips_dont_change(self):
         notes = self.status({"dev.example.b": {"tested": " Tested against\n a stand-in. ", "source": "its README"}})
@@ -309,16 +393,23 @@ class Inline(HTMLParser):
 
 
 class Head(HTMLParser):
-    """A page's title, canonical link and <meta> tags (by name or property), unescaped."""
+    """A page's title, canonical link and <meta> tags (by name or property), unescaped, plus
+    the attributes of every <meta> tag wherever it is, and the tags in <head> in order."""
 
     def __init__(self, text):
         super().__init__()
         self.title, self.canonical, self.meta, self._in_title = "", None, {}, False
+        self.metas, self.tags, self._in_head = [], [], False
         self.feed(text)
         self.close()
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if self._in_head:
+            self.tags.append((tag, a))
+        self._in_head = self._in_head or tag == "head"
+        if tag == "meta":
+            self.metas.append(a)
         if tag == "title":
             self._in_title = True
         elif tag == "link" and (a.get("rel") or "").lower() == "canonical":
@@ -329,10 +420,51 @@ class Head(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "title":
             self._in_title = False
+        elif tag == "head":
+            self._in_head = False
 
     def handle_data(self, data):
         if self._in_title:
             self.title += data
+
+
+# Launch day (docs/website.md): the robots tag comes off every page but 404.html, and off the
+# catalogue page's template. Then set this to True, and the tests check that none is left.
+LAUNCHED = False
+
+
+def header_policies():
+    """The Content-Security-Policy headers website/_headers sends."""
+    with open(os.path.join(WEBSITE, "_headers"), encoding="utf-8") as f:
+        return [line.split(":", 1)[1].strip() for line in f if line.strip().startswith("Content-Security-Policy:")]
+
+
+def head_start(not_found=False):
+    """The tags every page's <head> starts with. GitHub Pages can't send headers, so the
+    policies are <meta> tags, and first, since a policy covers only what comes after it. The
+    CSP is the header's without frame-ancestors, which browsers ignore in a <meta> tag."""
+    (policy,) = header_policies()
+    directives = (d.strip() for d in policy.split(";"))
+    meta_policy = "; ".join(d for d in directives if d and d.split()[0] != "frame-ancestors")
+    start = [
+        ("meta", {"charset": "utf-8"}),
+        ("meta", {"http-equiv": "Content-Security-Policy", "content": meta_policy}),
+        ("meta", {"name": "referrer", "content": "no-referrer"}),
+    ]
+    if not LAUNCHED or not_found:  # 404.html keeps its robots tag for good
+        start.append(("meta", {"name": "robots", "content": "noindex"}))
+    return start
+
+
+def check_policies(test, text, not_found=False):
+    """The page's <head> starts with head_start(), and none of those tags is there twice."""
+    head = Head(text)
+    start = head_start(not_found)
+    test.assertEqual(head.tags[: len(start)], start)
+    names = [(a.get("http-equiv") or "").lower() or a.get("name") for a in head.metas]
+    test.assertEqual(names.count("content-security-policy"), 1, "two policies would both have to pass")
+    test.assertEqual(names.count("referrer"), 1)
+    test.assertEqual(names.count("robots"), 1 if not LAUNCHED or not_found else 0)
 
 
 def png_size(path):
@@ -412,6 +544,9 @@ class Page(unittest.TestCase):
                 self.assertIsNotNone(home.meta.get(shared))
                 self.assertEqual(head.meta.get(shared), home.meta[shared])
 
+    def test_the_page_starts_with_the_sites_policies(self):
+        check_policies(self, bc.page([ENTRY]))
+
     def test_the_page_has_no_inline_code_and_loads_only_the_websites_own_files(self):
         page = Inline(bc.page([ENTRY, EXPERIMENTAL]))
         self.assertEqual(page.blocked, [])
@@ -422,8 +557,9 @@ class Page(unittest.TestCase):
 
 
 class Website(unittest.TestCase):
-    """The site's Content-Security-Policy (website/_headers) allows only the site's own files,
-    with no inline code. Anything inline would silently stop working once deployed."""
+    """The site's Content-Security-Policy (in website/_headers, and in a <meta> tag on every
+    page) allows only the site's own files, with no inline code. Anything inline would
+    silently stop working once deployed."""
 
     def pages(self):
         found = glob.glob(os.path.join(WEBSITE, "*.html")) + glob.glob(os.path.join(WEBSITE, "guide", "*.html"))
@@ -517,9 +653,14 @@ class Website(unittest.TestCase):
         self.assertEqual(sorted(sitemap), sorted(expected), "sitemap.xml should list every page once")
         self.assertEqual(len(sitemap), len(set(sitemap)))
 
+    def test_every_page_starts_with_the_policies(self):
+        for path, text in self.pages():
+            rel = os.path.relpath(path, WEBSITE).replace(os.sep, "/")
+            with self.subTest(rel):
+                check_policies(self, text, not_found=rel == "404.html")
+
     def test_there_is_one_strict_policy(self):
-        with open(os.path.join(WEBSITE, "_headers"), encoding="utf-8") as f:
-            policies = [line.split(":", 1)[1].strip() for line in f if line.strip().startswith("Content-Security-Policy:")]
+        policies = header_policies()
         self.assertEqual(len(policies), 1, "two CSP headers on one path are two policies that must both pass")
         policy = policies[0]
         self.assertIn("default-src 'none'", policy)
@@ -529,8 +670,9 @@ class Website(unittest.TestCase):
             self.assertNotIn(loose, policy)
 
     def test_the_folder_holds_only_files_the_site_serves(self):
-        # Cloudflare publishes every file under website/, so a README, notes or a script there
-        # would be live at https://perritodeck.dev/<name>. They go in docs/website.md and scripts/.
+        # scripts/publish_site.py publishes every committed file under website/ but _headers and
+        # _redirects, so a README, notes or a script there would be live at
+        # https://perritodeck.dev/<name>. They go in docs/website.md and scripts/.
         served = {".html", ".css", ".js", ".png", ".webp", ".ico", ".svg", ".woff2"}
         named = {"_headers", "_redirects", "robots.txt", "sitemap.xml"}
 
