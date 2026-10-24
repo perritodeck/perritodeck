@@ -376,7 +376,7 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 | `ci/e2e-*` branches | Done (2026-10-13): E2E no longer pushes them (its screenshots and logs are workflow artifacts), and the four branches were deleted on GitHub with the maintainer's OK |
 | gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run once more right before the flip |
 | `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). RUSTSEC-2026-0192 is accepted with a reason in `deny.toml` (D6, 2026-10-17): `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained, not a vulnerability, and the library is replaced in a later release (its author suggests `skrifa`). Of the advisories published since 2026-10-13, the four in `rustls` 0.23.45 (RUSTSEC-2026-0346 to 0349) and the three in `zip` 2.4.2 (RUSTSEC-2026-0367 to 0369) are fixed (2026-10-18): both lockfiles have `rustls` 0.23.46 and `zip` 9.0.5. The unmaintained `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, through `enigo`'s `ashpd`, and in the app also Tauri's opener and single-instance plugins) and the app's `proc-macro-error` (RUSTSEC-2024-0370, through GTK on Linux) have no fixed version and are Linux only: accepted with reasons in `deny.toml` (D13, 2026-10-17) until those move to zbus 6 and gtk-rs 0.19. Three advisories published after that were fixed by updating (2026-10-24): `webpki-roots` 1.0.11 and `rustls-webpki` 0.103.16 (RUSTSEC-2026-0381 and 0382, a distrusted root ureq trusted) and `tokio` 1.53.3 (RUSTSEC-2026-0386). `cargo deny check advisories licenses bans sources` passes on both workspaces |
-| `cargo deny` and `third-party-notices.py --check` in CI | The Release workflow's licences job runs `third-party-notices.py --check` (2026-10-13), so a release fails if `THIRD_PARTY_NOTICES.md` is stale. No push workflow runs it or `cargo deny` yet (item 16). The notices check passes locally |
+| `cargo deny` and `third-party-notices.py --check` in CI | Done (2026-10-24; not run on GitHub yet): the Licences workflow runs both, on both workspaces, on pushes and pull requests that change the dependencies, and weekly, with advisories as a job of their own (item 16). The Release workflow's licences job still runs the notices check too. Licences, bans, sources and the notices pass locally (2026-10-24); so do advisories, since the updates and D13 in the row above |
 | `third-party-licenses.txt` in releases | `release.yml` generates it (2026-10-13), attaches it to the release and puts it in the command-line archives and the desktop installers (in the app's resource folder, merged in with `tauri build --config`). The APK carries its own list, generated at build time (next row) |
 | Licences screen in the apps | Done (2026-10-15). **Android:** a Gradle task writes `assets/third-party-licenses.txt` from the release runtime classpath (86 libraries; licences from each POM and its parents, resolved through Gradle, not Play Services' oss-licenses, which F-Droid forbids), and Open-source licences on Perrito's home screen shows it, so the APK carries every licence text (launch checklist §3). **Desktop:** Settings → Version → Open-source licences opens the installers' `third-party-licenses.txt`, or the notices on `main` in a build without it. iOS: none yet (not part of the first release). Neither screen has been looked at on a device yet (item 15) |
 | Plugin licence | Done (2026-10-13): every catalogue zip carries `plugins/LICENSE` (unless the plugin has its own), and the desktop app bundles it next to the plugins |
@@ -439,10 +439,10 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 and the issue template already link to it); Dependabot alerts and security updates; secret
 scanning with push protection; a ruleset for `main` and one for `v*` tags; approval for
 first-time contributors' workflows; description, topics, website and social preview; the
-`triage` and `plugin` labels the issue forms use. Every workflow is path-filtered, so a
-required check whose workflow didn't run stays pending and blocks the PR. The ruleset
-should require one always-running gate job, but **the gate doesn't exist yet** (item 16):
-until it does, require no status checks. Every workflow file sets read-only `permissions`
+`triage` and `plugin` labels the issue forms use. The ruleset requires one status check,
+`CI gate` (item 16), which reports on every pull request; the individual checks run only
+when a change touches what they read, so requiring one of them would leave docs-only pull
+requests waiting forever. Every workflow file sets read-only `permissions`
 at the top; only the jobs of `bootstrap-gradle-wrapper.yml` (`contents: write`, to push
 its branch) and the Release workflow's publish job ask for write. The repository's default
 under Settings → Actions → General is read-only, with Actions not allowed to create or
@@ -452,8 +452,10 @@ that way: `bootstrap-gradle-wrapper.yml` no longer pushes to `main` but to a
 a person opens the pull request (2026-10-15, DECISIONS), so it works under the ruleset.
 
 After it's public:
-- Restore push and PR triggers for Linux, macOS and the other emulators, which are weekly or
-  manual today because of cost (`host.yml`, `desktop-app.yml`, `e2e.yml`).
+- Run Linux, macOS and the other emulators on pushes and pull requests too, which are weekly
+  or manual today because of cost: widen the matrices in `host.yml`, `desktop-app.yml`,
+  `e2e.yml` and `plugins.yml`. Pushes and pull requests reach those through `ci.yml`, so
+  don't add push or pull_request triggers back to them.
 - Run the iOS workflow on `macos-latest` (it's on `macos-14`). That's the first iOS build,
   with no rented Mac needed.
 - Update CLAUDE.md's CI section to match.
@@ -865,36 +867,39 @@ and the checks):
 
 ## 16. CI
 
-- **An always-running gate job** for branch protection: every workflow is path-filtered,
-  so a required check would wait forever on a docs-only PR. Until it exists, the `main`
-  ruleset requires no status checks (item 8). Build it as one workflow that decides with a
-  paths filter (e.g. `dorny/paths-filter`) which jobs run, plus a final `if: always()`
-  job that fails if any job it needed failed or was cancelled; require only that final
-  job. It can't simply `needs:` the jobs of the other workflows, because `needs` works
-  only inside one workflow. Also, `host.yml` triggers only on `host/**` and `protocol/**`
-  though host tests read `plugins/` (manifest validation, the Python SDK), and
-  `desktop-app.yml` ignores `plugins/` though the app bundles all 24.
-  (`.github/workflows/host.yml:4-8`, `desktop-app.yml:4-8`)
-- **Plugin tests run on Linux only** (`.github/workflows/plugins.yml:18-30`), so the
-  Windows-only tests in clipboard, windows, sdk-python, sysmon and soundboard are always
-  skipped; obs, screenshot, windows and spotify needed Windows fixes Linux CI didn't catch.
-  Add `windows-latest` on push and macOS weekly.
-- **Stream Deck plugin tests may skip silently in Host CI:** no `setup-node`, and they
-  print "skipped: needs Node.js 22 or newer" and pass on an older Node
-  (`host/crates/sdcompat/tests/plugins.rs:81-83`). Add `actions/setup-node` with Node 22.
-- **`cargo deny` and the notices check** (item 8): a cheap Ubuntu job for both workspaces
-  plus `scripts/third-party-notices.py --check`. Today only the Release workflow's licences
-  job runs the notices check, so stale notices show up at tag time. The Android section of
-  the notices is a hand-kept table, so the check can't catch Android dependency changes.
+Done (2026-10-24; not run on GitHub yet, since Actions are blocked until the flip):
+- **The gate:** `.github/workflows/ci.yml` runs the checks for pushes to `main` and pull
+  requests. Its first job lists the changed files with git (no third-party action)
+  and calls the workflows whose checks read any of them, which are now reusable
+  (`on: workflow_call`) and keep their own weekly schedules and Run workflow buttons. Its
+  last job, `CI gate`, always runs and fails if any called workflow failed or was
+  cancelled; it's the one check the `main` ruleset should require (launch checklist §5).
+  Which files each workflow's checks read is `NEEDS` in `ci.yml`: when a check starts
+  reading a file outside its list, add it there. Actions → CI → Run workflow runs everything.
+  A push run is never cancelled (it checks only what its push changed); the gate also fails
+  if a job the first job asked for was skipped.
+- **Path filters** now cover what the checks read: Host runs for `plugins/` (manifests, the
+  Python SDK); Desktop app for `plugins/` (bundled), `docs/assets/` and `release.yml`
+  (Playwright reads both); Android for `docs/assets/` and `LICENSE` (LauncherIconTest, the
+  APK's licence list); E2E for `LICENSE`; Plugins for `docs/next-steps.md` and
+  `docs/testing/twitch.md`, which its tests read.
+- **Plugin tests** run on Linux and Windows for every change, macOS too weekly or by hand
+  (`plugins.yml`), so the Windows-only tests in clipboard, windows, sdk-python, sysmon and
+  soundboard run.
+- **Stream Deck plugin tests:** Host CI sets up Node 22 and sets
+  `PERRITODECK_REQUIRE_NODE=1`, so `host/crates/sdcompat/tests/plugins.rs` fails instead of
+  printing "skipped" when Node is missing.
+- **`cargo test` for the app crate** (`host/app/src-tauri`): the App crate job in
+  `desktop-app.yml` runs fmt, clippy and the tests, on Windows for every change and on Linux
+  and macOS weekly (it took clippy over from the weekly bundle job).
+- **`cargo deny` and the notices check** (item 8): `licences.yml`, on dependency changes and
+  weekly. Advisories are a job of their own; they pass since 2026-10-24 (item 8).
+
+Still open:
 - **Untested MSRV:** `host/Cargo.toml` declares `rust-version = "1.80"`, but only the pinned
   1.97 is ever built. Test it, or raise it to what's verified.
-- **Path filters that miss files the checks read** (2026-10-15): `android.yml` doesn't run
-  for `docs/assets/**`, though `LauncherIconTest` checks the launcher icons against
-  `docs/assets/*.svg` and `docs/assets/android/**`; `desktop-app.yml` doesn't run for
-  `.github/workflows/release.yml`, though `host/app/tests/licences.spec.ts` checks the
-  bundled licences' file name against it. Add those paths. Also, no workflow runs
-  `cargo test` in `host/app/src-tauri` (`host.yml` tests the host workspace, and
-  `desktop-app.yml` runs only fmt and clippy there).
+- **The Android section of the notices** is a hand-kept table, so the notices check can't
+  catch Android dependency changes.
 
 ## 17. Plugins and integrations
 

@@ -42,7 +42,7 @@ For replacing or adding screenshots later. PNG or JPEG, no device frames, no tex
 3. A page with sliders (volume) and a live clock/CPU key
 4. The Fire 7 at 1024×600 (shows that old tablets work)
 
-The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>` on each run's summary page). They work as a starting point, but they show test grids, so take real ones from a nice-looking demo profile.
+The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>`, on the CI run's summary page for a push or pull request, on the E2E run's for a weekly or manual one). They work as a starting point, but they show test grids, so take real ones from a nice-looking demo profile.
 
 ## F-Droid (main repository)
 

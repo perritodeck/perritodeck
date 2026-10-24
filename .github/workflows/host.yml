@@ -1,19 +1,21 @@
 name: Host
 
+# Pushes to main and pull requests run this through ci.yml, when host/, protocol/ or plugins/
+# change (the list is there): Windows only. Linux and macOS cost more minutes (macOS ten times
+# Linux), so all three run weekly or by hand.
 on:
-  push:
-    branches: [main]
-    paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
-  pull_request:
-    paths: ["host/**", "protocol/**", ".github/workflows/host.yml"]
-  # Linux and macOS cost more minutes (macOS ten times Linux); run them weekly or by hand.
+  workflow_call:
   schedule:
     - cron: "17 9 * * 1"
   workflow_dispatch:
 
-# A newer push to the same branch makes older runs pointless.
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: host-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,6 +40,11 @@ jobs:
       - name: Linux build dependencies (Wayland input needs xkbcommon)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libxkbcommon-dev
+      # The Stream Deck plugin tests (host/crates/sdcompat/tests/plugins.rs) run a Node.js
+      # plugin and need Node 22 or newer.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: host
@@ -53,6 +60,9 @@ jobs:
           }
       - name: Test
         shell: bash
+        env:
+          # Without Node the Stream Deck plugin tests fail here rather than skip.
+          PERRITODECK_REQUIRE_NODE: "1"
         run: |
           set -o pipefail
           cargo test --locked 2>&1 | tee test.txt || {

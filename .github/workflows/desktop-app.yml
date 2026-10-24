@@ -1,11 +1,15 @@
 name: Desktop app
 
+# Pushes to main and pull requests run this through ci.yml, when host/, plugins/ (the app
+# bundles them), docs/assets/ or release.yml change (the list is there): the UI checks and
+# the app crate's checks on Windows.
 on:
-  push:
-    branches: [main]
-    paths: ["host/**", ".github/workflows/desktop-app.yml"]
-  pull_request:
-    paths: ["host/**", ".github/workflows/desktop-app.yml"]
+  # ci.yml passes no inputs, so platforms is "windows" there, as on a push before.
+  workflow_call:
+    inputs:
+      platforms:
+        type: string
+        default: windows
   # Bundles and the real-app test are the expensive part (macOS especially): weekly,
   # by hand (Actions → Desktop app → Run workflow), or when tagging a release.
   schedule:
@@ -18,9 +22,13 @@ on:
         type: choice
         options: [windows, all]
 
-# A newer push to the same branch makes older runs pointless.
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: desktop-app-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -52,6 +60,58 @@ jobs:
           name: playwright-report
           path: host/app/test-results
           retention-days: 7
+
+  # The app's own Rust crate (host/app/src-tauri, a workspace of its own): fmt, clippy and its
+  # tests. Windows on every run; Linux and macOS too weekly, or by hand with platforms = all.
+  # It embeds the built UI (../dist), hence npm run build first.
+  app:
+    name: App crate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'schedule' || inputs.platforms == 'all') && '["windows-latest","ubuntu-22.04","macos-latest"]' || '["windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/app/package-lock.json
+      # Toolchain version comes from host/rust-toolchain.toml.
+      - name: Install toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      # WebKitGTK and the tray: the app links them, and its test binary needs them to start.
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxkbcommon-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: host/app/src-tauri
+      - run: npm ci
+      - run: npm run build
+      - name: Clippy
+        shell: bash
+        working-directory: host/app/src-tauri
+        run: |
+          set -o pipefail
+          cargo fmt --check
+          cargo clippy --locked --all-targets --message-format=short -- -D warnings 2>&1 | tee clippy.txt || {
+            grep -E '^(error|warning)|: (error|warning)' clippy.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
+      - name: Test
+        shell: bash
+        working-directory: host/app/src-tauri
+        run: |
+          set -o pipefail
+          cargo test --locked 2>&1 | tee test.txt || {
+            grep -E 'panicked|FAILED|^error' test.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          }
 
   # The real app on Linux, driven through WebDriver: pair fakedeck, edit a key, check
   # the profile file and the "tablet" both change, undo.
@@ -118,18 +178,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: host/app/src-tauri
+      # fmt, clippy and the tests run in the app job, on the same platforms.
       - run: npm ci
       - run: npm run build
-      - name: Clippy
-        shell: bash
-        working-directory: host/app/src-tauri
-        run: |
-          set -o pipefail
-          cargo fmt --check
-          cargo clippy --locked --all-targets --message-format=short -- -D warnings 2>&1 | tee clippy.txt || {
-            grep -E '^(error|warning)|: (error|warning)' clippy.txt | head -20 | sed 's/^/::error::/'
-            exit 1
-          }
       - name: Bundle
         shell: bash
         run: |

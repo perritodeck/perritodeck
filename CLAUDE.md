@@ -55,14 +55,32 @@ time, because both the CLI and the app listen on port 46710.
 
 ## CI
 
+Pushes to `main` and pull requests start one workflow, CI (`.github/workflows/ci.yml`). Its
+first job lists the changed files with git and calls the workflows whose checks read any of
+them (reusable: `on: workflow_call`); its last job, **CI gate**, always runs and fails if any
+of those failed or was cancelled, or was skipped though the first job asked for it. It's the
+only check the `main` ruleset should require (`docs/launch-checklist.md` §5). Those lists are
+`NEEDS` in `ci.yml`: when a check starts reading a file outside its list, add the path there.
+A push run checks only what that push changed, so nothing cancels it: each push to `main`
+runs in full (a newer commit on a pull request does cancel the older run). The called
+workflows keep their own weekly schedules and Run workflow buttons; Actions → CI → Run
+workflow runs all of them. On push and pull request their jobs and artifacts (the debug APK,
+the E2E screenshots) belong to the CI run, not to a run of their own.
+
 While the repo is private, Actions minutes are billed (macOS at ten times Linux), so pushes
-run only Host tests on Windows, the desktop UI tests, Android, Protocol, Plugins and two
-emulators (API 22, Fire 7). Linux/macOS host tests, desktop bundles, the real-app test and
-the other emulators run weekly (Mondays) or by hand (Actions → workflow → Run workflow).
-Test Linux locally before pushing, and batch pushes. Since 2026-10-11 no run starts at all (a
-billing block the maintainer is leaving until the repo goes public, when Actions are free),
-so until the flip every check runs locally: Linux in WSL (`wsl -d Ubuntu`), where
-`scripts/linux-check.sh` runs the host and app checks on a commit in about a minute, and the
-emulator tests not at all. E2E screenshots and logs are workflow
-artifacts (`e2e-<run name>`: `api22`, `api34`, `fire7`, `firehd10`) on each run's summary
-page, kept for 30 days.
+run only Host tests on Windows, the desktop UI tests, the app crate (`host/app/src-tauri`:
+fmt, clippy, tests) on Windows, Android, Protocol, Plugins on Linux and Windows, Licences and
+two emulators (API 22, Fire 7). Linux/macOS host tests and app crate, desktop bundles, the
+real-app test, Plugins on macOS and the other emulators run weekly (Mondays) or by hand
+(Actions → workflow → Run workflow). Licences (`licences.yml`) runs `cargo deny check
+licenses bans sources` on both workspaces and `third-party-notices.py --check`, and
+`cargo deny check advisories` as a job of its own, also weekly, since advisories appear
+without any change here. Host CI sets `PERRITODECK_REQUIRE_NODE=1`, so the Stream Deck
+plugin tests fail instead of skipping when Node 22 is missing. Test Linux locally before
+pushing, and batch pushes. Since 2026-10-11 no run starts at all (a billing block the
+maintainer is leaving until the repo goes public, when Actions are free), so until the flip
+every check runs locally: Linux in WSL (`wsl -d Ubuntu`), where `scripts/linux-check.sh`
+runs the host and app checks on a commit in about a minute, and the emulator tests not at
+all. E2E screenshots and logs are workflow artifacts (`e2e-<run name>`: `api22`, `api34`,
+`fire7`, `firehd10`), kept for 30 days: on the CI run's summary page for a push or pull
+request, on the E2E run's for a weekly or manual one.

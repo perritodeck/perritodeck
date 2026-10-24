@@ -1,0 +1,90 @@
+name: Licences
+
+# cargo-deny on both Cargo workspaces (host/ and host/app/src-tauri, which share
+# host/deny.toml), and the check that THIRD_PARTY_NOTICES.md matches the dependencies. Pushes to
+# main and pull requests run this through ci.yml when a Cargo manifest or lock file, deny.toml,
+# the app's package-lock.json, the notices or their script change (the list is there). Weekly
+# as well, because new advisories are published without any change here, and by hand.
+#
+# Advisories are a job of their own, so a new advisory shows as its own failure and never hides
+# a licence problem (or the other way round). An advisory is fixed by updating the crate, or
+# accepted in host/deny.toml with a reason and a decision in docs/DECISIONS.md.
+on:
+  workflow_call:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
+concurrency:
+  group: licences-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: host
+
+env:
+  # The version host/deny.toml was last checked with. Built from crates.io (--locked), and
+  # kept in the cache below between runs.
+  CARGO_DENY_VERSION: 0.20.2
+
+jobs:
+  licences:
+    name: Licences, bans, sources and notices
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # From host/, so host/rust-toolchain.toml picks the compiler for cargo-deny and cargo
+      # metadata alike.
+      - name: Install toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: host
+          shared-key: cargo-deny
+          cache-targets: false
+      - id: install
+        name: Install cargo-deny
+        run: cargo deny --version 2> /dev/null | grep -qxF "cargo-deny $CARGO_DENY_VERSION" || cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked
+      - name: Host workspace
+        run: cargo deny --locked check licenses bans sources
+      - name: App workspace
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: cargo deny --locked --manifest-path app/src-tauri/Cargo.toml --config deny.toml check licenses bans sources
+      # Also what the Release workflow's licences job checks, so stale notices show here and
+      # not when a tag is pushed.
+      - name: THIRD_PARTY_NOTICES.md is up to date
+        if: ${{ !cancelled() }}
+        run: python3 ../scripts/third-party-notices.py --check
+
+  advisories:
+    name: Advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: host
+          shared-key: cargo-deny
+          cache-targets: false
+      - id: install
+        name: Install cargo-deny
+        run: cargo deny --version 2> /dev/null | grep -qxF "cargo-deny $CARGO_DENY_VERSION" || cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked
+      # Fetches the RustSec advisory database.
+      - name: Host workspace
+        run: cargo deny --locked check advisories
+      - name: App workspace
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: cargo deny --locked --manifest-path app/src-tauri/Cargo.toml --config deny.toml check advisories

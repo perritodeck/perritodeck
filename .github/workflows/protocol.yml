@@ -1,15 +1,17 @@
 name: Protocol
 
+# Pushes to main and pull requests run this through ci.yml, when protocol/ changes.
 on:
-  push:
-    branches: [main]
-    paths: ["protocol/**", ".github/workflows/protocol.yml"]
-  pull_request:
-    paths: ["protocol/**", ".github/workflows/protocol.yml"]
+  workflow_call:
+  workflow_dispatch:
 
-# A newer push to the same branch makes older runs pointless.
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: protocol-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:

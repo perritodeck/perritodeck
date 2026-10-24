@@ -1,0 +1,242 @@
+# The checks for every push to main and every pull request, and the one job the main ruleset
+# requires (docs/launch-checklist.md §5): "CI gate", at the bottom. It runs on every change,
+# docs-only ones included, so the required check is never left waiting for a workflow that a
+# path filter kept from starting.
+#
+# The first job lists the files the change touches and picks the workflows whose checks read
+# any of them (the lists in its script). This workflow calls those, each with the same jobs it
+# has always had; the gate then fails if any of them failed or was cancelled, and passes when
+# they all passed or none was needed. The called workflows keep their own weekly schedules and
+# Run workflow buttons. Their push and pull_request triggers are the lists here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # By hand (Actions → CI → Run workflow): every workflow below, each as its own Run workflow
+  # button would run it (Linux and macOS host tests, the four emulators, and so on).
+  workflow_dispatch:
+
+# A newer commit on a pull request (or a newer run by hand) makes the older run pointless, but
+# every push to main is checked in full: its group has its own commit in it, so nothing cancels
+# it or leaves it waiting to be replaced. A push run checks only what that push changed, so a
+# later push cancelling it would leave its changes untested. The called workflows' groups start
+# with their own names and have this one's (github.workflow) after that, so they never share
+# this group, which GitHub cancels as a deadlock, nor the group of the same workflow's own Run
+# workflow button.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      protocol: ${{ steps.pick.outputs.protocol }}
+      host: ${{ steps.pick.outputs.host }}
+      desktop-app: ${{ steps.pick.outputs.desktop-app }}
+      android: ${{ steps.pick.outputs.android }}
+      e2e: ${{ steps.pick.outputs.e2e }}
+      plugins: ${{ steps.pick.outputs.plugins }}
+      licences: ${{ steps.pick.outputs.licences }}
+    steps:
+      # Two commits: a pull request's checkout is its merge commit, whose first parent is the
+      # base branch as it is now, so HEAD^1..HEAD is what the pull request changes.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+      - id: pick
+        name: Pick the workflows this change needs
+        shell: python3 {0}
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          import os, re, subprocess
+
+          # The files each workflow's checks read: their own folders, plus what their tests and
+          # builds read from elsewhere. * stays inside one folder, ** spans any number of them.
+          # When a check starts reading a file outside its list, add the file here.
+          NEEDS = {
+              "protocol": ["protocol/**", ".github/workflows/protocol.yml"],
+              # Host tests read plugins/ (every manifest, the catalogue, the Python SDK) and the
+              # protocol fixtures.
+              "host": ["host/**", "protocol/**", "plugins/**", ".github/workflows/host.yml"],
+              # The app bundles plugins/; its Playwright tests read the icon master in
+              # docs/assets and the licences file name in release.yml.
+              "desktop-app": ["host/**", "plugins/**", "docs/assets/**",
+                              ".github/workflows/release.yml", ".github/workflows/desktop-app.yml"],
+              # Unit tests read the protocol fixtures and docs/assets (LauncherIconTest); the APK's
+              # licence list carries LICENSE (ThirdPartyLicensesTest); scripts/gradle-annotate.sh.
+              "android": ["android/**", "protocol/**", "scripts/**", "docs/assets/**", "LICENSE",
+                          ".github/workflows/android.yml"],
+              # The debug APK it tests carries LICENSE too, and SystemBarsTest opens that list.
+              "e2e": ["android/**", "host/**", "protocol/**", "scripts/e2e-android.sh", "LICENSE",
+                      ".github/workflows/e2e.yml"],
+              # test_build_catalog.py checks website/ and that the status list's sources exist
+              # (docs/next-steps.md is one); plugins/tools' tests read docs/testing/twitch.md.
+              "plugins": ["plugins/**", "website/**", "docs/next-steps.md", "docs/testing/twitch.md",
+                          ".github/workflows/plugins.yml"],
+              # cargo-deny and the notices read every Cargo manifest and lock file, deny.toml and
+              # the app's npm lock file.
+              "licences": ["host/**/Cargo.toml", "host/**/Cargo.lock", "host/deny.toml",
+                           "host/rust-toolchain.toml", "host/app/package-lock.json",
+                           "scripts/third-party-notices.py", "THIRD_PARTY_NOTICES.md",
+                           ".github/workflows/licences.yml"],
+          }
+          # A change to this file runs everything, so a new list is tried in full once.
+          EVERYTHING = ".github/workflows/ci.yml"
+
+          def pattern(glob):
+              out, i = "", 0
+              while i < len(glob):
+                  if glob.startswith("**/", i):
+                      out, i = out + "(?:.*/)?", i + 3
+                  elif glob.startswith("**", i):
+                      out, i = out + ".*", i + 2
+                  elif glob[i] == "*":
+                      out, i = out + "[^/]*", i + 1
+                  else:
+                      out, i = out + re.escape(glob[i]), i + 1
+              return re.compile(out + r"\Z", re.DOTALL)
+
+          def git(*args):
+              return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+          def changed_files():
+              """The files the change touches, or None (run everything) when that can't be worked
+              out or the run was started by hand."""
+              try:
+                  if os.environ["EVENT"] == "pull_request":
+                      if len(git("rev-list", "--parents", "-n", "1", "HEAD").split()) != 3:
+                          return None
+                      base = "HEAD^1"
+                  elif os.environ["EVENT"] == "push":
+                      base = os.environ.get("BEFORE", "")
+                      # A new branch has no "before" commit (all zeros).
+                      if not base.strip("0"):
+                          return None
+                      git("fetch", "--no-tags", "--depth=1", "origin", base)
+                  else:
+                      return None
+                  # --no-renames: a moved file counts at its old place as well as its new one.
+                  out = git("diff", "--name-only", "--no-renames", "-z", base, "HEAD")
+              except subprocess.CalledProcessError as e:
+                  why = " ".join(e.stderr.split())
+                  print(f"::warning::git {' '.join(e.cmd[1:])} failed ({why}); running every workflow.")
+                  return None
+              files = [f for f in out.split("\0") if f]
+              # A name with a control character in it (a newline, say) is never printed, as it
+              # could start a workflow command; run everything instead.
+              if any(ord(c) < 32 or ord(c) == 127 for f in files for c in f):
+                  print("::warning::A changed file's name has a control character in it; running every workflow.")
+                  return None
+              return files
+
+          files = changed_files()
+          summary = ["| Workflow | Runs | Because of |", "|---|---|---|"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as outputs:
+              for name, globs in NEEDS.items():
+                  if files is None:
+                      hits = ["?"]
+                      why = ("run by hand" if os.environ["EVENT"] == "workflow_dispatch"
+                             else "the changed files couldn't be listed")
+                  elif EVERYTHING in files:
+                      hits, why = [EVERYTHING], EVERYTHING
+                  else:
+                      regexes = [pattern(g) for g in globs]
+                      hits = [f for f in files if any(r.match(f) for r in regexes)]
+                      why = ", ".join(hits[:3]) + (f" and {len(hits) - 3} more" if len(hits) > 3 else "")
+                      why = why.replace("|", "\\|")  # a | in a file name would end the cell
+                  outputs.write(f"{name}={'true' if hits else 'false'}\n")
+                  summary.append(f"| {name} | {'yes' if hits else 'no'} | {why if hits else ''} |")
+          listed = "unknown" if files is None else str(len(files))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(f"Files changed: {listed}\n\n" + "\n".join(summary) + "\n")
+          print("\n".join(summary))
+
+  protocol:
+    name: Protocol
+    needs: changes
+    if: needs.changes.outputs.protocol == 'true'
+    uses: ./.github/workflows/protocol.yml
+
+  host:
+    name: Host
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    uses: ./.github/workflows/host.yml
+
+  desktop-app:
+    name: Desktop app
+    needs: changes
+    if: needs.changes.outputs.desktop-app == 'true'
+    uses: ./.github/workflows/desktop-app.yml
+
+  android:
+    name: Android
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
+    uses: ./.github/workflows/android.yml
+
+  e2e:
+    name: E2E
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  plugins:
+    name: Plugins
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true'
+    uses: ./.github/workflows/plugins.yml
+
+  licences:
+    name: Licences
+    needs: changes
+    if: needs.changes.outputs.licences == 'true'
+    uses: ./.github/workflows/licences.yml
+
+  # The required check. always(): it must report even when a job above failed or the run was
+  # cancelled, because a required check that is skipped counts as passed.
+  gate:
+    name: CI gate
+    needs: [changes, protocol, host, desktop-app, android, e2e, plugins, licences]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every workflow this change needs passed
+        shell: python3 {0}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          import json, os, sys
+
+          needs = json.loads(os.environ["NEEDS"])
+          results = {job: n["result"] for job, n in needs.items()}
+          want = needs.get("changes", {}).get("outputs") or {}
+          for job, result in results.items():
+              print(f"{job}: {result} (wanted: {want.get(job, '-')})")
+          if results.get("changes") != "success":
+              # Without "What changed" nothing ran.
+              bad = {"changes": results.get("changes")}
+          else:
+              # A job may be skipped only if "What changed" said it wasn't needed, so a typo in
+              # a job's if: or an output with no job fails here rather than passing unseen.
+              bad = {job: f"{r}, wanted: {want.get(job)}" for job, r in results.items()
+                     if job != "changes" and r != "success"
+                     and not (r == "skipped" and want.get(job) == "false")}
+              bad.update({name: "picked by What changed, but no such job here"
+                          for name in want if name not in results})
+          if bad:
+              for job, result in bad.items():
+                  print(f"::error::{job}: {result}")
+              sys.exit(1)

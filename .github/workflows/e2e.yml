@@ -1,19 +1,21 @@
 # End to end: the real Rust host on the runner, the real Android app in an emulator.
 name: E2E
 
+# Pushes to main and pull requests run this through ci.yml, when android/, host/, protocol/,
+# scripts/e2e-android.sh or LICENSE (in the APK's licence list) change (the list is there).
 on:
-  push:
-    branches: [main]
-    paths: ["android/**", "host/**", "protocol/**", ".github/workflows/e2e.yml", "scripts/e2e-android.sh"]
-  pull_request:
-    paths: ["android/**", "host/**", "protocol/**", ".github/workflows/e2e.yml", "scripts/e2e-android.sh"]
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "17 11 * * 1"
 
-# A newer push to the same branch makes older runs pointless.
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: e2e-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:

@@ -4,7 +4,7 @@ Kotlin + Jetpack Compose. `applicationId dev.perritodeck.client` (debug builds a
 
 ## Get an APK without Android Studio
 
-Every push to `main` builds a debug APK in GitHub Actions: **Actions → Android → latest run → Artifacts → `perrito-debug-apk`**. Unzip it and install with `adb install -r app-debug.apk`, or copy it to the tablet and open it (allow "install unknown apps").
+Every push to `main` that touches the app builds a debug APK in GitHub Actions: **Actions → CI → the run for that push → Artifacts → `perrito-debug-apk`** (a run of Actions → Android → Run workflow has one too). Unzip it and install with `adb install -r app-debug.apk`, or copy it to the tablet and open it (allow "install unknown apps").
 
 On a Kindle Fire: **Settings → Security & Privacy → Apps from Unknown Sources** (Fire OS 5), or allow it per app when prompted (Fire OS 7+).
 

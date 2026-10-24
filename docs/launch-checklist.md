@@ -122,10 +122,12 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   `proc-macro-error`, all Linux only with no upgrade yet, are accepted in `host/deny.toml`
   (D13). `cargo deny check` passes on both workspaces. `docs/next-steps.md` item 8 has the
   IDs.
-- [ ] Add `cargo deny check licenses bans sources` and
-  `python3 scripts/third-party-notices.py --check` to a push workflow. Today only the
-  Release workflow runs the notices check (its licences job), so a release with stale
-  notices fails at tag time; nothing runs `cargo deny`.
+- [x] `cargo deny check licenses bans sources` (both workspaces) and `python3
+  scripts/third-party-notices.py --check` run in CI, with `cargo deny check advisories` as a
+  job of its own (`.github/workflows/licences.yml`, 2026-10-24; not run on GitHub yet): on
+  pushes and pull requests that change a Cargo manifest or lock file, `deny.toml`, the app's
+  `package-lock.json` or the notices, and weekly. Advisories pass on both workspaces since the
+  update above (2026-10-24).
 - [x] The plugin catalogue's zips and the desktop app's bundled plugins carry
   `plugins/LICENSE`.
 - [x] The release, the command-line archives and the desktop installers carry
@@ -160,7 +162,10 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   the maintainer's choice, because public repositories run Actions free. Run every
   workflow once by hand (Actions → workflow → Run workflow), the weekly ones included
   (Linux and macOS host tests, desktop bundles, the real-app test, every emulator, iOS), and
-  get them all green before §7's tag. They're the first runs since 2026-10-11 and the first
+  get them all green before §7's tag. Actions → CI → Run workflow starts all of them but
+  iOS at once, with Windows bundles only: run Desktop app with platforms = all, and iOS,
+  on their own (they can run alongside it: a workflow's own Run workflow button and the CI
+  run don't cancel each other). They're the first runs since 2026-10-11 and the first
   on Ubuntu 26 (`ubuntu-latest` moves from 2026-10-19), so a failure may be the new image,
   not the code.
 - [ ] The website's publishing (D12; "At the flip" in the cutover runbook in
@@ -184,14 +189,14 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   (free for public repos).
 - [ ] **Branch protection / ruleset for `main`:** require a pull request (allow the
   maintainer to bypass while the team is one person), block force pushes and deletion,
-  require linear history. **Require no status checks yet.** Every workflow is
-  path-filtered, so a required check whose workflow didn't run stays pending forever and
-  blocks the PR. The fix is a single always-running gate job to require instead of the
-  individual checks, but **that gate doesn't exist yet** (`docs/next-steps.md` item 16):
-  one workflow that uses a paths filter (e.g. `dorny/paths-filter`) to decide which jobs
-  run, plus a final `if: always()` job that fails if any job it needed failed. A gate
-  can't `needs:` jobs in the other workflows, because `needs` works only inside one
-  workflow. Once it exists, require only that final job.
+  require linear history. **Require one status check, `CI gate`** (source: GitHub
+  Actions), the last job of `.github/workflows/ci.yml` (`docs/next-steps.md` item 16), and
+  none of the individual checks: those run only when a change touches what they read, so a
+  required one that didn't run would stay pending and block the PR. CI gate reports on
+  every pull request, docs-only ones included, and fails if any check the change needed
+  failed or was cancelled. Add it once CI gate has run on GitHub after the flip, so the
+  ruleset offers it by name. Don't turn on a merge queue: `ci.yml` has no `merge_group`
+  trigger, so CI gate would never report for a queued change and every merge would stall.
   `bootstrap-gradle-wrapper.yml` works under the ruleset: it pushes a
   `gradle-wrapper-<version>` branch, not `main`, and a person opens the pull request from
   the compare link in its run summary.

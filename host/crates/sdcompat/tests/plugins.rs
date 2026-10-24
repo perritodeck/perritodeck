@@ -45,12 +45,23 @@ fn fixture() -> PathBuf {
         .join("tests/fixtures/com.perritodeck.test-counter.sdPlugin")
 }
 
+/// Whether Node.js 22 or newer (the first with a built-in WebSocket) is on the PATH. The
+/// tests that need it are skipped without it, unless `PERRITODECK_REQUIRE_NODE` is set, as
+/// Host CI does: then they fail, so a runner without Node can't pass them unseen.
 fn node_available() -> bool {
-    std::process::Command::new("node")
+    let found = std::process::Command::new("node")
         .arg("-e")
         .arg("if (typeof WebSocket !== 'function') process.exit(1)")
         .status()
-        .is_ok_and(|s| s.success())
+        .is_ok_and(|s| s.success());
+    if !found {
+        assert!(
+            std::env::var_os("PERRITODECK_REQUIRE_NODE").is_none(),
+            "needs Node.js 22 or newer on the PATH, and PERRITODECK_REQUIRE_NODE is set"
+        );
+        eprintln!("skipped: needs Node.js 22 or newer");
+    }
+    found
 }
 
 async fn until(sent: &Sent, what: &str, f: impl Fn(&Message) -> bool) {
@@ -79,7 +90,6 @@ action = { type = "sdPlugin", plugin = "com.perritodeck.test-counter", action = 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_plugin_runs_a_key() {
     if !node_available() {
-        eprintln!("skipped: needs Node.js 22 or newer");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -205,7 +215,6 @@ async fn restarts_from_a_thread_outside_the_runtime() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scan_while_removing_doesnt_start_the_plugin_again() {
     if !node_available() {
-        eprintln!("skipped: needs Node.js 22 or newer");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -283,7 +292,6 @@ fn process_alive(pid: &str) -> bool {
 #[tokio::test(flavor = "multi_thread")]
 async fn removing_a_plugin_ends_the_programs_it_started() {
     if !node_available() {
-        eprintln!("skipped: needs Node.js 22 or newer");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -306,7 +314,6 @@ async fn removing_a_plugin_ends_the_programs_it_started() {
 #[tokio::test(flavor = "multi_thread")]
 async fn quitting_waits_for_plugins_and_their_programs() {
     if !node_available() {
-        eprintln!("skipped: needs Node.js 22 or newer");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -366,7 +373,6 @@ async fn settings_pages_talk_to_their_plugin() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message as Ws};
     if !node_available() {
-        eprintln!("skipped: needs Node.js 22 or newer");
         return;
     }
     let dir = tempfile::tempdir().unwrap();

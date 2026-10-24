@@ -19,8 +19,8 @@ test("a release links its own licence texts, a dev build the notices on main", (
 
 test("the app looks for its licence texts under the name release.yml bundles them as", () => {
   // Only release builds carry the file, so a rename on either side would go unnoticed:
-  // every installed app would open the notices on main instead. src-tauri's own tests
-  // don't run in CI, so the check is here.
+  // every installed app would open the notices on main instead. The check reads
+  // release.yml, so it lives here with the other release.yml checks.
   const lib = readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
   const config = release.match(/^\s*licences='([^']+)'/m)?.[1];
   expect(config, "release.yml's --config that bundles the licence texts").toBeDefined();
