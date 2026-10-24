@@ -2907,6 +2907,43 @@ async fn test_connection_reads_companions_greeting() {
     );
 }
 
+/// Whatever answers on the port names its own version; the form shows it trimmed.
+#[tokio::test]
+async fn companions_version_is_trimmed() {
+    use tokio::io::AsyncWriteExt;
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let begin = format!(
+            "BEGIN CompanionVersion=\"4.1\u{1b}[2J{}\" ApiVersion=1.12.0\n",
+            "9".repeat(100)
+        );
+        stream.write_all(begin.as_bytes()).await.unwrap();
+        let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut [0u8; 64]).await;
+    });
+    let test = IntegrationTest::Companion(perritodeck_integrations::file::CompanionInput {
+        host: "127.0.0.1".into(),
+        port: port.to_string(),
+    });
+    let got = host.test_integration(test).await;
+    assert!(got.ok, "{got:?}");
+    assert!(!got.message.contains('\u{1b}'), "{}", got.message);
+    assert!(
+        got.message.starts_with("Connected to Companion 4.1[2J999"),
+        "{}",
+        got.message
+    );
+    assert!(
+        got.message.contains("… (Satellite API 1.12.0)."),
+        "{}",
+        got.message
+    );
+}
+
 #[test]
 fn companions_websocket_port_is_named() {
     let m = integrations::companion_problem(

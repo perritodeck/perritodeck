@@ -34,6 +34,11 @@ impl std::fmt::Debug for HaConfig {
 pub(crate) enum Problem {
     Http(ureq::Error),
     Status(u16),
+    /// A redirect, and where to (as shown in a message).
+    Redirect {
+        code: u16,
+        to: Option<String>,
+    },
     NotJson,
 }
 
@@ -48,6 +53,12 @@ impl Problem {
             )
         };
         match self {
+            Problem::Redirect { to: Some(to), .. } => {
+                format!("Home Assistant at {at} sends you to {to}. Use that address instead.")
+            }
+            Problem::Redirect { code, to: None } => format!(
+                "Home Assistant at {at} answered {code}, a redirect, without saying where to."
+            ),
             Problem::Status(401) => "Home Assistant rejected the token. Make a new long-lived \
                                      access token (your profile in Home Assistant → Security) \
                                      and paste it here."
@@ -179,9 +190,12 @@ pub fn body(entity: Option<&str>, data: Option<&Value>) -> Value {
 
 impl HaClient {
     pub fn new(config: HaConfig) -> Self {
+        // Redirects aren't followed: the token wouldn't go with them, so a right token
+        // would read as rejected, and another server would answer for Home Assistant.
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(8)))
             .http_status_as_error(false)
+            .max_redirects(0)
             .build()
             .into();
         Self { config, agent }
@@ -195,6 +209,7 @@ impl HaClient {
             .timeout_global(Some(Duration::from_secs(8)))
             .timeout_connect(Some(connect))
             .http_status_as_error(false)
+            .max_redirects(0)
             .build()
             .into();
         Self { config, agent }
@@ -218,12 +233,27 @@ impl HaClient {
                     if !config.is_object() {
                         return Err(Problem::NotJson);
                     }
-                    let text = |key: &str| config[key].as_str().map(str::to_owned);
+                    // Whatever answered chooses these; they go into the form's message.
+                    let text = |key: &str| {
+                        config[key]
+                            .as_str()
+                            .map(crate::check::shown)
+                            .filter(|s| !s.is_empty())
+                    };
                     Ok(About {
                         version: text("version"),
                         location_name: text("location_name"),
                     })
                 }
+                code @ 300..=399 => Err(Problem::Redirect {
+                    code,
+                    to: resp
+                        .headers()
+                        .get("location")
+                        .and_then(|l| l.to_str().ok())
+                        .map(|l| crate::check::shown_up_to(l, 120))
+                        .filter(|s| !s.is_empty()),
+                }),
                 code => Err(Problem::Status(code)),
             }
         })
@@ -688,5 +718,85 @@ mod tests {
                  its IP address."
             )
         );
+    }
+
+    /// A one-shot server that answers with `reply` and says whether anyone came.
+    fn answering(reply: String) -> (String, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+            }
+            let _ = tx.send(first.trim().to_owned());
+            stream.write_all(reply.as_bytes()).unwrap();
+        });
+        (url, rx)
+    }
+
+    /// A redirect isn't followed: the token wouldn't go with it, so a right token would
+    /// read as rejected, or another server's 200 as "Connected". The form says where
+    /// Home Assistant sends you instead, and keys don't follow either.
+    #[tokio::test]
+    async fn redirects_are_named_not_followed() {
+        let (target, reached) = answering(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}"
+                .into(),
+        );
+        let (url, _seen) = answering(format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: {target}/api/config\r\nContent-Length: 0\r\n\r\n"
+        ));
+        let at = url.trim_start_matches("http://").to_owned();
+        assert_eq!(
+            test(&url, "good").await,
+            Checked::failed(format!(
+                "Home Assistant at {at} sends you to {target}/api/config. Use that address \
+                 instead."
+            ))
+        );
+        let (url, _seen) = answering(format!(
+            "HTTP/1.1 302 Found\r\nLocation: {target}/api/services/light/toggle\r\nContent-Length: 0\r\n\r\n"
+        ));
+        let out = HaClient::new(cfg(&url, "good"))
+            .call("light.toggle", None, None)
+            .await
+            .unwrap();
+        assert_eq!(out, Outcome::Alert("Home Assistant answered 302".into()));
+        assert!(
+            reached.recv_timeout(Duration::from_millis(300)).is_err(),
+            "the redirect was followed"
+        );
+    }
+
+    /// What a server says about itself goes into the message trimmed, without control
+    /// characters, and only so long.
+    #[tokio::test]
+    async fn what_home_assistant_says_about_itself_is_trimmed() {
+        let long = "x".repeat(200);
+        let body = format!(r#"{{"version":"2026.10\u001b[31m","location_name":"{long}"}}"#);
+        let (url, _seen) = answering(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        ));
+        let got = test(&url, "abc").await;
+        assert!(got.ok);
+        assert!(!got.message.contains('\u{1b}'), "{}", got.message);
+        assert!(got.message.chars().count() < 120, "{}", got.message);
+        assert!(
+            got.message
+                .starts_with("Connected to Home Assistant 2026.10[31m (xxxxxxxx"),
+            "{}",
+            got.message
+        );
+        assert!(got.message.ends_with("…)."), "{}", got.message);
     }
 }

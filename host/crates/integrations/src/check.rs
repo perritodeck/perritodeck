@@ -129,6 +129,32 @@ pub(crate) fn is_ip(host: &str) -> bool {
     bare(host).parse::<IpAddr>().is_ok()
 }
 
+/// What another program says about itself (a version, a name), as a message shows it:
+/// without control characters or bidirectional overrides, trimmed, and at most 40
+/// characters (then "…"). Whatever answers on the port chooses it.
+pub fn shown(text: &str) -> String {
+    shown_up_to(text, 40)
+}
+
+/// [`shown`], at most `max` characters: an address needs more room than a version.
+pub(crate) fn shown_up_to(text: &str, max: usize) -> String {
+    let clean: String = text
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+        })
+        .collect();
+    let clean = clean.trim();
+    if clean.chars().count() > max {
+        let mut cut: String = clean.chars().take(max).collect();
+        cut.push('…');
+        cut
+    } else {
+        clean.to_owned()
+    }
+}
+
 /// `check`, stopped after [`TEST_LIMIT`].
 pub async fn limited(check: impl std::future::Future<Output = Checked>) -> Checked {
     within(TEST_LIMIT, check).await
@@ -285,6 +311,17 @@ pub(crate) mod tests {
             .await
             .unwrap_err();
         assert!(e.starts_with("Can't find a computer called"), "{e}");
+    }
+
+    #[test]
+    fn what_others_say_about_themselves_is_trimmed() {
+        assert_eq!(shown(" 31.0.3 "), "31.0.3");
+        assert_eq!(shown("4.1.0\u{1b}[2J\r\nX"), "4.1.0[2JX");
+        assert_eq!(shown("Home\u{202e}evil"), "Homeevil", "no bidi overrides");
+        let long = shown(&"é".repeat(100));
+        assert_eq!(long.chars().count(), 41);
+        assert!(long.ends_with('…'));
+        assert_eq!(shown("\u{7}\u{0}"), "");
     }
 
     #[test]

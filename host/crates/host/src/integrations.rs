@@ -310,9 +310,11 @@ pub(crate) async fn check_companion(
             return Checked::failed(m);
         }
         match perritodeck_companion::probe(&c.host, c.port, wait).await {
+            // Whatever answered chooses the version it gives.
             Ok(g) => Checked::ok(format!(
                 "Connected to Companion {} (Satellite API {}).",
-                g.companion_version, g.api
+                check::shown(&g.companion_version),
+                check::shown(&g.api)
             )),
             Err(e) => Checked::failed(companion_problem(&e, &at, c.port, wait)),
         }

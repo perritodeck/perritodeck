@@ -705,7 +705,13 @@ impl ObsClient {
             });
         let _ = ws.close(None).await;
         let data = &answer?["responseData"];
-        let text = |key: &str| data[key].as_str().map(str::to_owned);
+        // Whatever answered chooses these; they go into the form's message.
+        let text = |key: &str| {
+            data[key]
+                .as_str()
+                .map(crate::check::shown)
+                .filter(|s| !s.is_empty())
+        };
         Ok(Probe {
             obs_version: text("obsVersion"),
             ws_version: text("obsWebSocketVersion"),
