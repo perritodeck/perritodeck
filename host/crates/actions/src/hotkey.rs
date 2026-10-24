@@ -42,6 +42,18 @@ pub struct Chord {
     pub key: Key,
 }
 
+impl Chord {
+    /// Ends a line where text is typed: Enter with any modifiers, or exactly Ctrl+M or
+    /// Ctrl+J, which terminals read as Enter.
+    pub fn presses_enter(&self) -> bool {
+        match self.key {
+            Key::Enter => true,
+            Key::Char('m' | 'j') => self.modifiers == [Modifier::Ctrl],
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum HotkeyParseError {
     #[error("hotkey is empty")]

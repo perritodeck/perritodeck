@@ -89,6 +89,23 @@ pub struct KeyFields {
     pub follow: Option<String>,
 }
 
+impl From<&crate::KeyDef> for KeyFields {
+    /// Everything the editor keeps about a key; [`Edit::SetKey`] with it changes nothing.
+    fn from(k: &crate::KeyDef) -> Self {
+        KeyFields {
+            title: k.title.clone(),
+            bg: k.bg.clone(),
+            fg: k.fg.clone(),
+            action: k.action.clone(),
+            nav: k.nav.clone(),
+            icon: k.icon.clone(),
+            slider: k.slider.clone(),
+            states: k.states.clone(),
+            follow: k.follow.clone(),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum EditError {
     #[error("the profile file can't be read as TOML: {0}")]

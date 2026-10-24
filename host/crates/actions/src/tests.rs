@@ -586,3 +586,211 @@ mod windows_commands {
         assert_eq!(ex.run(&s).await.unwrap(), Outcome::Ok);
     }
 }
+
+// ---- Which actions run programs (shared by MCP and the import check) ----
+
+fn cmd(program: &str) -> ActionSpec {
+    ActionSpec::Command {
+        program: program.into(),
+        args: vec![],
+        cwd: None,
+        timeout_ms: None,
+    }
+}
+
+fn steps(actions: Vec<ActionSpec>) -> ActionSpec {
+    ActionSpec::Multi {
+        steps: actions
+            .into_iter()
+            .map(|action| Step {
+                action,
+                delay_ms: 0,
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn runs_programs_sorts_every_kind() {
+    let runs = [
+        cmd("rm"),
+        ActionSpec::Launch {
+            program: "notepad".into(),
+            args: vec![],
+        },
+        ActionSpec::OpenPath {
+            path: "C:/x.bat".into(),
+        },
+        ActionSpec::Plugin {
+            plugin: "p".into(),
+            action: "a".into(),
+            settings: serde_json::Value::Null,
+        },
+        ActionSpec::SdPlugin {
+            plugin: "com.x".into(),
+            action: "com.x.y".into(),
+            settings: serde_json::Value::Null,
+        },
+    ];
+    for a in &runs {
+        assert!(a.runs_programs(), "{a:?}");
+    }
+    let quiet = [
+        ActionSpec::Hotkey {
+            keys: "Win+R".into(),
+        },
+        ActionSpec::Text {
+            text: "ls\n".into(),
+        },
+        ActionSpec::Media {
+            key: MediaKey::Mute,
+        },
+        ActionSpec::OpenUrl {
+            url: "https://perritodeck.dev".into(),
+        },
+        ActionSpec::Obs(ObsAction::StartStream),
+        ActionSpec::HomeAssistant {
+            service: "lock.unlock".into(),
+            entity: None,
+            data: None,
+        },
+        ActionSpec::None,
+        // Not themselves: what's inside is looked at through `leaves`.
+        steps(vec![cmd("rm")]),
+        ActionSpec::Random {
+            actions: vec![cmd("rm")],
+        },
+    ];
+    for a in &quiet {
+        assert!(!a.runs_programs(), "{a:?}");
+    }
+    let sliders_that_run = [
+        SliderSpec::Command {
+            program: "x".into(),
+            args: vec!["{value}".into()],
+        },
+        SliderSpec::Plugin {
+            plugin: "p".into(),
+            action: "a".into(),
+            settings: serde_json::Value::Null,
+            follow: None,
+        },
+    ];
+    for s in &sliders_that_run {
+        assert!(s.runs_programs(), "{s:?}");
+    }
+    let quiet_sliders = [
+        SliderSpec::Volume,
+        SliderSpec::Obs {
+            input: "Mic".into(),
+        },
+        SliderSpec::HomeAssistant {
+            entity: "light.desk".into(),
+        },
+    ];
+    for s in &quiet_sliders {
+        assert!(!s.runs_programs(), "{s:?}");
+    }
+}
+
+#[test]
+fn leaves_keep_order_and_place() {
+    // multi[none, random[media, multi[command]]]
+    let a = steps(vec![
+        ActionSpec::None,
+        ActionSpec::Random {
+            actions: vec![
+                ActionSpec::Media {
+                    key: MediaKey::Next,
+                },
+                steps(vec![cmd("rm")]),
+            ],
+        },
+    ]);
+    let leaves = a.leaves();
+    assert_eq!(leaves.len(), 3);
+    assert_eq!(
+        leaves[0],
+        (vec![Place::Step { n: 1, of: 2 }], &ActionSpec::None)
+    );
+    assert_eq!(
+        leaves[1].0,
+        [Place::Step { n: 2, of: 2 }, Place::Choice { n: 1, of: 2 }]
+    );
+    assert!(matches!(leaves[1].1, ActionSpec::Media { .. }));
+    assert_eq!(
+        leaves[2],
+        (
+            vec![
+                Place::Step { n: 2, of: 2 },
+                Place::Choice { n: 2, of: 2 },
+                Place::Step { n: 1, of: 1 },
+            ],
+            &cmd("rm")
+        )
+    );
+    // A plain action is its own only leaf, with no place.
+    assert_eq!(cmd("rm").leaves(), [(vec![], &cmd("rm"))]);
+    // An empty multi has none.
+    assert!(steps(vec![]).leaves().is_empty());
+    // On the wire, as the import preview sends it.
+    assert_eq!(
+        serde_json::to_value(Place::Choice { n: 1, of: 4 }).unwrap(),
+        serde_json::json!({"in": "choice", "n": 1, "of": 4})
+    );
+}
+
+/// Takes a deep action apart one level at a time, even when a test fails: dropping it
+/// whole would recurse as deep as it is.
+struct Deep(ActionSpec);
+
+impl Drop for Deep {
+    fn drop(&mut self) {
+        let mut a = std::mem::replace(&mut self.0, ActionSpec::None);
+        while let ActionSpec::Multi { mut steps } = a {
+            match steps.pop() {
+                Some(s) => a = s.action,
+                None => break,
+            }
+        }
+    }
+}
+
+#[test]
+fn leaves_is_iterative() {
+    const DEPTH: usize = 10_000;
+    let mut a = Deep(cmd("deep"));
+    for _ in 0..DEPTH {
+        let inner = std::mem::replace(&mut a.0, ActionSpec::None);
+        a.0 = steps(vec![inner]);
+    }
+    let leaves = a.0.leaves();
+    assert_eq!(leaves.len(), 1);
+    assert_eq!(leaves[0].0.len(), DEPTH);
+    assert_eq!(leaves[0].1, &cmd("deep"));
+}
+
+#[test]
+fn presses_enter() {
+    for s in [
+        "Enter",
+        "Return",
+        "Ctrl+Enter",
+        "Shift+Enter",
+        "Ctrl+M",
+        "Ctrl+J",
+        "ctrl+m",
+    ] {
+        assert!(s.parse::<Chord>().unwrap().presses_enter(), "{s}");
+    }
+    for s in [
+        "Ctrl+Shift+M",
+        "Ctrl+C",
+        "Alt+M",
+        "M",
+        "Win+R",
+        "Ctrl+Alt+J",
+    ] {
+        assert!(!s.parse::<Chord>().unwrap().presses_enter(), "{s}");
+    }
+}

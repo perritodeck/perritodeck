@@ -8,6 +8,7 @@
 mod hotkey;
 pub mod job;
 mod launch;
+mod risk;
 pub mod slider;
 #[cfg(feature = "system")]
 pub mod system;
@@ -19,6 +20,7 @@ use tokio::process::Command;
 use tracing::debug;
 
 pub use hotkey::{Chord, HotkeyParseError, Key, Modifier};
+pub use risk::Place;
 pub use slider::SliderSpec;
 
 /// Upper bound on a single delay inside a multi-action, so a typo can't hang a key for hours.

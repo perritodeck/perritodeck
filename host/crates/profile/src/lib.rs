@@ -10,6 +10,7 @@ use std::{
 };
 
 pub mod edit;
+pub mod risk;
 
 use perritodeck_actions::{ActionSpec, Executor, SliderSpec};
 use serde::{Deserialize, Serialize};
