@@ -126,6 +126,73 @@ impl Client {
     }
 }
 
+/// Who answered a probe: Companion, and the Satellite API version it speaks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Greeting {
+    pub companion_version: String,
+    pub api: String,
+}
+
+/// Why a probe got no greeting.
+#[derive(Debug)]
+pub enum ProbeError {
+    /// Nothing took the connection in time.
+    ConnectTimeout,
+    Io(std::io::Error),
+    /// The connection was taken, but nothing was said in time.
+    Silent,
+    /// It hung up without a word.
+    Closed,
+    /// Something other than Companion's Satellite port answered; its first word.
+    NotSatellite(String),
+    /// The connection broke while reading.
+    Lost(String),
+}
+
+/// Settings → Integrations' Test connection: connect, read Companion's BEGIN line and
+/// hang up, registering nothing.
+pub async fn probe(host: &str, port: u16, wait: Duration) -> Result<Greeting, ProbeError> {
+    let stream = match tokio::time::timeout(wait, TcpStream::connect((host, port))).await {
+        Err(_) => return Err(ProbeError::ConnectTimeout),
+        Ok(Err(e)) => return Err(ProbeError::Io(e)),
+        Ok(Ok(stream)) => stream,
+    };
+    let (read, mut write) = stream.into_split();
+    let mut lines = LineReader::new(read);
+    let first = match tokio::time::timeout(wait, lines.next_line()).await {
+        Err(_) => return Err(ProbeError::Silent),
+        Ok(Err(e)) if e == CLOSED => return Err(ProbeError::Closed),
+        Ok(Err(e)) => return Err(ProbeError::Lost(e)),
+        Ok(Ok(line)) => line::parse(&line),
+    };
+    let answer = match greeting(&first) {
+        Some((companion_version, (a, b, c))) => Ok(Greeting {
+            companion_version,
+            api: format!("{a}.{b}.{c}"),
+        }),
+        None => Err(ProbeError::NotSatellite(
+            first
+                .command
+                .chars()
+                .filter(char::is_ascii_graphic)
+                .take(24)
+                .collect(),
+        )),
+    };
+    let _ = write.write_all(b"QUIT\n").await;
+    answer
+}
+
+/// Companion's version and Satellite API version, from the BEGIN line it greets with.
+fn greeting(l: &Line) -> Option<(String, (u32, u32, u32))> {
+    (l.command == "BEGIN").then(|| {
+        (
+            l.get("CompanionVersion").unwrap_or("?").to_owned(),
+            parse_version(l.get("ApiVersion").unwrap_or("1.0.0")),
+        )
+    })
+}
+
 /// What the connected Companion can do.
 #[derive(Debug, Clone, Default)]
 struct Caps {
@@ -202,17 +269,13 @@ async fn session(
 
     // BEGIN, then (from API 1.10) CAPS.
     let begin = line::parse(&next(&mut lines).await?);
-    if begin.command != "BEGIN" {
+    let Some((companion_version, api)) = greeting(&begin) else {
         return Err(format!(
             "That isn't Companion's Satellite port (it said {}).",
             begin.command
         ));
-    }
-    let companion_version = begin.get("CompanionVersion").unwrap_or("?").to_owned();
-    let mut caps = Caps {
-        api: parse_version(begin.get("ApiVersion").unwrap_or("1.0.0")),
-        png: false,
     };
+    let mut caps = Caps { api, png: false };
     let mut pending = Vec::new();
     if caps.at_least(1, 10, 0) {
         // CAPS comes straight after BEGIN; don't wait forever for it.
@@ -301,6 +364,9 @@ async fn session(
     }
 }
 
+/// Why reading stopped when Companion hung up.
+const CLOSED: &str = "Companion closed the connection.";
+
 /// The longest line accepted from Companion: a 512 px raw RGB bitmap in base64 is ~1 MB.
 const MAX_LINE: usize = 4 * 1024 * 1024;
 
@@ -328,7 +394,7 @@ impl LineReader {
                 .await
                 .map_err(|e| format!("Connection to Companion lost: {e}"))?;
             if avail.is_empty() {
-                return Err("Companion closed the connection.".to_owned());
+                return Err(CLOSED.to_owned());
             }
             let (take, done) = match avail.iter().position(|&b| b == b'\n') {
                 Some(i) => (i + 1, true),

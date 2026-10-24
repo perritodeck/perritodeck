@@ -194,6 +194,12 @@ pub enum ActionError {
     },
     #[error("{0} isn't set up; add it to integrations.toml in the host's settings folder")]
     NotConfigured(String),
+    /// A built-in integration (OBS, Home Assistant) with nothing saved for it.
+    #[error("{0} isn't set up; set it up in Settings → Integrations, or in integrations.toml")]
+    NotSetUp(String),
+    /// A built-in integration saved with `enabled = false`.
+    #[error("{0} is turned off in Settings → Integrations")]
+    TurnedOff(String),
     /// integrations.toml has a mistake, so the host ignored all of it.
     #[error("integrations.toml has a mistake, so {service} is off: {mistake}")]
     IntegrationsMistake { service: String, mistake: String },
@@ -256,7 +262,7 @@ pub trait Integrations: Send + Sync {
         _request_type: &'a str,
         _data: serde_json::Value,
     ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
-        Box::pin(async { Err(ActionError::NotConfigured("OBS".into())) })
+        Box::pin(async { Err(ActionError::NotSetUp("OBS".into())) })
     }
 
     /// An entity's state object from Home Assistant (`state`, `attributes`, …).
@@ -264,7 +270,7 @@ pub trait Integrations: Send + Sync {
         &'a self,
         _entity: &'a str,
     ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
-        Box::pin(async { Err(ActionError::NotConfigured("Home Assistant".into())) })
+        Box::pin(async { Err(ActionError::NotSetUp("Home Assistant".into())) })
     }
 }
 
@@ -314,7 +320,7 @@ impl Executor {
     pub(crate) fn integrations(&self, what: &str) -> Result<&Arc<dyn Integrations>, ActionError> {
         self.integrations
             .as_ref()
-            .ok_or_else(|| ActionError::NotConfigured(what.to_owned()))
+            .ok_or_else(|| ActionError::NotSetUp(what.to_owned()))
     }
 
     /// Check an action without running it (used when loading profiles).

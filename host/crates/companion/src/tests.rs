@@ -240,3 +240,80 @@ async fn refuses_endless_lines() {
     }
     wait_for(&seen, |e| matches!(e, Event::Status(Status::Disconnected { reason }) if reason.contains("too long"))).await;
 }
+
+// ---- probe (Test connection) ----
+
+const WAIT: Duration = Duration::from_millis(300);
+
+/// The next connection the fake Companion took, within 5 s.
+async fn next_conn(
+    accepted: &mut mpsc::UnboundedReceiver<tokio::net::TcpStream>,
+) -> tokio::net::TcpStream {
+    tokio::time::timeout(Duration::from_secs(5), accepted.recv())
+        .await
+        .expect("the probe connected")
+        .unwrap()
+}
+
+#[tokio::test]
+async fn probe_reads_begin_and_hangs_up() {
+    let (port, mut accepted) = companion().await;
+    let probe = tokio::spawn(probe("127.0.0.1", port, WAIT));
+    let mut c = Conn::new(next_conn(&mut accepted).await);
+    c.say("BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0")
+        .await;
+    c.say("CAPS SUBSCRIPTIONS=1 BITMAP_FORMATS=rgb,png").await;
+    assert_eq!(
+        probe.await.unwrap().unwrap(),
+        Greeting {
+            companion_version: "4.1.0".into(),
+            api: "1.12.0".into()
+        }
+    );
+    // It registers nothing: the next thing Companion hears is goodbye.
+    assert_eq!(c.hear().await.command, "QUIT");
+}
+
+#[tokio::test]
+async fn probe_names_a_port_that_isnt_satellite() {
+    let (port, mut accepted) = companion().await;
+    let probe = tokio::spawn(probe("127.0.0.1", port, WAIT));
+    let mut c = Conn::new(next_conn(&mut accepted).await);
+    c.say("HTTP/1.1 400 Bad Request").await;
+    let e = probe.await.unwrap().unwrap_err();
+    assert!(
+        matches!(&e, ProbeError::NotSatellite(w) if w == "HTTP/1.1"),
+        "{e:?}"
+    );
+}
+
+#[tokio::test]
+async fn probe_notices_silence_and_hang_ups() {
+    let (port, mut accepted) = companion().await;
+    let probe1 = tokio::spawn(probe("127.0.0.1", port, WAIT));
+    let _quiet = next_conn(&mut accepted).await;
+    let e = probe1.await.unwrap().unwrap_err();
+    assert!(matches!(e, ProbeError::Silent), "{e:?}");
+    let probe2 = tokio::spawn(probe("127.0.0.1", port, WAIT));
+    drop(next_conn(&mut accepted).await);
+    let e = probe2.await.unwrap().unwrap_err();
+    assert!(
+        matches!(e, ProbeError::Closed | ProbeError::Lost(_)),
+        "{e:?}"
+    );
+}
+
+#[tokio::test]
+async fn probe_refused() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    // Windows takes about 2 s to give up on a port nobody listens on.
+    let e = probe("127.0.0.1", port, Duration::from_secs(5))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&e, ProbeError::Io(io) if io.kind() == std::io::ErrorKind::ConnectionRefused),
+        "{e:?}"
+    );
+}

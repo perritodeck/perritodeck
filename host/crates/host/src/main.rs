@@ -413,7 +413,8 @@ mod tests {
             "[obs]\npasword = \"hunter2\"\n",
         )
         .unwrap();
-        let mistake = "line 2: unknown field `pasword`, expected `url` or `password`";
+        let mistake =
+            "line 2: unknown field `pasword`, expected one of `url`, `password`, `enabled`";
         let obs = run_action(dir.path(), r#"{"type":"obs","op":"stopRecord"}"#, 0)
             .await
             .unwrap_err();

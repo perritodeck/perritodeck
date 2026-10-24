@@ -15,14 +15,17 @@ base64.workspace = true
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+rustls.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 tracing.workspace = true
 ureq.workspace = true
 
 [dev-dependencies]
+perritodeck-core.workspace = true
 tempfile.workspace = true
 
 [lints]

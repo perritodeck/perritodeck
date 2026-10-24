@@ -1,7 +1,8 @@
 //! Built-in integrations the host talks to on the user's behalf.
 //!
 //! Settings live in `integrations.toml` next to the host's other files (it holds
-//! passwords and tokens, so it's kept out of the shareable profile):
+//! passwords and tokens, so it's kept out of the shareable profile and written
+//! owner-only). The app's Settings → Integrations edits it ([`file`]); by hand it reads:
 //!
 //! ```toml
 //! [obs]
@@ -15,8 +16,11 @@
 //! [companion]                        # Bitfocus Companion, for profiles with companion = true
 //! host = "127.0.0.1"
 //! port = 16622                       # Companion's Satellite port (the default)
+//! enabled = false                    # kept, but off (every table takes it)
 //! ```
 
+pub mod check;
+pub mod file;
 pub mod home_assistant;
 pub mod obs;
 
@@ -44,6 +48,14 @@ pub struct CompanionConfig {
     pub host: String,
     #[serde(default = "default_companion_port")]
     pub port: u16,
+    /// `false` keeps the settings but leaves Companion off.
+    #[serde(default = "on")]
+    pub enabled: bool,
+}
+
+/// `enabled`'s default: a table that's there is on.
+pub(crate) fn on() -> bool {
+    true
 }
 
 fn default_companion_host() -> String {
@@ -63,19 +75,50 @@ impl Config {
     /// command line and the log.
     pub fn load(path: &Path) -> Result<Self, String> {
         match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).map_err(|e| {
-                let message = without_values(e.message());
-                match e.span() {
-                    Some(span) => {
-                        let before = text.get(..span.start).unwrap_or(&text);
-                        format!("line {}: {message}", before.matches('\n').count() + 1)
-                    }
-                    None => message,
-                }
-            }),
+            Ok(text) => Self::parse(&text),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(format!("it can't be read ({e})")),
         }
+    }
+
+    /// The settings in `text`, the contents of `integrations.toml`. A mistake is
+    /// described as [`load`](Self::load) says.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        toml::from_str(text).map_err(|e| {
+            let message = without_values(e.message());
+            match e.span() {
+                Some(span) => {
+                    let before = text.get(..span.start).unwrap_or(text);
+                    format!("line {}: {message}", before.matches('\n').count() + 1)
+                }
+                None => message,
+            }
+        })
+    }
+
+    /// The integrations that are on, in the order the app lists them.
+    pub fn names(&self) -> Vec<&'static str> {
+        self.listed(true)
+    }
+
+    /// The integrations saved with `enabled = false`.
+    pub fn turned_off(&self) -> Vec<&'static str> {
+        self.listed(false)
+    }
+
+    fn listed(&self, enabled: bool) -> Vec<&'static str> {
+        [
+            ("OBS", self.obs.as_ref().map(|c| c.enabled)),
+            (
+                "Home Assistant",
+                self.home_assistant.as_ref().map(|c| c.enabled),
+            ),
+            ("Companion", self.companion.as_ref().map(|c| c.enabled)),
+        ]
+        .into_iter()
+        .filter(|(_, on)| *on == Some(enabled))
+        .map(|(name, _)| name)
+        .collect()
     }
 }
 
@@ -115,6 +158,9 @@ fn without_values(message: &str) -> String {
 pub struct Builtins {
     obs: Option<obs::ObsClient>,
     ha: Option<home_assistant::HaClient>,
+    /// Saved, but with `enabled = false`.
+    obs_off: bool,
+    ha_off: bool,
     /// Why integrations.toml was ignored, if it was.
     mistake: Option<String>,
 }
@@ -124,22 +170,47 @@ impl Builtins {
     /// was: OBS and Home Assistant actions then point at it, rather than asking for
     /// them to be added to a file that may already have them.
     pub fn new(config: Config, mistake: Option<String>) -> Arc<Self> {
+        let (obs, obs_off) = match config.obs {
+            Some(c) if c.enabled => (Some(obs::ObsClient::new(c)), false),
+            Some(_) => (None, true),
+            None => (None, false),
+        };
+        let (ha, ha_off) = match config.home_assistant {
+            Some(c) if c.enabled => (Some(home_assistant::HaClient::new(c)), false),
+            Some(_) => (None, true),
+            None => (None, false),
+        };
         Arc::new(Self {
-            obs: config.obs.map(obs::ObsClient::new),
-            ha: config.home_assistant.map(home_assistant::HaClient::new),
+            obs,
+            ha,
+            obs_off,
+            ha_off,
             mistake,
         })
     }
 
-    /// Why `service` can't run: not in integrations.toml, or the file was ignored.
-    fn not_set_up(&self, service: &str) -> ActionError {
+    /// Why `service` can't run: the file was ignored, it's turned off, or it isn't set up.
+    fn not_set_up(&self, service: &str, off: bool) -> ActionError {
         match &self.mistake {
             Some(mistake) => ActionError::IntegrationsMistake {
                 service: service.into(),
                 mistake: mistake.clone(),
             },
-            None => ActionError::NotConfigured(service.into()),
+            None if off => ActionError::TurnedOff(service.into()),
+            None => ActionError::NotSetUp(service.into()),
         }
+    }
+
+    fn obs_client(&self) -> Result<&obs::ObsClient, ActionError> {
+        self.obs
+            .as_ref()
+            .ok_or_else(|| self.not_set_up("OBS", self.obs_off))
+    }
+
+    fn ha_client(&self) -> Result<&home_assistant::HaClient, ActionError> {
+        self.ha
+            .as_ref()
+            .ok_or_else(|| self.not_set_up("Home Assistant", self.ha_off))
     }
 
     pub fn configured(&self) -> Vec<&'static str> {
@@ -156,10 +227,7 @@ impl Builtins {
 
 impl Integrations for Builtins {
     fn obs<'a>(&'a self, action: &'a ObsAction) -> BoxFuture<'a, Result<Outcome, ActionError>> {
-        Box::pin(async move {
-            let client = self.obs.as_ref().ok_or_else(|| self.not_set_up("OBS"))?;
-            client.run(action).await
-        })
+        Box::pin(async move { self.obs_client()?.run(action).await })
     }
 
     fn home_assistant<'a>(
@@ -168,13 +236,7 @@ impl Integrations for Builtins {
         entity: Option<&'a str>,
         data: Option<&'a serde_json::Value>,
     ) -> BoxFuture<'a, Result<Outcome, ActionError>> {
-        Box::pin(async move {
-            let client = self
-                .ha
-                .as_ref()
-                .ok_or_else(|| self.not_set_up("Home Assistant"))?;
-            client.call(service, entity, data).await
-        })
+        Box::pin(async move { self.ha_client()?.call(service, entity, data).await })
     }
 
     fn obs_request<'a>(
@@ -182,23 +244,14 @@ impl Integrations for Builtins {
         request_type: &'a str,
         data: serde_json::Value,
     ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
-        Box::pin(async move {
-            let client = self.obs.as_ref().ok_or_else(|| self.not_set_up("OBS"))?;
-            client.call(request_type, data).await
-        })
+        Box::pin(async move { self.obs_client()?.call(request_type, data).await })
     }
 
     fn ha_state<'a>(
         &'a self,
         entity: &'a str,
     ) -> BoxFuture<'a, Result<serde_json::Value, ActionError>> {
-        Box::pin(async move {
-            let client = self
-                .ha
-                .as_ref()
-                .ok_or_else(|| self.not_set_up("Home Assistant"))?;
-            client.state(entity).await
-        })
+        Box::pin(async move { self.ha_client()?.state(entity).await })
     }
 }
 
@@ -279,7 +332,52 @@ mod tests {
     async fn unconfigured_integrations_say_so() {
         let b = Builtins::new(Config::default(), None);
         let err = b.obs(&ObsAction::ToggleRecord).await.unwrap_err();
-        assert!(matches!(err, ActionError::NotConfigured(s) if s == "OBS"));
+        assert!(matches!(&err, ActionError::NotSetUp(s) if s == "OBS"));
+        assert_eq!(
+            err.to_string(),
+            "OBS isn't set up; set it up in Settings → Integrations, or in integrations.toml"
+        );
+    }
+
+    /// `enabled = false` keeps the settings but leaves the integration off; keys say
+    /// where to turn it back on.
+    #[tokio::test]
+    async fn turned_off_says_turned_off() {
+        let c = Config::parse(
+            "[obs]\nenabled = false\npassword = \"hunter2\"\n\n[home_assistant]\nurl = \"http://ha:8123\"\ntoken = \"t\"\nenabled = false\n\n[companion]\n",
+        )
+        .unwrap();
+        assert_eq!(c.names(), ["Companion"]);
+        assert_eq!(c.turned_off(), ["OBS", "Home Assistant"]);
+        assert_eq!(c.obs.as_ref().unwrap().password.as_deref(), Some("hunter2"));
+        let b = Builtins::new(c, None);
+        assert!(b.configured().is_empty());
+        let key = b.obs(&ObsAction::ToggleRecord).await.unwrap_err();
+        assert_eq!(
+            key.to_string(),
+            "OBS is turned off in Settings → Integrations"
+        );
+        let state = b.ha_state("light.desk").await.unwrap_err();
+        assert_eq!(
+            state.to_string(),
+            "Home Assistant is turned off in Settings → Integrations"
+        );
+        // A table without the key is on.
+        let c = Config::parse("[obs]\n[companion]\nenabled = true\n").unwrap();
+        assert_eq!(c.names(), ["OBS", "Companion"]);
+    }
+
+    /// Settings and the log may print a config with `{:?}`; secrets never show.
+    #[test]
+    fn secrets_never_in_debug() {
+        let c = Config::parse(
+            "[obs]\npassword = \"hunter2\"\n[home_assistant]\nurl = \"http://ha:8123\"\ntoken = \"hunter2\"\n",
+        )
+        .unwrap();
+        let dump = format!("{c:?} {:?} {:?}", c.obs, c.home_assistant);
+        assert!(!dump.contains("hunter2"), "{dump}");
+        assert!(dump.contains("<hidden>"), "{dump}");
+        assert!(dump.contains("http://ha:8123"), "{dump}");
     }
 
     /// With a mistake in integrations.toml, keys and sliders point at it instead of

@@ -69,17 +69,31 @@ const STUDIO_MODE_NOT_ACTIVE: u64 = 506;
 const RESOURCE_NOT_FOUND: u64 = 600;
 const INVALID_RESOURCE_STATE: u64 = 604;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObsConfig {
     #[serde(default = "default_url")]
     pub url: String,
     #[serde(default)]
     pub password: Option<String>,
+    /// `false` keeps the settings but leaves OBS off.
+    #[serde(default = "crate::on")]
+    pub enabled: bool,
 }
 
 fn default_url() -> String {
     "ws://127.0.0.1:4455".into()
+}
+
+/// Never shows the password.
+impl std::fmt::Debug for ObsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObsConfig")
+            .field("url", &self.url)
+            .field("password", &self.password.as_ref().map(|_| "<hidden>"))
+            .field("enabled", &self.enabled)
+            .finish()
+    }
 }
 
 pub struct ObsClient {
@@ -296,7 +310,8 @@ impl Backoff {
 }
 
 /// Why reading from OBS stopped.
-enum ReadError {
+#[derive(Debug)]
+pub(crate) enum ReadError {
     TimedOut,
     /// The connection closed; OBS's close code and reason, when it sent them.
     Closed(Option<(u16, String)>),
@@ -383,6 +398,144 @@ fn closed_already(ws: &mut Ws) -> bool {
     }
 }
 
+/// Why connecting to OBS failed, before it's worded for a key or for the form.
+#[derive(Debug)]
+pub(crate) enum Problem {
+    Wss,
+    NotWs,
+    ConnectTimeout,
+    Connect(WsError),
+    Hello(ReadError),
+    UnexpectedGreeting,
+    NeedsPassword,
+    Send(String),
+    Identify {
+        e: ReadError,
+        auth: bool,
+    },
+    NotAccepted,
+    /// The test's GetVersion got no answer.
+    Request(String),
+}
+
+impl Problem {
+    /// For a key or a slider, after "OBS: "; `url` is the saved address.
+    fn for_keys(&self, url: &str) -> String {
+        let wrong_password = "OBS rejected the password in Settings → Integrations";
+        match self {
+            Problem::Wss => "OBS's WebSocket server uses ws://, so the address in Settings → \
+                             Integrations must start with ws://, not wss://"
+                .into(),
+            Problem::NotWs => format!(
+                "the address {url} in Settings → Integrations must start with ws://, like \
+                 ws://127.0.0.1:4455"
+            ),
+            Problem::ConnectTimeout => format!("can't reach OBS at {url} (is OBS open?)"),
+            Problem::Connect(e) => format!("can't reach OBS at {url}: {e}{}", connect_hint(e)),
+            Problem::Hello(ReadError::Closed(Some((_, why)))) if !why.is_empty() => {
+                format!("OBS refused the connection: {why}")
+            }
+            Problem::Hello(e) => e.describe(),
+            Problem::UnexpectedGreeting => "unexpected greeting from OBS".into(),
+            Problem::NeedsPassword => {
+                "OBS needs a password; add it in Settings → Integrations".into()
+            }
+            Problem::Send(e) | Problem::Request(e) => e.clone(),
+            // OBS closes with 4009 "Authentication failed." for a wrong password.
+            Problem::Identify { e, auth } => match e {
+                ReadError::Closed(Some((CLOSE_AUTH_FAILED, _))) => wrong_password.into(),
+                ReadError::Closed(Some((CLOSE_UNSUPPORTED_RPC, _))) => {
+                    "this OBS speaks a different obs-websocket version; update OBS".into()
+                }
+                ReadError::Closed(Some((_, why))) if !why.is_empty() => {
+                    format!("OBS refused the connection: {why}")
+                }
+                ReadError::Closed(_) if *auth => wrong_password.into(),
+                other => other.describe(),
+            },
+            Problem::NotAccepted => "OBS didn't accept the connection".into(),
+        }
+    }
+
+    /// For the form's Test connection; `at` is `host:port`.
+    pub(crate) fn for_form(&self, at: &str, wait: Duration) -> String {
+        use std::io::ErrorKind;
+        let secs = crate::check::secs(wait);
+        let port_hint = "Check the port: OBS uses 4455 unless you changed it.";
+        let wrong_password = "OBS rejected the password. Copy it again from OBS: Tools → \
+                              WebSocket Server Settings → Show Connect Info.";
+        match self {
+            Problem::Wss => crate::file::OBS_WSS.into(),
+            Problem::NotWs => crate::file::OBS_SCHEME.into(),
+            Problem::ConnectTimeout => crate::check::no_answer(at, wait),
+            Problem::Connect(WsError::Io(io)) => match io.kind() {
+                ErrorKind::ConnectionRefused => format!(
+                    "Nothing answered at {at}. Is OBS open, with its WebSocket server on \
+                     (Tools → WebSocket Server Settings)?"
+                ),
+                ErrorKind::TimedOut => crate::check::no_answer(at, wait),
+                ErrorKind::HostUnreachable | ErrorKind::NetworkUnreachable => {
+                    crate::check::unreachable(at)
+                }
+                _ => format!("Couldn't connect to OBS at {at}: {io}"),
+            },
+            Problem::Connect(e @ WsError::Http(_)) => format!(
+                "Something answered at {at}, but it isn't OBS's WebSocket server ({e}). \
+                 {port_hint}"
+            ),
+            Problem::Connect(e) => format!("Couldn't connect to OBS at {at}: {e}"),
+            Problem::Hello(ReadError::TimedOut) => format!(
+                "Something at {at} took the connection but didn't answer like OBS within \
+                 {secs}. {port_hint}"
+            ),
+            Problem::Hello(ReadError::Closed(_)) => {
+                format!("{at} closed the connection before OBS greeted. {port_hint}")
+            }
+            Problem::Hello(ReadError::Garbled(_)) | Problem::UnexpectedGreeting => {
+                format!("Something answered at {at}, but not like OBS's WebSocket server.")
+            }
+            Problem::Hello(ReadError::Broken(e)) => {
+                format!("Couldn't connect to OBS at {at}: {e}")
+            }
+            Problem::NeedsPassword => "OBS needs a password. Copy it from OBS: Tools → \
+                                       WebSocket Server Settings → Show Connect Info."
+                .into(),
+            Problem::Identify { e, auth } => match e {
+                ReadError::Closed(Some((CLOSE_AUTH_FAILED, _))) => wrong_password.into(),
+                ReadError::Closed(Some((CLOSE_UNSUPPORTED_RPC, _))) => {
+                    "This OBS speaks a different obs-websocket version. Update OBS to version \
+                     28 or newer."
+                        .into()
+                }
+                ReadError::Closed(Some((_, why))) if !why.is_empty() => {
+                    format!("OBS refused the connection: {why}")
+                }
+                ReadError::Closed(_) if *auth => wrong_password.into(),
+                ReadError::Closed(_) => "OBS closed the connection after greeting it.".into(),
+                ReadError::TimedOut => format!(
+                    "OBS greeted but didn't accept the connection within {secs}. Turn its \
+                     WebSocket server off and on again (Tools → WebSocket Server Settings)."
+                ),
+                other => format!("Couldn't connect to OBS at {at}: {}", other.describe()),
+            },
+            Problem::Send(e) | Problem::Request(e) => {
+                format!("Couldn't connect to OBS at {at}: {e}")
+            }
+            Problem::NotAccepted => {
+                format!("Something answered at {at}, but not like OBS's WebSocket server.")
+            }
+        }
+    }
+}
+
+/// What Test connection learned from OBS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Probe {
+    pub obs_version: Option<String>,
+    pub ws_version: Option<String>,
+    pub auth_required: bool,
+}
+
 impl ObsClient {
     pub fn new(config: ObsConfig) -> Self {
         Self {
@@ -398,72 +551,62 @@ impl ObsClient {
 
     /// A new connection that hears the `events` (EventSubscription bits) OBS sends.
     async fn connect(&self, events: u64) -> Result<Ws, ActionError> {
+        let (ws, _) = self
+            .open(events)
+            .await
+            .map_err(|p| err(p.for_keys(&self.config.url)))?;
+        debug!("connected to OBS at {}", self.config.url);
+        Ok(ws)
+    }
+
+    /// Connect and identify: the connection, and whether OBS asked for the password.
+    async fn open(&self, events: u64) -> Result<(Ws, bool), Problem> {
         let url = &self.config.url;
         // obs-websocket listens on plain ws://. For anything else the WebSocket library
         // says only "URL scheme not supported" or "TLS support not compiled in".
         if url.starts_with("wss://") {
-            return Err(err("OBS's WebSocket server uses ws://, so the address in \
-                            integrations.toml must start with ws://, not wss://"));
+            return Err(Problem::Wss);
         }
         if !url.starts_with("ws://") {
-            return Err(err(format!(
-                "the address {url} in integrations.toml must start with ws://, like \
-                 ws://127.0.0.1:4455"
-            )));
+            return Err(Problem::NotWs);
         }
         let (mut ws, _) = timeout(self.timeout, connect_async(url))
             .await
-            .map_err(|_| err(format!("can't reach OBS at {url} (is OBS open?)")))?
-            .map_err(|e| err(format!("can't reach OBS at {url}: {e}{}", connect_hint(&e))))?;
+            .map_err(|_| Problem::ConnectTimeout)?
+            .map_err(Problem::Connect)?;
         // Hello (op 0) → Identify (op 1) → Identified (op 2)
-        let refused = |e: ReadError| match e {
-            ReadError::Closed(Some((_, why))) if !why.is_empty() => {
-                err(format!("OBS refused the connection: {why}"))
-            }
-            other => err(other.describe()),
-        };
-        let hello = next_json(&mut ws, self.timeout).await.map_err(refused)?;
+        let hello = next_json(&mut ws, self.timeout)
+            .await
+            .map_err(Problem::Hello)?;
         if hello["op"] != 0 {
-            return Err(err("unexpected greeting from OBS"));
+            return Err(Problem::UnexpectedGreeting);
         }
         let mut identify =
             json!({ "op": 1, "d": { "rpcVersion": RPC_VERSION, "eventSubscriptions": events } });
-        let auth = hello["d"].get("authentication");
-        if let Some(auth) = auth {
+        let auth = hello["d"].get("authentication").is_some();
+        if auth {
             let password = self
                 .config
                 .password
                 .as_deref()
-                .ok_or_else(|| err("OBS needs a password; add it to integrations.toml"))?;
+                .ok_or(Problem::NeedsPassword)?;
+            let challenge = &hello["d"]["authentication"];
             let (salt, challenge) = (
-                auth["salt"].as_str().unwrap_or(""),
-                auth["challenge"].as_str().unwrap_or(""),
+                challenge["salt"].as_str().unwrap_or(""),
+                challenge["challenge"].as_str().unwrap_or(""),
             );
             identify["d"]["authentication"] = json!(auth_string(password, salt, challenge));
         }
         ws.send(WsMessage::text(identify.to_string()))
             .await
-            .map_err(|e| err(e.to_string()))?;
-        let wrong_password = || err("OBS rejected the password in integrations.toml");
-        // OBS closes with 4009 "Authentication failed." for a wrong password.
+            .map_err(|e| Problem::Send(e.to_string()))?;
         let identified = next_json(&mut ws, self.timeout)
             .await
-            .map_err(|e| match e {
-                ReadError::Closed(Some((CLOSE_AUTH_FAILED, _))) => wrong_password(),
-                ReadError::Closed(Some((CLOSE_UNSUPPORTED_RPC, _))) => {
-                    err("this OBS speaks a different obs-websocket version; update OBS")
-                }
-                ReadError::Closed(Some((_, why))) if !why.is_empty() => {
-                    err(format!("OBS refused the connection: {why}"))
-                }
-                ReadError::Closed(_) if auth.is_some() => wrong_password(),
-                other => err(other.describe()),
-            })?;
+            .map_err(|e| Problem::Identify { e, auth })?;
         if identified["op"] != 2 {
-            return Err(err("OBS didn't accept the connection"));
+            return Err(Problem::NotAccepted);
         }
-        debug!("connected to OBS at {}", self.config.url);
-        Ok(ws)
+        Ok((ws, auth))
     }
 
     /// The open connection, connecting first if there's none. Polls don't try while
@@ -545,6 +688,35 @@ impl ObsClient {
             }
             heard(&msg);
         }
+    }
+
+    /// Test connection: a connection of its own (never the shared one, and never
+    /// touching the polls' backoff), greeted with the password, and OBS's version.
+    pub(crate) async fn probe(config: ObsConfig, wait: Duration) -> Result<Probe, Problem> {
+        let client = Self::new(config).with_timeout(wait);
+        let (mut ws, auth_required) = client.open(NO_EVENTS).await?;
+        let answer = Self::request(&mut ws, wait, "probe", "GetVersion", &json!({}), |_| {})
+            .await
+            .map_err(|f| {
+                Problem::Request(match f {
+                    Failure::NotSent(e) => e,
+                    Failure::MaybeSent(e) => e.describe(),
+                })
+            });
+        let _ = ws.close(None).await;
+        let data = &answer?["responseData"];
+        let text = |key: &str| data[key].as_str().map(str::to_owned);
+        Ok(Probe {
+            obs_version: text("obsVersion"),
+            ws_version: text("obsWebSocketVersion"),
+            auth_required,
+        })
+    }
+
+    /// The same client, waiting `wait` for each step.
+    pub(crate) fn with_timeout(mut self, wait: Duration) -> Self {
+        self.timeout = wait;
+        self
     }
 
     fn next_id(&self) -> String {
@@ -705,11 +877,6 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
 
     impl ObsClient {
-        fn with_timeout(mut self, wait: Duration) -> Self {
-            self.timeout = wait;
-            self
-        }
-
         fn with_stream_wait(mut self, wait: Duration) -> Self {
             self.stream_wait = wait;
             self
@@ -720,6 +887,7 @@ mod tests {
         ObsClient::new(ObsConfig {
             url: url.to_owned(),
             password: password.map(str::to_owned),
+            enabled: true,
         })
     }
 
@@ -890,7 +1058,7 @@ mod tests {
 
     /// How the fake OBS behaves.
     #[derive(Clone, Copy, Default)]
-    struct Behaviour {
+    pub(crate) struct Behaviour {
         password: Option<&'static str>,
         /// Close the connection on the first request instead of answering it, as when
         /// OBS quits mid-request.
@@ -903,6 +1071,8 @@ mod tests {
         close_after_answer: bool,
         /// Never greet, as an OBS that's hanging.
         silent: bool,
+        /// Greet, but never answer Identify.
+        ignore_identify: bool,
         /// Refuse every request with 207, as OBS does while it starts or quits.
         not_ready: bool,
         stream_server: StreamServer,
@@ -941,7 +1111,7 @@ mod tests {
         WsMessage::text(event.to_string())
     }
 
-    struct Fake {
+    pub(crate) struct Fake {
         url: String,
         requests: tokio::sync::mpsc::UnboundedReceiver<Value>,
         connections: Arc<AtomicUsize>,
@@ -951,7 +1121,7 @@ mod tests {
     /// for a scene called "Missing" (600, with OBS's comment), StartRecord (500, no
     /// comment), SaveReplayBuffer (604, replay buffer turned off) and StartStream while
     /// streaming (500, no comment). Starting a stream goes as `stream_server` says.
-    async fn fake_obs(behaviour: Behaviour) -> Fake {
+    pub(crate) async fn fake_obs(behaviour: Behaviour) -> Fake {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
         let (tx, requests) = tokio::sync::mpsc::unbounded_channel();
@@ -984,6 +1154,9 @@ mod tests {
                         let msg: Value = serde_json::from_str(t.as_str()).unwrap();
                         match msg["op"].as_u64() {
                             Some(1) => {
+                                if behaviour.ignore_identify {
+                                    continue;
+                                }
                                 if let Some(pw) = password {
                                     if msg["d"]["authentication"]
                                         != auth_string(pw, salt, challenge)
@@ -1058,6 +1231,13 @@ mod tests {
                                     // OBS never saw it active between STARTING and STOPPED.
                                     Some("GetStreamStatus") => {
                                         resp["d"]["responseData"]["outputActive"] = json!(streaming)
+                                    }
+                                    Some("GetVersion") => {
+                                        resp["d"]["responseData"] = json!({
+                                            "obsVersion": "31.0.3",
+                                            "obsWebSocketVersion": "5.5.0",
+                                            "rpcVersion": 1,
+                                        })
                                     }
                                     _ => {}
                                 }
@@ -1225,7 +1405,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .to_string(),
-            "OBS rejected the password in integrations.toml"
+            "OBS rejected the password in Settings → Integrations"
         );
         let none = client(&fake.url, None);
         assert_eq!(
@@ -1233,7 +1413,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .to_string(),
-            "OBS needs a password; add it to integrations.toml"
+            "OBS needs a password; add it in Settings → Integrations"
         );
     }
 
@@ -1265,8 +1445,8 @@ mod tests {
             assert_eq!(
                 e,
                 format!(
-                    "OBS: the address {url} in integrations.toml must start with ws://, like \
-                     ws://127.0.0.1:4455"
+                    "OBS: the address {url} in Settings → Integrations must start with ws://, \
+                     like ws://127.0.0.1:4455"
                 )
             );
         }
@@ -1277,8 +1457,8 @@ mod tests {
             .to_string();
         assert_eq!(
             e,
-            "OBS's WebSocket server uses ws://, so the address in integrations.toml must start \
-             with ws://, not wss://"
+            "OBS's WebSocket server uses ws://, so the address in Settings → Integrations must \
+             start with ws://, not wss://"
         );
         assert_eq!(fake.connections.load(Ordering::SeqCst), 0, "not even tried");
     }
@@ -1698,5 +1878,239 @@ mod tests {
             2,
             "the press made its own attempt"
         );
+    }
+
+    // ---- Test connection (the form) ----
+
+    use crate::check::{self, tests::resolver, Checked};
+
+    const WAIT: Duration = Duration::from_millis(300);
+
+    fn cfg(url: &str, password: Option<&str>) -> ObsConfig {
+        ObsConfig {
+            url: url.to_owned(),
+            password: password.map(str::to_owned),
+            enabled: true,
+        }
+    }
+
+    /// The fake's address without `ws://`, as messages show it.
+    fn at(url: &str) -> &str {
+        url.trim_start_matches("ws://")
+    }
+
+    fn any_name() -> check::Resolve {
+        resolver(Ok(vec!["127.0.0.1:4455".parse().unwrap()]))
+    }
+
+    #[tokio::test]
+    async fn check_connects_with_the_password() {
+        let fake = fake_obs(Behaviour {
+            password: Some("hunter2"),
+            ..Default::default()
+        })
+        .await;
+        let got = check::obs(&cfg(&fake.url, Some("hunter2")), true, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::ok("Connected to OBS 31.0.3 (obs-websocket 5.5.0).")
+        );
+    }
+
+    #[tokio::test]
+    async fn check_wrong_password() {
+        let fake = fake_obs(Behaviour {
+            password: Some("right"),
+            ..Default::default()
+        })
+        .await;
+        let got = check::obs(&cfg(&fake.url, Some("wrong")), true, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(
+                "OBS rejected the password. Copy it again from OBS: Tools → WebSocket Server \
+                 Settings → Show Connect Info."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_needs_password() {
+        let fake = fake_obs(Behaviour {
+            password: Some("right"),
+            ..Default::default()
+        })
+        .await;
+        let got = check::obs(&cfg(&fake.url, None), false, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(
+                "OBS needs a password. Copy it from OBS: Tools → WebSocket Server Settings → \
+                 Show Connect Info."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_unneeded_password_is_mentioned() {
+        let fake = fake_obs(Behaviour::default()).await;
+        let got = check::obs(&cfg(&fake.url, Some("x")), true, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::ok(
+                "Connected to OBS 31.0.3 (obs-websocket 5.5.0). OBS doesn't ask for a \
+                 password, so the one here isn't used."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_refused() {
+        // Windows takes about 2 s to give up on a port nobody listens on.
+        let got = check::obs(
+            &cfg("ws://127.0.0.1:1", None),
+            false,
+            check::TEST_WAIT,
+            &any_name(),
+        )
+        .await;
+        assert_eq!(
+            got,
+            Checked::failed(
+                "Nothing answered at 127.0.0.1:1. Is OBS open, with its WebSocket server on \
+                 (Tools → WebSocket Server Settings)?"
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_silent_obs() {
+        let fake = fake_obs(Behaviour {
+            silent: true,
+            ..Default::default()
+        })
+        .await;
+        let got = check::obs(&cfg(&fake.url, None), false, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(format!(
+                "Something at {} took the connection but didn't answer like OBS within 0.3 \
+                 seconds. Check the port: OBS uses 4455 unless you changed it.",
+                at(&fake.url)
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn check_obs_silent_after_hello() {
+        let fake = fake_obs(Behaviour {
+            ignore_identify: true,
+            ..Default::default()
+        })
+        .await;
+        let got = check::obs(&cfg(&fake.url, None), false, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(
+                "OBS greeted but didn't accept the connection within 0.3 seconds. Turn its \
+                 WebSocket server off and on again (Tools → WebSocket Server Settings)."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_something_else_on_the_port() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut buf).await.unwrap();
+                request.extend_from_slice(&buf[..n]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            let _ = stream.read(&mut buf).await;
+        });
+        let got = check::obs(&cfg(&url, None), false, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(format!(
+                "Something answered at {}, but it isn't OBS's WebSocket server (HTTP error: \
+                 404 Not Found). Check the port: OBS uses 4455 unless you changed it.",
+                at(&url)
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn check_wss() {
+        let got = check::obs(&cfg("wss://127.0.0.1:4455", None), false, WAIT, &any_name()).await;
+        assert_eq!(
+            got,
+            Checked::failed(
+                "OBS's WebSocket server uses ws://, not wss://. Change the address to start \
+                 with ws://."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn check_unknown_host_with_fake_resolvers() {
+        let cant = "Can't find a computer called “studio-pc”. Check the name, or use its IP \
+                    address.";
+        let url = cfg("ws://studio-pc:4455", None);
+        let not_found = resolver(Err(std::io::ErrorKind::NotFound.into()));
+        assert_eq!(
+            check::obs(&url, false, WAIT, &not_found).await,
+            Checked::failed(cant)
+        );
+        let nothing = resolver(Ok(Vec::new()));
+        assert_eq!(
+            check::obs(&url, false, WAIT, &nothing).await,
+            Checked::failed(cant)
+        );
+        let slow = check::tests::slow_resolver();
+        assert_eq!(
+            check::obs(&url, false, WAIT, &slow).await,
+            Checked::failed(
+                "Looking up “studio-pc” took more than 0.3 seconds. Check the name, or use \
+                 its IP address."
+            )
+        );
+    }
+
+    /// Test connection opens a connection of its own: the running client keeps its
+    /// connection, and its backoff after a failure stays as it was.
+    #[tokio::test]
+    async fn test_connection_leaves_the_running_obs_alone() {
+        let mut fake = fake_obs(Behaviour::default()).await;
+        let running = client(&fake.url, None);
+        running.call("GetSceneList", json!({})).await.unwrap();
+        assert_eq!(fake.connections.load(Ordering::SeqCst), 1);
+        let got = check::obs(&cfg(&fake.url, None), false, WAIT, &any_name()).await;
+        assert!(got.ok, "{got:?}");
+        assert_eq!(fake.connections.load(Ordering::SeqCst), 2, "the test's own");
+        running.call("GetSceneList", json!({})).await.unwrap();
+        assert_eq!(fake.connections.load(Ordering::SeqCst), 2, "reused");
+        assert_eq!(fake.seen(), ["GetSceneList", "GetVersion", "GetSceneList"]);
+
+        // A client waiting after a failure: a test doesn't change when it tries again.
+        let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let waiting = client(&url, None).with_timeout(WAIT);
+        assert!(waiting.call("GetSceneList", json!({})).await.is_err());
+        let failed_at = |c: &ObsClient| c.backoff.lock().unwrap().last.as_ref().map(|f| f.at);
+        let before = failed_at(&waiting);
+        assert!(before.is_some());
+        let got = check::obs(&cfg(&url, None), false, WAIT, &any_name()).await;
+        assert!(!got.ok);
+        assert_eq!(failed_at(&waiting), before);
     }
 }
