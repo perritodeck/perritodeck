@@ -10,6 +10,8 @@
   import Plugins from "./views/Plugins.svelte";
 
   let view = $state<View>("buttons");
+  /** Where in Settings to open, when another view sends the person there. */
+  let anchor = $state<string | null>(null);
   let status = $state<HostStatus | null>(null);
   let startError = $state<string | null>(null);
   let devices = $state<DeviceInfo[]>([]);
@@ -115,7 +117,10 @@
           <button
             class:active={view === item.id}
             aria-current={view === item.id ? "page" : undefined}
-            onclick={() => (view = item.id)}
+            onclick={() => {
+              anchor = null;
+              view = item.id;
+            }}
             disabled={!!startError}
           >
             {item.label}
@@ -170,7 +175,13 @@
         </div>
       {/if}
       {#if view === "buttons"}
-        <Buttons {status} />
+        <Buttons
+          {status}
+          onsetup={(id) => {
+            anchor = id;
+            view = "settings";
+          }}
+        />
       {:else if view === "tablets"}
         <Tablets {devices} onchange={refreshDevices} onpair={() => (view = "pair")} />
       {:else if view === "pair"}
@@ -180,7 +191,7 @@
       {:else if view === "switching"}
         <Switching {status} {devices} />
       {:else}
-        <Settings {status} onchange={refreshStatus} />
+        <Settings {status} {anchor} onchange={refreshStatus} />
       {/if}
     {/if}
   </main>

@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, ImportChoice, ImportStep, Imported, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, Checked, DeviceInfo, Edit, ImportChoice, ImportStep, Imported, IntegrationInput, IntegrationTest, IntegrationsView, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -68,6 +68,15 @@ export const api = {
   diagnostics: () => call<string>("get_diagnostics"),
   detailedLogs: () => call<boolean>("get_detailed_logs"),
   setDetailedLogs: (enabled: boolean) => call<void>("set_detailed_logs", { enabled }),
+  /** Settings → Integrations: what integrations.toml holds, without passwords or tokens. */
+  integrations: () => call<IntegrationsView>("get_integrations"),
+  /** Save one section; PerritoDeck uses it after a restart. */
+  saveIntegration: (input: IntegrationInput) => call<IntegrationsView>("save_integration", { input }),
+  /** Test connection with the values in the form; never rejects for a failed test. */
+  testIntegration: (test: IntegrationTest) => call<Checked>("test_integration", { test }),
+  protectIntegrationsFile: () => call<IntegrationsView>("protect_integrations_file"),
+  startIntegrationsOver: () => call<IntegrationsView>("start_integrations_over"),
+  openIntegrationsFile: () => call<void>("open_integrations_file"),
   mcp: () => call<McpView>("get_mcp"),
   setMcp: (mcp: McpSettings) => call<McpView>("set_mcp", { mcp }),
   newMcpToken: () => call<McpView>("new_mcp_token"),

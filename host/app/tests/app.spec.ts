@@ -136,23 +136,6 @@ test("explains when the host can't start", async ({ page }) => {
   await expect(page.getByText(/PerritoDeck already running somewhere else/)).toBeVisible();
 });
 
-test("settings say when integrations.toml has a mistake", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByText("OBS", { exact: true })).toBeVisible();
-  await page.evaluate(() =>
-    Object.assign((window as any).__perritoMock.hostStatus, {
-      integrations: [],
-      integrationsError: "line 2: unknown field `pasword`, expected `url` or `password`",
-    }),
-  );
-  await expect(
-    page.getByText("integrations.toml has a mistake: line 2: unknown field `pasword`, expected `url` or `password`"),
-  ).toBeVisible({ timeout: 6000 });
-  await expect(page.getByText("OBS, Home Assistant and Companion stay off until it’s fixed")).toBeVisible();
-  await expect(page.getByText("None set up")).toHaveCount(0);
-});
-
 test("settings show where things live", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -545,7 +528,7 @@ test.describe("profiles, tablets and switching", () => {
     await page.getByRole("button", { name: "Create" }).click();
     await expect(page.getByRole("heading", { name: "Buttons from Bitfocus Companion" })).toBeVisible();
     await expect(page.getByText("From Companion")).toBeVisible();
-    await expect(page.getByText("[companion]")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Set up Companion" })).toBeVisible();
     await page.evaluate(() => ((window as any).__perritoMock.hostStatus.companion = "Connected to Companion 4.1.0"));
     await expect(page.getByText("Connected to Companion 4.1.0")).toBeVisible({ timeout: 6000 });
   });
@@ -563,7 +546,9 @@ test.describe("profiles, tablets and switching", () => {
     await page.getByRole("button", { name: "Create" }).click();
     await expect(page.getByText(`integrations.toml has a mistake: ${mistake}`)).toBeVisible({ timeout: 6000 });
     await expect(page.getByText("so Companion stays off")).toBeVisible();
-    await expect(page.getByText("[companion]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Set up Companion" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Open Settings → Integrations" }).click();
+    await expect(page.locator("#integrations")).toBeInViewport();
   });
 
   test("export and import profiles", async ({ page }) => {

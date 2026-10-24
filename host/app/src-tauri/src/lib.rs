@@ -12,10 +12,10 @@ use std::{
 };
 
 use perritodeck_host::{
-    logging, updates, ActionSpec, AppSettings, AutoSwitch, DeviceInfo, Edit, Host, HostEvent,
-    HostOptions, HostStatus, ImportChoice, ImportStep, Imported, McpSettings, McpView, Network,
-    NetworkHint, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView,
-    SdPluginsView,
+    logging, updates, ActionSpec, AppSettings, AutoSwitch, Checked, DeviceInfo, Edit, Host,
+    HostEvent, HostOptions, HostStatus, ImportChoice, ImportStep, Imported, IntegrationInput,
+    IntegrationTest, IntegrationsView, McpSettings, McpView, Network, NetworkHint, OnlineEntry,
+    PairingOffer, PluginsView, ProfileSummary, ProfileView, SdPluginsView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -586,6 +586,53 @@ fn open_profile_file(handle: AppHandle, app: State<'_, App>, id: Option<String>)
         .map_err(|e| format!("Couldn't open {}: {e}", path.display()))
 }
 
+/// Settings → Integrations: OBS, Home Assistant and Companion as saved in
+/// integrations.toml, without passwords or tokens.
+#[tauri::command]
+async fn get_integrations(app: State<'_, App>) -> Res<IntegrationsView> {
+    let host = app.host()?.clone();
+    host.integrations_view().await
+}
+
+/// Save one section of Settings → Integrations; used after a restart.
+#[tauri::command]
+async fn save_integration(app: State<'_, App>, input: IntegrationInput) -> Res<IntegrationsView> {
+    let host = app.host()?.clone();
+    host.save_integration(input).await
+}
+
+/// Test connection, with the values in the form.
+#[tauri::command]
+async fn test_integration(app: State<'_, App>, test: IntegrationTest) -> Res<Checked> {
+    let host = app.host()?.clone();
+    Ok(host.test_integration(test).await)
+}
+
+/// Make integrations.toml readable only by this account.
+#[tauri::command]
+async fn protect_integrations_file(app: State<'_, App>) -> Res<IntegrationsView> {
+    let host = app.host()?.clone();
+    host.protect_integrations_file().await
+}
+
+/// Put an integrations.toml with a mistake aside as integrations.toml.old.
+#[tauri::command]
+async fn start_integrations_over(app: State<'_, App>) -> Res<IntegrationsView> {
+    let host = app.host()?.clone();
+    host.start_integrations_over().await
+}
+
+/// Open integrations.toml in the text editor, made from the template if there's none.
+#[tauri::command]
+async fn open_integrations_file(handle: AppHandle, app: State<'_, App>) -> Res<()> {
+    let host = app.host()?.clone();
+    let path = host.ensure_integrations_file().await?;
+    handle
+        .opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Couldn't open {}: {e}", path.display()))
+}
+
 /// Show the log files' folder in the file manager.
 #[tauri::command]
 fn open_logs_folder(handle: AppHandle, app: State<'_, App>) -> Res<()> {
@@ -972,6 +1019,12 @@ pub fn run() {
             remove_sd_plugin,
             sd_settings_page,
             restart_sd_plugin,
+            get_integrations,
+            save_integration,
+            test_integration,
+            protect_integrations_file,
+            start_integrations_over,
+            open_integrations_file,
         ])
         .build(tauri::generate_context!())
         .map(|app| {

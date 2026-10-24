@@ -2,7 +2,8 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { ImportChoice, ImportPreview, McpSettings, McpView, NetworkHint, OnlineEntry, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import { haUrl, obsUrl, validationMessage } from "./integrations";
+import type { CompanionInput, HaInput, ImportChoice, ImportPreview, IntegrationInput, IntegrationTest, IntegrationsPrivacy, IntegrationsView, ObsInput, Secret, McpSettings, McpView, NetworkHint, OnlineEntry, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -17,6 +18,7 @@ const status: HostStatus = {
   profilePath: "/home/me/.config/PerritoDeck/profiles/default.toml",
   profilesDir: "/home/me/.config/PerritoDeck/profiles",
   integrations: ["OBS"],
+  integrationsOff: [],
   integrationsError: null,
   paused: false,
   autoSwitchSupported: true,
@@ -393,6 +395,137 @@ function summaries(): ProfileSummary[] {
     .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name));
 }
 
+/** integrations.toml as the mock host keeps it, secrets and all (they never leave it). */
+interface MockIntegrationsFile {
+  obs: { enabled: boolean; url: string; password: string | null } | null;
+  homeAssistant: { enabled: boolean; url: string; token: string } | null;
+  companion: { enabled: boolean; host: string; port: number } | null;
+}
+
+function mockIntegrations(seed: Partial<MockIntegrationsFile> & { mistake?: string; privacy?: IntegrationsPrivacy } = {}) {
+  const file: MockIntegrationsFile = {
+    obs: seed.obs === undefined ? { enabled: true, url: "ws://127.0.0.1:4455", password: "hunter2" } : seed.obs,
+    homeAssistant: seed.homeAssistant ?? null,
+    companion: seed.companion ?? null,
+  };
+  return {
+    file,
+    /** What PerritoDeck started with, to tell whether a restart is needed. */
+    started: structuredClone(file),
+    mistake: seed.mistake ?? null,
+    privacy: seed.privacy ?? ("private" as IntegrationsPrivacy),
+    /** Every Test connection, as the window sent it. */
+    tests: [] as IntegrationTest[],
+    /** Every save, as the window sent it. */
+    saves: [] as IntegrationInput[],
+    startedOver: false,
+    gate: null as Promise<void> | null,
+    release: null as (() => void) | null,
+  };
+}
+
+type MockIntegrations = ReturnType<typeof mockIntegrations>;
+
+function integrationsView(m: MockIntegrations): IntegrationsView {
+  const f = m.file;
+  const sections = m.mistake === null;
+  const obsSuggestion = (url: string) => {
+    if (/^ws:\/\/[^/]+:\d+/i.test(url)) return null;
+    const r = obsUrl(url.replace(/^wss:/i, "ws:"));
+    return "url" in r && r.url !== url ? r.url : null;
+  };
+  const haSuggestion = (url: string) => {
+    if (/^https?:\/\/[^/]+\/?$/i.test(url)) return null;
+    const r = haUrl(url);
+    return "url" in r && r.url !== url.replace(/\/$/, "") ? r.url : null;
+  };
+  return {
+    path: "/home/me/.config/PerritoDeck/integrations.toml",
+    mistake: m.mistake,
+    runningOlder: false,
+    restartNeeded: sections && JSON.stringify(f) !== JSON.stringify(m.started),
+    privacy: m.privacy,
+    obs:
+      sections && f.obs
+        ? { enabled: f.obs.enabled, url: f.obs.url, hasPassword: !!f.obs.password, suggestedUrl: obsSuggestion(f.obs.url) }
+        : null,
+    homeAssistant:
+      sections && f.homeAssistant
+        ? { enabled: f.homeAssistant.enabled, url: f.homeAssistant.url, hasToken: !!f.homeAssistant.token, suggestedUrl: haSuggestion(f.homeAssistant.url) }
+        : null,
+    companion: sections && f.companion ? { ...f.companion } : null,
+  };
+}
+
+function savedView(m: MockIntegrations, kind: "obs" | "homeAssistant" | "companion") {
+  const f = m.file;
+  if (kind === "obs" && f.obs) return { url: f.obs.url, hasPassword: !!f.obs.password };
+  if (kind === "homeAssistant" && f.homeAssistant) return { url: f.homeAssistant.url, hasToken: !!f.homeAssistant.token };
+  return null;
+}
+
+function secret(s: Secret, saved: string | null | undefined): string | null {
+  if (s.kind === "keep") return saved ?? null;
+  if (s.kind === "clear") return null;
+  return s.value.trim().replace(/^bearer\s+/i, "") || null;
+}
+
+function saveIntegration(m: MockIntegrations, input: IntegrationInput): IntegrationsView {
+  if (m.mistake) throw `integrations.toml has a mistake (${m.mistake}), so it can't be changed here. Fix it, or start over.`;
+  const f = m.file;
+  const c = input.change;
+  if (c.kind === "remove") {
+    f[input.kind] = null;
+  } else if (c.kind === "turnOff") {
+    const section = f[input.kind];
+    if (!section) throw "There's nothing saved to turn off.";
+    section.enabled = false;
+  } else {
+    const problem = validationMessage(input.kind, c.settings, savedView(m, input.kind));
+    if (problem) throw problem;
+    if (input.kind === "obs") {
+      const i = c.settings as ObsInput;
+      const r = obsUrl(i.url);
+      f.obs = { enabled: true, url: "url" in r ? r.url : i.url, password: secret(i.password, f.obs?.password) };
+    } else if (input.kind === "homeAssistant") {
+      const i = c.settings as HaInput;
+      const r = haUrl(i.url);
+      f.homeAssistant = { enabled: true, url: "url" in r ? r.url : i.url, token: secret(i.token, f.homeAssistant?.token) ?? "" };
+    } else {
+      const i = c.settings as CompanionInput;
+      f.companion = { enabled: true, host: i.host.trim().replace(/^\[|\]$/g, ""), port: Number(i.port.trim()) };
+    }
+  }
+  // A save replaces the file with a private one.
+  m.privacy = "private";
+  return integrationsView(m);
+}
+
+/** Test connection against made-up services: OBS wants hunter2, Home Assistant abc, and
+ * Companion answers on 16622. */
+function testIntegration(m: MockIntegrations, t: IntegrationTest) {
+  const failed = (message: string) => ({ ok: false, message });
+  const problem = validationMessage(t.kind, t, savedView(m, t.kind));
+  if (problem) return failed(problem);
+  if (t.kind === "obs") {
+    const r = obsUrl(t.url);
+    if ("url" in r && r.url.endsWith(":1"))
+      return failed("Nothing answered at 127.0.0.1:1. Is OBS open, with its WebSocket server on (Tools → WebSocket Server Settings)?");
+    const password = secret(t.password, m.file.obs?.password);
+    if (password === "hunter2") return { ok: true, message: "Connected to OBS 31.0.3 (obs-websocket 5.5.0)." };
+    if (password === null) return failed("OBS needs a password. Copy it from OBS: Tools → WebSocket Server Settings → Show Connect Info.");
+    return failed("OBS rejected the password. Copy it again from OBS: Tools → WebSocket Server Settings → Show Connect Info.");
+  }
+  if (t.kind === "homeAssistant") {
+    if (secret(t.token, m.file.homeAssistant?.token) === "abc") return { ok: true, message: "Connected to Home Assistant 2026.10.1 (Home)." };
+    return failed(
+      "Home Assistant rejected the token. Make a new long-lived access token (your profile in Home Assistant → Security) and paste it here.",
+    );
+  }
+  if (t.port.trim() === "16622") return { ok: true, message: "Connected to Companion 4.1.0 (Satellite API 1.12.0)." };
+  return failed(`Nothing answered at ${t.host}:${t.port}. Is Companion running there? Its Satellite port is 16622 unless it was changed in Companion.`);
+}
+
 function slug(name: string) {
   const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return s || "profile";
@@ -403,11 +536,25 @@ export const mock = {
   edits: [] as Edit[][],
   /** Actions run with "Try it". */
   tested: [] as unknown[],
+  /** Every answer the window got, to check that secrets never reach it. */
+  responses: [] as { cmd: string; value: unknown }[],
+  integrations: mockIntegrations(init().integrations),
+  /** Make Test connection wait until releaseTests(). */
+  holdTests() {
+    this.integrations.gate = new Promise((r) => (this.integrations.release = r));
+  },
+  releaseTests() {
+    this.integrations.release?.();
+    this.integrations.gate = null;
+  },
 
   async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
     await new Promise((r) => setTimeout(r, 20));
     if (failStart) throw failStart;
-    const out = (v: unknown) => structuredClone(v) as T;
+    const out = (v: unknown) => {
+      this.responses.push({ cmd, value: structuredClone(v) });
+      return structuredClone(v) as T;
+    };
     switch (cmd) {
       case "get_status":
         return out(status);
@@ -641,6 +788,31 @@ export const mock = {
       case "restart_app":
         this.restarted = true;
         return out(undefined);
+      case "get_integrations":
+        return out(integrationsView(this.integrations));
+      case "save_integration": {
+        const input = args?.input as IntegrationInput;
+        this.integrations.saves.push(structuredClone(input));
+        return out(saveIntegration(this.integrations, input));
+      }
+      case "test_integration": {
+        const t = args?.test as IntegrationTest;
+        this.integrations.tests.push(structuredClone(t));
+        await this.integrations.gate;
+        return out(testIntegration(this.integrations, t));
+      }
+      case "protect_integrations_file":
+        this.integrations.privacy = "private";
+        return out(integrationsView(this.integrations));
+      case "start_integrations_over":
+        this.integrations.file = { obs: null, homeAssistant: null, companion: null };
+        this.integrations.mistake = null;
+        this.integrations.privacy = "noFile";
+        this.integrations.startedOver = true;
+        return out(integrationsView(this.integrations));
+      case "open_integrations_file":
+        this.opened.push("integrations.toml");
+        return out(undefined);
       case "test_action": {
         const a = args?.action as { type: string; program?: string };
         this.tested.push(args?.action);
@@ -797,6 +969,7 @@ function init(): {
   latest?: { version: string; url: string } | string | null;
   appBridgeUsed?: boolean;
   networkHint?: NetworkHint;
+  integrations?: Partial<MockIntegrationsFile> & { mistake?: string; privacy?: IntegrationsPrivacy };
 } {
   return typeof window !== "undefined" ? ((window as unknown as { __perritoMockInit?: object }).__perritoMockInit ?? {}) : {};
 }

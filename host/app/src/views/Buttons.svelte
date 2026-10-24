@@ -18,7 +18,14 @@
     ProfileView,
   } from "../lib/types";
 
-  let { status: hostStatus }: { status: HostStatus } = $props();
+  let {
+    status: hostStatus,
+    onsetup = () => {},
+  }: {
+    status: HostStatus;
+    /** Open Settings at a part of it (the id of its heading or section). */
+    onsetup?: (anchor: string) => void;
+  } = $props();
 
   let profiles = $state<ProfileSummary[]>([]);
   let plugins = $state<PluginManifest[]>([]);
@@ -31,15 +38,18 @@
   // mistake in integrations.toml that keeps it off, if there is one.
   let companionState = $state<string | null>(null);
   let integrationsError = $state<string | null>(null);
+  let companionOff = $state(false);
   $effect(() => {
     if (!profile?.companion) return;
     companionState = hostStatus.companion;
     integrationsError = hostStatus.integrationsError ?? null;
+    companionOff = (hostStatus.integrationsOff ?? []).includes("Companion");
     const t = setInterval(async () => {
       try {
         const s = await api.status();
         companionState = s.companion;
         integrationsError = s.integrationsError ?? null;
+        companionOff = (s.integrationsOff ?? []).includes("Companion");
       } catch {
         // keep the last state
       }
@@ -606,18 +616,14 @@
     {:else if integrationsError}
       <!-- The [companion] lines may well be there already; the mistake is what's in the way. -->
       <p class="state mistake" role="alert">integrations.toml has a mistake: {integrationsError}</p>
-      <p>
-        PerritoDeck ignores the whole file until it’s fixed, so Companion stays off. Fix it in the settings folder,
-        then restart PerritoDeck.
-      </p>
+      <p>PerritoDeck ignores the whole file until it’s fixed, so Companion stays off.</p>
+      <span><button class="btn" onclick={() => onsetup("integrations")}>Open Settings → Integrations</button></span>
+    {:else if companionOff}
+      <p>Companion is turned off in Settings → Integrations.</p>
+      <span><button class="btn" onclick={() => onsetup("integrations-companion")}>Open Settings → Integrations</button></span>
     {:else}
-      <p>
-        First tell PerritoDeck where Companion runs. Add this to <code>integrations.toml</code> in the settings folder,
-        then restart PerritoDeck:
-      </p>
-      <pre class="selectable">[companion]
-host = "127.0.0.1"   # the computer running Companion
-port = 16622         # Companion's Satellite port</pre>
+      <p>First tell PerritoDeck where Companion runs.</p>
+      <span><button class="btn" onclick={() => onsetup("integrations-companion")}>Set up Companion</button></span>
     {/if}
   </section>
 {:else if profile && page}
@@ -848,14 +854,6 @@ port = 16622         # Companion's Satellite port</pre>
   .companion { max-width: 64ch; display: grid; gap: 12px; margin-top: 8px; }
   .companion .state { font-weight: 700; }
   .companion .mistake { color: var(--danger); }
-  .companion pre {
-    margin: 0;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: var(--paper);
-    border: 1px solid var(--line);
-    font-size: 0.9rem;
-  }
   .naming input {
     font: inherit;
     padding: 4px 10px;

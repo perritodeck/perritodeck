@@ -12,6 +12,8 @@ export interface HostStatus {
   profilePath: string;
   profilesDir: string;
   integrations: string[];
+  /** Integrations saved with enabled = false: kept, but off. */
+  integrationsOff: string[];
   /** The mistake in integrations.toml, which is then ignored; null if there's none. */
   integrationsError: string | null;
   paused: boolean;
@@ -218,6 +220,69 @@ export type HostEvent =
   /** A Stream Deck plugin drew keys of the profile differently. */
   | { kind: "keyLooksChanged"; profile: string }
   | { kind: "foregroundApp"; app: string | null };
+
+// Settings → Integrations; mirrors perritodeck_integrations::file and the host's
+// IntegrationsView. Saved passwords and tokens never reach the window: only whether one is
+// saved, and the form sends back whether to keep, replace or remove it.
+export type Secret = { kind: "keep" } | { kind: "set"; value: string } | { kind: "clear" };
+export interface ObsInput {
+  url: string;
+  password: Secret;
+}
+export interface HaInput {
+  url: string;
+  token: Secret;
+}
+export interface CompanionInput {
+  host: string;
+  /** As typed: the host says what's wrong with it. */
+  port: string;
+}
+export type Change<T> = { kind: "use"; settings: T } | { kind: "turnOff" } | { kind: "remove" };
+export type IntegrationInput =
+  | { kind: "obs"; change: Change<ObsInput> }
+  | { kind: "homeAssistant"; change: Change<HaInput> }
+  | { kind: "companion"; change: Change<CompanionInput> };
+export type IntegrationTest =
+  | ({ kind: "obs" } & ObsInput)
+  | ({ kind: "homeAssistant" } & HaInput)
+  | ({ kind: "companion" } & CompanionInput);
+export interface Checked {
+  ok: boolean;
+  message: string;
+}
+export type IntegrationsPrivacy = "private" | "readableByOthers" | "unknown" | "noFile";
+export interface ObsView {
+  enabled: boolean;
+  url: string;
+  hasPassword: boolean;
+  /** An address OBS keys can use, when the saved one can't work. */
+  suggestedUrl: string | null;
+}
+export interface HaView {
+  enabled: boolean;
+  url: string;
+  hasToken: boolean;
+  suggestedUrl: string | null;
+}
+export interface CompanionView {
+  enabled: boolean;
+  host: string;
+  port: number;
+}
+export interface IntegrationsView {
+  path: string;
+  /** The file's mistake now; the form is then read-only. */
+  mistake: string | null;
+  /** A mistake now, but PerritoDeck runs on the good settings it read when it started. */
+  runningOlder: boolean;
+  /** The file differs from what PerritoDeck started with: a restart puts it to use. */
+  restartNeeded: boolean;
+  privacy: IntegrationsPrivacy;
+  obs: ObsView | null;
+  homeAssistant: HaView | null;
+  companion: CompanionView | null;
+}
 
 export type View = "buttons" | "tablets" | "pair" | "switching" | "plugins" | "settings";
 

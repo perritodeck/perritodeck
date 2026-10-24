@@ -4,8 +4,29 @@
   import { copyText } from "../lib/clipboard";
   import { licencesUrl } from "../lib/licences";
   import type { HostStatus, McpSettings, McpView, Network, Update } from "../lib/types";
+  import IntegrationsForm from "../components/IntegrationsForm.svelte";
 
-  let { status, onchange }: { status: HostStatus; onchange: () => void | Promise<void> } = $props();
+  let {
+    status,
+    anchor = null,
+    onchange,
+  }: { status: HostStatus; anchor?: string | null; onchange: () => void | Promise<void> } = $props();
+
+  // Opened to show one part, such as Companion's settings from a Companion profile.
+  onMount(() => {
+    if (!anchor) return;
+    const target = anchor;
+    // The integrations form loads its sections first.
+    let tries = 0;
+    const find = setInterval(() => {
+      const el = document.getElementById(target);
+      if (el || ++tries > 50) {
+        clearInterval(find);
+        el?.scrollIntoView({ block: "start" });
+      }
+    }, 20);
+    return () => clearInterval(find);
+  });
   let error = $state<string | null>(null);
   let autostart = $state<boolean | null>(null);
   // What's saved, and what's being edited.
@@ -221,6 +242,15 @@
     </dd>
   {/if}
 
+  <dt id="integrations">Integrations</dt>
+  <dd>
+    <small>
+      PerritoDeck's built-in OBS, Home Assistant and Companion buttons. Test connection tries what you typed before you
+      save it.
+    </small>
+    <IntegrationsForm {status} {onchange} />
+  </dd>
+
   {#if mcp}
     {@const m = mcp}
     <dt id="mcp-heading">AI assistants (MCP)</dt>
@@ -399,18 +429,8 @@
   <dt>Settings folder</dt>
   <dd>
     <span class="mono selectable">{status.dataDir}</span>
-    <small>Holds paired tablets, this computer’s certificate and <code>integrations.toml</code> for OBS and Home Assistant.</small>
+    <small>Holds paired tablets, this computer’s certificate and <code>integrations.toml</code> (Integrations, above).</small>
     <span><button class="btn" onclick={() => run(api.openDataFolder)}>Open folder</button></span>
-  </dd>
-
-  <dt>Integrations</dt>
-  <dd>
-    {#if status.integrationsError}
-      <span class="bad">integrations.toml has a mistake: {status.integrationsError}</span>
-      <small>OBS, Home Assistant and Companion stay off until it’s fixed and PerritoDeck restarts.</small>
-    {:else}
-      {status.integrations.length ? status.integrations.join(", ") : "None set up"}
-    {/if}
   </dd>
 
   <dt>Version</dt>
