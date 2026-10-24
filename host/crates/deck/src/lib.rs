@@ -231,6 +231,9 @@ struct State {
     agent_refs: HashMap<String, (AgentKey, usize)>,
     /// Profiles whose agent looks changed since [`Deck::take_looks_changed`] last asked.
     looks_changed: HashSet<String>,
+    /// The keys each device was given in its handshake, until [`Deck::connected`] takes
+    /// them: what the tablet is really showing, which may be older than the profile now.
+    handed_out: HashMap<String, Vec<KeySpec>>,
 }
 
 impl State {
@@ -336,6 +339,7 @@ impl Deck {
                 devices: HashMap::new(),
                 agent_refs: HashMap::new(),
                 looks_changed: HashSet::new(),
+                handed_out: HashMap::new(),
             }),
             outbox,
             executor,
@@ -382,19 +386,22 @@ impl Deck {
 
     /// The first layout a device sees (used as the server's layout provider).
     pub fn initial_layout(&self, hello: &Hello) -> Layout {
-        let st = self.lock();
+        let mut st = self.lock();
         let slot = st.slot(&st.profile_for(&hello.device_id));
         let grid = device_grid(&slot.profile, demo::grid_for(hello));
         if slot.profile.companion {
             let note = self.remote_note.lock().expect("note poisoned").clone();
             return note_layout(grid, &note);
         }
-        page_layout(
+        let layout = page_layout(
             slot,
             0,
             grid,
             hello.capabilities.iter().any(|c| c == "sliders"),
-        )
+        );
+        st.handed_out
+            .insert(hello.device_id.clone(), layout.keys.clone());
+        layout
     }
 
     /// A device finished its handshake; it already has `initial_layout`.
@@ -407,7 +414,17 @@ impl Deck {
         let sliders = capabilities.iter().any(|c| c == "sliders");
         let profile = st.profile_for(device_id);
         let layout = page_layout(st.slot(&profile), 0, grid, sliders);
-        let sent = layout.keys.iter().map(|k| (k.index, k.clone())).collect();
+        // Start from what the handshake gave the tablet, so whatever changed since (a live
+        // value, say) is sent below rather than assumed to be there already.
+        let handed_out = st
+            .handed_out
+            .remove(device_id)
+            .filter(|keys| keys.len() == layout.keys.len());
+        let sent = handed_out
+            .unwrap_or_else(|| layout.keys.clone())
+            .into_iter()
+            .map(|k| (k.index, k))
+            .collect();
         st.devices.insert(
             device_id.to_owned(),
             DeviceView {
@@ -428,6 +445,9 @@ impl Deck {
         if let Some(a) = self.agents() {
             a.device(device_id, Some(grid));
         }
+        for index in layout.keys.iter().map(|k| k.index) {
+            self.refresh_key(&mut st, device_id, index);
+        }
         self.sync_agents(&mut st, device_id);
         if st.slot(&st.profile_for(device_id)).profile.companion {
             self.sync_remote(&mut st, device_id);
@@ -445,6 +465,7 @@ impl Deck {
             self.release_agents(&mut st, &keys);
         }
         let gone = st.devices.remove(device_id);
+        st.handed_out.remove(device_id);
         drop(st);
         if let Some(a) = self.agents() {
             a.device(device_id, None);

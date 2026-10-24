@@ -549,6 +549,42 @@ async fn sliders_are_read_as_soon_as_a_tablet_shows_them() {
 }
 
 #[tokio::test]
+async fn a_live_value_that_changes_during_the_handshake_still_reaches_the_tablet() {
+    let profile = r##"
+schema_version = 1
+name = "L"
+[grid]
+cols = 2
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "CPU\n{cpu}"
+"##;
+    let sent = Arc::new(Sent::default());
+    let keys = Arc::new(Keys::default());
+    let deck = Deck::new(
+        Profile::parse(profile).unwrap(),
+        ".",
+        sent.clone(),
+        Executor::new(keys.clone(), keys.clone()),
+    );
+    // The tablet gets its first layout in the handshake, the value changes, and only then
+    // does the host hear that the tablet connected.
+    let l = deck.initial_layout(&hello());
+    assert_eq!(l.keys[0].title, "CPU\n–");
+    deck.set_live([("cpu".to_string(), "7%".to_string())]);
+    deck.connected("tab", Grid { cols: 2, rows: 1 }, hello().screen, &[]);
+    let msgs = sent.take();
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, Message::SetTitle(t) if t.title == "CPU\n7%")),
+        "the tablet still shows the value from its handshake: {msgs:?}"
+    );
+}
+
+#[tokio::test]
 async fn live_values_and_followed_toggles() {
     let profile = r##"
 schema_version = 1
