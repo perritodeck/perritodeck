@@ -57,6 +57,10 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync",
 tokio-tungstenite = "0.27"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Plugin and profile zips. `deflate-flate2`, not zip's `deflate`: that adds zopfli (used only
+# above level 9, which we never ask for) and moves every flate2 user, png included, from
+# miniz_oxide to zlib-rs. flate2 keeps the backend png already picks, miniz_oxide.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny" # allowed only where an OS API needs it (host focus detection)

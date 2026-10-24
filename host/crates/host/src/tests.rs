@@ -766,23 +766,168 @@ async fn profiles_export_and_import_with_their_images() {
     assert!(other.import_profile(&src).is_err());
 }
 
+/// A profile whose keys show `icons`, for `.perritoprofile` files made by hand.
+fn profile_showing(icons: &[impl AsRef<str>]) -> String {
+    let mut toml = "schema_version = 1\nname = \"Shared\"\n[[pages]]\nname = \"Main\"\n".to_owned();
+    for (i, icon) in icons.iter().enumerate() {
+        toml += &format!(
+            "[[pages.keys]]\nat = [0, {i}]\nicon = '{}'\n",
+            icon.as_ref()
+        );
+    }
+    toml
+}
+
 #[tokio::test]
 async fn imports_cannot_write_outside_the_profiles_folder() {
     use std::io::Write;
     let dir = tempfile::tempdir().unwrap();
     let host = quiet_host(dir.path()).await;
+    // `C:/…/escaped-too.png` on Windows, which joins onto the folder as itself.
+    let absolute = dir.path().join("escaped-too.png");
+    let absolute_name = absolute.display().to_string().replace('\\', "/");
+    let icons = ["../escaped.png", absolute_name.as_str()];
     let file = dir.path().join("evil.perritoprofile");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    zip.start_file("profile.toml", opts).unwrap();
+    zip.write_all(profile_showing(&icons).as_bytes()).unwrap();
+    for icon in icons {
+        zip.start_file(format!("images/{icon}"), opts).unwrap();
+        zip.write_all(b"x").unwrap();
+    }
+    zip.finish().unwrap();
+    host.import_profile(&file).unwrap();
+    assert!(!dir.path().join("escaped.png").exists());
+    assert!(!absolute.exists());
+}
+
+/// With `--profile` in the data folder, the profiles folder holds the host's own files
+/// too. An import brings only the images its keys show: no plugin, which would start
+/// with the host, no settings and no other profiles.
+#[tokio::test]
+async fn imports_bring_only_the_images_the_profile_shows() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let mut opts = HostOptions::new(dir.path().to_owned());
+    opts.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    opts.port = 0;
+    opts.mdns = false;
+    opts.watch_focus = false;
+    opts.usb = false;
+    opts.profile = Some(dir.path().join("default.toml"));
+    let host = Host::start(opts).await.unwrap();
+    let plugin = "plugins/com.example.planted/perritodeck-plugin.json";
+    let file = dir.path().join("shared.perritoprofile");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    zip.start_file("profile.toml", opts).unwrap();
+    // A profile saved on Windows can say `icons\b.gif`; its zip says `images/icons/b.gif`.
+    let shown = ["icons/a.png", r"icons\b.gif", plugin];
+    zip.write_all(profile_showing(&shown).as_bytes()).unwrap();
+    let packed = [
+        "icons/a.png",
+        "icons/b.gif",
+        "icons/unused.png",
+        plugin,
+        "integrations.toml",
+        "other.toml",
+    ];
+    for name in packed {
+        zip.start_file(format!("images/{name}"), opts).unwrap();
+        zip.write_all(b"x").unwrap();
+    }
+    zip.finish().unwrap();
+    assert_eq!(host.import_profile(&file).unwrap(), "shared");
+    assert!(dir.path().join("icons/a.png").exists());
+    assert!(dir.path().join("icons/b.gif").exists());
+    for name in [
+        "icons/unused.png",
+        "plugins/com.example.planted",
+        "integrations.toml",
+        "other.toml",
+    ] {
+        assert!(!dir.path().join(name).exists(), "{name}");
+    }
+}
+
+#[tokio::test]
+async fn imports_refuse_zips_of_over_5000_files() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = dir.path().join("many.perritoprofile");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
     let opts = zip::write::SimpleFileOptions::default();
     zip.start_file("profile.toml", opts).unwrap();
     zip.write_all(perritodeck_profile::STARTER_PROFILE.as_bytes())
         .unwrap();
-    zip.start_file("images/../../escaped.png", opts).unwrap();
-    zip.write_all(b"x").unwrap();
+    for i in 0..5_000 {
+        zip.start_file(format!("images/icons/{i}.png"), opts)
+            .unwrap();
+    }
     zip.finish().unwrap();
-    host.import_profile(&file).unwrap();
-    assert!(!dir.path().join("escaped.png").exists());
-    assert!(!host.profiles_dir.join("../escaped.png").exists());
+    assert!(host.import_profile(&file).is_err());
+    assert_eq!(host.profiles().len(), 1, "nothing was added");
+}
+
+#[tokio::test]
+async fn imports_refuse_over_100_mb_of_images_altogether() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    // Six images, each as big as one may be: 20 MB.
+    let icons: Vec<String> = (0..6).map(|i| format!("icons/{i}.png")).collect();
+    let mut out = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut out);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("profile.toml", opts).unwrap();
+        zip.write_all(profile_showing(&icons).as_bytes()).unwrap();
+        zip.start_file(format!("images/{}", icons[0]), opts)
+            .unwrap();
+        zip.write_all(&vec![0; 20 * 1024 * 1024]).unwrap();
+        for icon in &icons[1..] {
+            zip.deep_copy_file(&format!("images/{}", icons[0]), &format!("images/{icon}"))
+                .unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    let file = dir.path().join("big.perritoprofile");
+    std::fs::write(&file, out.into_inner()).unwrap();
+    assert!(host.import_profile(&file).is_err());
+    assert!(!host.profiles_dir.join("icons").exists());
+}
+
+#[tokio::test]
+async fn imports_refuse_entries_over_20_mb_even_if_the_zip_says_less() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let mut out = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut out);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("images/icons/big.png", opts).unwrap();
+        zip.write_all(&vec![0; 20 * 1024 * 1024 + 1]).unwrap();
+        zip.start_file("profile.toml", opts).unwrap();
+        zip.write_all(profile_showing(&["icons/big.png"]).as_bytes())
+            .unwrap();
+        zip.finish().unwrap();
+    }
+    let honest = out.into_inner();
+    // The same zip with the image saying it unpacks to 1 byte, in its local header (the
+    // first entry's is at the start) and in its central directory entry.
+    let mut lying = honest.clone();
+    lying[22..26].copy_from_slice(&1u32.to_le_bytes());
+    let central = lying.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+    lying[central + 24..central + 28].copy_from_slice(&1u32.to_le_bytes());
+    for (name, bytes) in [("honest", honest), ("lying", lying)] {
+        let file = dir.path().join(format!("{name}.perritoprofile"));
+        std::fs::write(&file, bytes).unwrap();
+        assert!(host.import_profile(&file).is_err(), "{name}");
+    }
+    assert!(!host.profiles_dir.join("icons/big.png").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]

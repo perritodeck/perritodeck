@@ -1947,20 +1947,7 @@ impl Host {
         let fail = |e: &dyn std::fmt::Display| format!("Couldn't write {}: {e}", dest.display());
         zip.start_file("profile.toml", opts).map_err(|e| fail(&e))?;
         zip.write_all(text.as_bytes()).map_err(|e| fail(&e))?;
-        let mut icons: Vec<PathBuf> = profile
-            .pages
-            .iter()
-            .flat_map(|p| p.keys.iter())
-            .flat_map(|k| {
-                k.icon
-                    .iter()
-                    .chain(k.states.iter().filter_map(|s| s.icon.as_ref()))
-            })
-            .cloned()
-            .collect();
-        icons.sort();
-        icons.dedup();
-        for icon in icons {
+        for icon in icons_of(&profile) {
             // Only images inside the profiles folder travel with it.
             let rel = icon.to_string_lossy().replace('\\', "/");
             if icon.is_absolute() || rel.split('/').any(|part| part == "..") {
@@ -1980,32 +1967,24 @@ impl Host {
     pub fn import_profile(&self, src: &Path) -> Result<String, String> {
         use std::io::Read;
         const MAX: u64 = 20 * 1024 * 1024;
+        // All its images together. They stay in memory until every one is read, so a
+        // bad file writes nothing.
+        const MAX_TOTAL: u64 = 100 * 1024 * 1024;
+        const MAX_FILES: usize = 5_000;
         let bad = || format!("{} isn't a PerritoDeck profile file.", src.display());
         let file = std::fs::File::open(src)
             .map_err(|e| format!("Couldn't open {}: {e}", src.display()))?;
         let mut zip = zip::ZipArchive::new(file).map_err(|_| bad())?;
+        if zip.len() > MAX_FILES {
+            return Err(format!("{} has too many files.", src.display()));
+        }
         let mut text = String::new();
-        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
-        for i in 0..zip.len() {
-            let mut entry = zip.by_index(i).map_err(|_| bad())?;
+        {
+            let mut entry = zip.by_name("profile.toml").map_err(|_| bad())?;
             if entry.size() > MAX {
                 return Err(bad());
             }
-            let name = entry.name().to_owned();
-            if name == "profile.toml" {
-                entry.read_to_string(&mut text).map_err(|_| bad())?;
-            } else if let Some(rel) = name.strip_prefix("images/") {
-                // Never write outside the profiles folder.
-                let safe = !rel.is_empty()
-                    && !rel.starts_with('/')
-                    && !rel.contains('\\')
-                    && rel.split('/').all(|p| !p.is_empty() && p != "..");
-                if safe && !entry.is_dir() {
-                    let mut bytes = Vec::new();
-                    entry.read_to_end(&mut bytes).map_err(|_| bad())?;
-                    images.push((rel.to_owned(), bytes));
-                }
-            }
+            entry.read_to_string(&mut text).map_err(|_| bad())?;
         }
         let profile = Profile::parse(&text).map_err(|e| format!("{}: {e}", bad()))?;
         let problems = profile.problems();
@@ -2015,6 +1994,32 @@ impl Host {
                 src.display(),
                 problems.join("; ")
             ));
+        }
+        // Only the images its keys show, which is all export_profile packs. With the
+        // profile in the data folder, anything else could land among the host's own
+        // files: a plugin, which would start with the host.
+        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut total = 0;
+        for icon in icons_of(&profile) {
+            let Some(rel) = importable_image(&icon) else {
+                continue;
+            };
+            let mut entry = match zip.by_name(&format!("images/{rel}")) {
+                Ok(entry) => entry,
+                Err(zip::result::ZipError::FileNotFound) => continue,
+                Err(_) => return Err(bad()),
+            };
+            if entry.size() > MAX {
+                return Err(bad());
+            }
+            // A read past the size the zip gives fails, so this is all it can unpack.
+            total += entry.size();
+            if total > MAX_TOTAL {
+                return Err(format!("{} is too big once unpacked.", src.display()));
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).map_err(|_| bad())?;
+            images.push((rel, bytes));
         }
         for (rel, bytes) in images {
             let path = self.profiles_dir.join(&rel);
@@ -2216,6 +2221,44 @@ fn unique_id(base: &str, taken: impl Fn(&str) -> bool) -> String {
         .map(|n| format!("{base}-{n}"))
         .find(|id| !taken(id))
         .expect("unbounded")
+}
+
+/// Every image a profile's keys show, once each: what a `.perritoprofile` carries.
+fn icons_of(profile: &Profile) -> Vec<PathBuf> {
+    let mut icons: Vec<PathBuf> = profile
+        .pages
+        .iter()
+        .flat_map(|p| p.keys.iter())
+        .flat_map(|k| {
+            k.icon
+                .iter()
+                .chain(k.states.iter().filter_map(|s| s.icon.as_ref()))
+        })
+        .cloned()
+        .collect();
+    icons.sort();
+    icons.dedup();
+    icons
+}
+
+/// Where an imported profile's `icon` is written, relative to the profiles folder and
+/// named as in the zip. `None` for a path outside the folder, or for a file that isn't
+/// a picture the app takes as an icon.
+fn importable_image(icon: &Path) -> Option<String> {
+    let rel = icon.to_string_lossy().replace('\\', "/");
+    // No colon either: Windows joins `C:/x` or `C:x` onto the folder as a path of its own.
+    let inside = !rel.starts_with('/')
+        && !rel.contains(':')
+        && rel.split('/').all(|p| !p.is_empty() && p != "..");
+    let image = Path::new(&rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            ["png", "jpg", "jpeg", "gif"]
+                .iter()
+                .any(|i| e.eq_ignore_ascii_case(i))
+        });
+    (inside && image).then_some(rel)
 }
 
 /// A timer for a background loop that ticks every `period`. After a slow round, or

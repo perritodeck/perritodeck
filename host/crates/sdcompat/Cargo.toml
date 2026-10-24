@@ -27,7 +27,7 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 rand.workspace = true
 tracing.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The PATH as it is now, to find Node.js installed while PerritoDeck runs (node.rs).

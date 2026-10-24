@@ -34,7 +34,7 @@ ureq.workspace = true
 notify.workspace = true
 toml_edit.workspace = true
 sha2.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip.workspace = true
 image = { workspace = true, features = ["png", "jpeg", "gif"] }
 perritodeck-protocol.workspace = true
 anyhow.workspace = true

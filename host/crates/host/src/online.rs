@@ -152,11 +152,10 @@ pub fn unpack(zip_bytes: &[u8], dest: &Path) -> Result<PathBuf, String> {
     let mut total = 0u64;
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(bad)?;
-        // `enclosed_name` rejects absolute paths and `..`, so nothing lands outside `dest`.
-        let Some(rel) = file.enclosed_name() else {
+        let Some(rel) = enclosed_path(&file) else {
             return Err(format!(
                 "The plugin contains an unsafe path: {}",
-                file.name()
+                String::from_utf8_lossy(file.name_raw())
             ));
         };
         let out = dest.join(rel);
@@ -201,6 +200,19 @@ pub fn unpack(zip_bytes: &[u8], dest: &Path) -> Result<PathBuf, String> {
             perritodeck_plugins::MANIFEST
         )),
     }
+}
+
+/// Where a zip entry goes under the folder it's unpacked into, or `None` if it could land
+/// anywhere else. zip's `enclosed_name` refuses `..` that climbs out, reading `\` as a
+/// separator wherever the zip is opened, but it makes an absolute name relative. No plugin
+/// has one, so a leading separator or any colon (`/x`, `C:\x`, `C:x`, `\\server\share`, an
+/// NTFS stream) is refused too.
+fn enclosed_path(file: &zip::read::ZipFile<'_, impl Read>) -> Option<PathBuf> {
+    let raw = file.name_raw();
+    if raw.starts_with(b"/") || raw.starts_with(b"\\") || raw.contains(&b':') {
+        return None;
+    }
+    file.enclosed_name()
 }
 
 #[cfg(test)]
@@ -288,19 +300,129 @@ pub(crate) mod tests {
         assert!(unpack(b"not a zip", &dir.path().join("3")).is_err());
     }
 
-    #[test]
-    fn refuses_paths_outside() {
+    /// A zip with what `add` puts in it.
+    fn zip_of(add: impl FnOnce(&mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>)) -> Vec<u8> {
         let mut out = std::io::Cursor::new(Vec::new());
         {
             let mut z = zip::ZipWriter::new(&mut out);
-            z.start_file("../evil.txt", zip::write::SimpleFileOptions::default())
-                .unwrap();
-            z.write_all(b"x").unwrap();
+            add(&mut z);
             z.finish().unwrap();
         }
+        out.into_inner()
+    }
+
+    #[test]
+    fn refuses_paths_outside() {
         let dir = tempfile::tempdir().unwrap();
-        let err = unpack(&out.into_inner(), &dir.path().join("p")).unwrap_err();
-        assert!(err.contains("unsafe path"), "{err}");
+        // zip itself would turn the absolute ones into paths inside the folder.
+        let names = [
+            "../evil.txt",
+            r"..\evil.txt",
+            "weather/../../evil.txt",
+            "/evil.txt",
+            r"\evil.txt",
+            "C:/evil.txt",
+            r"C:\evil.txt",
+            "C:evil.txt",
+            r"\\server\share\evil.txt",
+            "//server/share/evil.txt",
+            r"\\?\C:\evil.txt",
+            "plugin.py:evil",
+        ];
+        for (i, name) in names.into_iter().enumerate() {
+            let bytes = zip_of(|z| {
+                z.start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                z.write_all(b"x").unwrap();
+            });
+            let dest = dir.path().join(i.to_string());
+            let err = unpack(&bytes, &dest).unwrap_err();
+            assert!(err.contains("unsafe path"), "{name}: {err}");
+            assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0, "{name}");
+        }
         assert!(!dir.path().join("evil.txt").exists());
+    }
+
+    #[test]
+    fn refuses_symbolic_links() {
+        let outside = tempfile::tempdir().unwrap();
+        // A link out of the folder, then a file written through it.
+        let bytes = zip_of(|z| {
+            let opts = zip::write::SimpleFileOptions::default();
+            z.add_symlink("data", outside.path().display(), opts)
+                .unwrap();
+            z.start_file("data/evil.txt", opts).unwrap();
+            z.write_all(b"x").unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("p");
+        let err = unpack(&bytes, &dest).unwrap_err();
+        assert!(err.contains("symbolic link"), "{err}");
+        assert!(
+            dest.join("data").symlink_metadata().is_err(),
+            "no link made"
+        );
+        assert!(!outside.path().join("evil.txt").exists());
+    }
+
+    #[test]
+    fn refuses_too_many_files() {
+        let bytes = zip_of(|z| {
+            for i in 0..=MAX_FILES {
+                z.start_file(format!("{i}.txt"), zip::write::SimpleFileOptions::default())
+                    .unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let err = unpack(&bytes, &dir.path().join("p")).unwrap_err();
+        assert!(err.contains("too many files"), "{err}");
+        assert!(!dir.path().join("p").exists());
+    }
+
+    #[test]
+    fn refuses_more_than_it_may_unpack() {
+        let bytes = zip_of(|z| {
+            let stored = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            z.start_file("big.bin", stored).unwrap();
+            let mb = vec![0; 1024 * 1024];
+            for _ in 0..MAX_UNPACKED_BYTES / 1024 / 1024 {
+                z.write_all(&mb).unwrap();
+            }
+            z.write_all(b"x").unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let err = unpack(&bytes, &dir.path().join("p")).unwrap_err();
+        assert!(err.contains("too big once unpacked"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unpacks_without_setuid_or_write_for_others() {
+        use std::os::unix::fs::PermissionsExt;
+        let bytes = zip_of(|z| {
+            let unix = zip::write::SimpleFileOptions::default().system(zip::System::Unix);
+            z.start_file("perritodeck-plugin.json", unix).unwrap();
+            z.write_all(
+                br#"{"id":"a.b","name":"T","version":"1.0.0","runtime":"exec","main":"run"}"#,
+            )
+            .unwrap();
+            // setuid and rwx for everyone; setgid and rw for everyone.
+            z.start_file("run", unix.external_attributes(0o104777 << 16))
+                .unwrap();
+            z.start_file("data", unix.external_attributes(0o102666 << 16))
+                .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let folder = unpack(&bytes, &dir.path().join("p")).unwrap();
+        let mode = |name: &str| {
+            std::fs::metadata(folder.join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777
+        };
+        assert_eq!(mode("run"), 0o755, "still executable");
+        assert_eq!(mode("data"), 0o644);
     }
 }

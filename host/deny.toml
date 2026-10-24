@@ -30,6 +30,10 @@ feature-depth = 1
 # Each ignored advisory is a decision: record it in docs/DECISIONS.md and give it a reason.
 ignore = [
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser, pulled in by ab_glyph to draw key titles, is unmaintained, not a vulnerability. Accepted for now and replaced in a later release (decision D6, 2026-10-17)" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, merged into zbus 6 and so unmaintained, not a vulnerability. Linux only: zbus 5 comes in through ashpd (vendored enigo's Wayland portal input) and, in the app, Tauri's opener and single-instance plugins, none of which has a zbus 6 release yet. Accepted until they move to zbus 6 (decision D13, 2026-10-17)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, merged into zbus 6 and so unmaintained, not a vulnerability. Same Linux-only zbus 5 path and plan as RUSTSEC-2026-0370 (decision D13, 2026-10-17)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, merged into zbus 6 and so unmaintained, not a vulnerability. Same Linux-only zbus 5 path and plan as RUSTSEC-2026-0370 (decision D13, 2026-10-17)" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained, not a vulnerability. App only, Linux only and compile time only: the glib-macros and gtk3-macros of gtk-rs 0.18, which Tauri 2 (tao, wry, muda, webkit2gtk) needs. gtk-rs 0.19 drops it; accepted until Tauri moves to it (decision D13, 2026-10-17)" },
 ]
 
 [licenses]
