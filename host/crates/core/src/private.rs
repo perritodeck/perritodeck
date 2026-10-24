@@ -25,6 +25,10 @@ pub enum Privacy {
 /// to it, then renamed over `path`. If the new file couldn't be made private and other
 /// accounts could read it, nothing is saved. A symlink is written through, to the file
 /// it points at.
+///
+/// One writer per file at a time: two saves of the same path at once share the `.tmp`
+/// name and can fail or clobber each other. Callers serialise their saves (the host
+/// holds its integrations lock).
 pub fn write_atomic(path: &Path, data: &[u8], name: &str) -> Result<(), String> {
     write_atomic_with(path, data, name, restrict)
 }
@@ -43,7 +47,7 @@ fn write_atomic_with(
     path: &Path,
     data: &[u8],
     name: &str,
-    restrict: impl Fn(&Path) -> io::Result<()>,
+    restrict: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(), String> {
     let saving = |e: io::Error| format!("Couldn't save {name}: {e}.");
     // Write through a symlink to the file it points at, rather than replacing the link.
@@ -68,6 +72,11 @@ fn write_atomic_with(
         open.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        // Until restrict, the file has its folder's inherited DACL, and access is checked
+        // only when a file is opened: shared with nobody, no one can open it meanwhile
+        // and keep reading after the secret is in.
+        #[cfg(windows)]
+        std::os::windows::fs::OpenOptionsExt::share_mode(&mut open, 0);
         open.open(&tmp).map_err(saving)?
     };
     let gone = |tmp: &Path| {
@@ -123,82 +132,46 @@ fn rename(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-/// Whether a DACL in SDDL form (`D:P(A;;FA;;;SY)…`) lets anyone but `me` (a SID string),
-/// SYSTEM, Administrators and the file's owner read the file's contents.
-///
-/// An entry counts only if it allows (`A`, `OA`, `XA`), applies to the file itself (not
-/// inherit-only, `IO`) and grants reading data: FILE_READ_DATA (0x1), GENERIC_ALL,
-/// GENERIC_READ or MAXIMUM_ALLOWED. READ_CONTROL or SYNCHRONIZE alone don't. AppContainer
-/// and package SIDs (`AC`, `S-1-15-…`) don't count: Windows adds them on AppData that a
-/// packaged app redirects, and they aren't other people. No DACL at all
-/// (`D:NO_ACCESS_CONTROL`) lets everyone in.
-#[allow(dead_code)] // used on Windows, tested everywhere
-pub(crate) fn others_allowed(sddl: &str, me: &str) -> bool {
-    let Some(at) = sddl.find("D:") else {
-        return false;
-    };
-    let dacl = &sddl[at + 2..];
-    // The DACL runs until a SACL (`S:`) that follows it, outside any entry.
-    let mut depth = 0;
-    let mut end = dacl.len();
-    for (i, c) in dacl.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            'S' if depth == 0 && dacl[i..].starts_with("S:") => {
-                end = i;
-                break;
-            }
-            _ => {}
-        }
-    }
-    let dacl = &dacl[..end];
-    if dacl.starts_with("NO_ACCESS_CONTROL") {
-        return true;
-    }
-    let me_is_admin = me.rsplit('-').next() == Some("500");
-    dacl.split('(').skip(1).any(|ace| {
-        let fields: Vec<&str> = ace.trim_end_matches(')').split(';').collect();
-        let [kind, flags, rights, _, _, sid, ..] = fields[..] else {
-            return false;
-        };
-        let allows = matches!(kind, "A" | "OA" | "XA");
-        let inherit_only = flags.as_bytes().chunks(2).any(|f| f == b"IO");
-        let exempt = sid == me
-            || matches!(
-                sid,
-                "SY" | "BA" | "OW" | "CO" | "S-1-5-18" | "S-1-5-32-544" | "S-1-3-4" | "AC"
-            )
-            || sid.starts_with("S-1-15-")
-            || (sid == "LA" && me_is_admin);
-        allows && !inherit_only && !exempt && reads(rights)
-    })
+/// One entry of a file's DACL, as Windows holds it (read with GetAce, not from SDDL,
+/// whose spelling of the same rights varies).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // built on Windows, tested everywhere
+pub(crate) struct Ace {
+    /// An allow entry (deny entries let nobody in).
+    pub allow: bool,
+    /// Only for what's made inside a folder, not the file itself.
+    pub inherit_only: bool,
+    pub mask: u32,
+    /// Who it's for, as `S-1-…`; `None` where it can't be told (an object entry), which
+    /// counts as someone else.
+    pub sid: Option<String>,
 }
 
-/// Whether an SDDL rights field grants reading a file's contents.
-fn reads(rights: &str) -> bool {
-    const READS: u32 = 0x1 | 0x1000_0000 | 0x8000_0000 | 0x0200_0000;
-    let mask = match rights
-        .strip_prefix("0x")
-        .or_else(|| rights.strip_prefix("0X"))
-    {
-        // Unreadable hex counts as reading: better a needless warning than a missed one.
-        Some(hex) => u32::from_str_radix(hex, 16).unwrap_or(u32::MAX),
-        None => rights
-            .as_bytes()
-            .chunks(2)
-            .map(|code| match code {
-                b"GA" => 0x1000_0000,
-                b"GR" => 0x8000_0000,
-                b"FA" => 0x001F_01FF,
-                b"FR" => 0x0012_0089,
-                b"CC" => 0x1,
-                b"MA" => 0x0200_0000,
-                _ => 0,
-            })
-            .fold(0, |a, b| a | b),
-    };
-    mask & READS != 0
+/// Rights that read a file's contents: FILE_READ_DATA, GENERIC_ALL, GENERIC_READ and
+/// MAXIMUM_ALLOWED. READ_CONTROL or SYNCHRONIZE alone don't.
+const READS: u32 = 0x1 | 0x1000_0000 | 0x8000_0000 | 0x0200_0000;
+
+/// This account, SYSTEM, Administrators, Creator Owner, Owner Rights, and AppContainer or
+/// package SIDs (Windows adds them on AppData a packaged app redirects; they aren't
+/// other people).
+fn exempt(sid: &str, me: &str) -> bool {
+    sid == me
+        || matches!(sid, "S-1-5-18" | "S-1-5-32-544" | "S-1-3-0" | "S-1-3-4")
+        || sid.starts_with("S-1-15-")
+}
+
+/// Whether a DACL lets anyone but `me` (a SID string), SYSTEM and Administrators read
+/// the file's contents. A file owned by someone else counts too: its owner can always
+/// change the DACL.
+#[allow(dead_code)] // used on Windows, tested everywhere
+pub(crate) fn lets_others_read(aces: &[Ace], me: &str, owner: Option<&str>) -> bool {
+    owner.is_some_and(|o| !exempt(o, me))
+        || aces.iter().any(|a| {
+            a.allow
+                && !a.inherit_only
+                && a.mask & READS != 0
+                && a.sid.as_deref().map_or(true, |s| !exempt(s, me))
+        })
 }
 
 #[cfg(unix)]
@@ -230,13 +203,13 @@ mod imp {
         Foundation::{CloseHandle, LocalFree, ERROR_SUCCESS, HANDLE},
         Security::{
             Authorization::{
-                ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertSidToStringSidW,
-                ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
-                SetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
+                ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+                GetNamedSecurityInfoW, SetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
             },
-            GetSecurityDescriptorDacl, GetTokenInformation, TokenUser, ACL,
-            DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-            TOKEN_QUERY, TOKEN_USER,
+            GetAce, GetSecurityDescriptorDacl, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE,
+            ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, INHERIT_ONLY_ACE,
+            OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            PSID, TOKEN_QUERY, TOKEN_USER,
         },
         System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
@@ -247,12 +220,112 @@ mod imp {
     }
 
     pub fn privacy(path: &Path) -> Privacy {
-        match (dacl_sddl(path), current_user_sid()) {
-            (Ok(Some(sddl)), Ok(me)) if others_allowed(&sddl, &me) => Privacy::ReadableByOthers,
+        match (read_access(path), current_user_sid()) {
+            (Ok(Some((aces, owner))), Ok(me)) if lets_others_read(&aces, &me, owner.as_deref()) => {
+                Privacy::ReadableByOthers
+            }
             (Ok(Some(_)), Ok(_)) => Privacy::Private,
             // No DACL: a drive that keeps no permissions (FAT, exFAT, some shares).
             _ => Privacy::Unknown,
         }
+    }
+
+    // ACE types (winnt.h) whose entries allow access.
+    const ACCESS_ALLOWED: u8 = 0;
+    const ACCESS_ALLOWED_OBJECT: u8 = 5;
+    const ACCESS_ALLOWED_CALLBACK: u8 = 9;
+    const ACCESS_ALLOWED_CALLBACK_OBJECT: u8 = 11;
+
+    /// The entries of `path`'s DACL and its owner, or `None` when it has no DACL.
+    fn read_access(path: &Path) -> io::Result<Option<(Vec<Ace>, Option<String>)>> {
+        let name = wide(path);
+        let mut dacl: *mut ACL = ptr::null_mut();
+        let mut owner: PSID = ptr::null_mut();
+        let mut sd: PSECURITY_DESCRIPTOR = ptr::null_mut();
+        // SAFETY: `name` is NUL-terminated; the out pointers are written on success and
+        // point into `sd`.
+        let e = unsafe {
+            GetNamedSecurityInfoW(
+                name.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION,
+                &mut owner,
+                ptr::null_mut(),
+                &mut dacl,
+                ptr::null_mut(),
+                &mut sd,
+            )
+        };
+        if e != ERROR_SUCCESS {
+            return Err(io::Error::from_raw_os_error(e as i32));
+        }
+        let _sd = Local(sd);
+        if dacl.is_null() {
+            return Ok(None);
+        }
+        let owner = if owner.is_null() {
+            None
+        } else {
+            Some(sid_string(owner)?)
+        };
+        // SAFETY: `dacl` points at a valid ACL inside `sd`.
+        let count = unsafe { (*dacl).AceCount };
+        let mut aces = Vec::with_capacity(count as usize);
+        for i in 0..u32::from(count) {
+            let mut ace: *mut core::ffi::c_void = ptr::null_mut();
+            // SAFETY: `i` is below the ACL's entry count; `ace` points into the ACL.
+            if unsafe { GetAce(dacl, i, &mut ace) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: every ACE starts with an ACE_HEADER.
+            let header = unsafe { &*(ace as *const ACE_HEADER) };
+            let kind = header.AceType;
+            let allow = matches!(
+                kind,
+                ACCESS_ALLOWED
+                    | ACCESS_ALLOWED_OBJECT
+                    | ACCESS_ALLOWED_CALLBACK
+                    | ACCESS_ALLOWED_CALLBACK_OBJECT
+            );
+            let inherit_only = u32::from(header.AceFlags) & INHERIT_ONLY_ACE != 0;
+            if !allow {
+                aces.push(Ace {
+                    allow,
+                    inherit_only,
+                    mask: 0,
+                    sid: None,
+                });
+                continue;
+            }
+            // SAFETY: allow entries of every kind put the mask right after the header.
+            let entry = unsafe { &*(ace as *const ACCESS_ALLOWED_ACE) };
+            // The SID follows the mask in plain and callback entries; object entries put
+            // object types first, so their SID isn't read and they count as others.
+            let sid = if matches!(kind, ACCESS_ALLOWED | ACCESS_ALLOWED_CALLBACK) {
+                Some(sid_string(&entry.SidStart as *const u32 as PSID)?)
+            } else {
+                None
+            };
+            aces.push(Ace {
+                allow,
+                inherit_only,
+                mask: entry.Mask,
+                sid,
+            });
+        }
+        Ok(Some((aces, owner)))
+    }
+
+    /// A SID as `S-1-…`.
+    fn sid_string(sid: PSID) -> io::Result<String> {
+        let mut text: *mut u16 = ptr::null_mut();
+        // SAFETY: the caller passes a valid SID; `text` is written on success.
+        if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let text = Local(text.cast());
+        // SAFETY: ConvertSidToStringSidW returns a NUL-terminated string.
+        Ok(unsafe { from_wide(text.0 as *const u16) })
     }
 
     fn wide(path: &Path) -> Vec<u16> {
@@ -316,14 +389,8 @@ mod imp {
         }
         // SAFETY: on success the buffer starts with a TOKEN_USER.
         let user = unsafe { &*(buf.as_ptr() as *const TOKEN_USER) };
-        let mut text: *mut u16 = ptr::null_mut();
-        // SAFETY: the SID points into `buf`, alive for this call.
-        if unsafe { ConvertSidToStringSidW(user.User.Sid, &mut text) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let text = Local(text.cast());
-        // SAFETY: ConvertSidToStringSidW returns a NUL-terminated string.
-        Ok(unsafe { from_wide(text.0 as *const u16) })
+        // The SID points into `buf`, alive for this call.
+        sid_string(user.User.Sid)
     }
 
     /// Replace `path`'s DACL with the one in `sddl`; `D:P(…)` also stops it inheriting
@@ -377,7 +444,9 @@ mod imp {
     }
 
     /// `path`'s DACL as SDDL, or `None` when it has none.
+    #[cfg(test)]
     pub fn dacl_sddl(path: &Path) -> io::Result<Option<String>> {
+        use windows_sys::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
         let name = wide(path);
         let mut dacl: *mut ACL = ptr::null_mut();
         let mut sd: PSECURITY_DESCRIPTOR = ptr::null_mut();
@@ -440,58 +509,85 @@ mod tests {
 
     const ME: &str = "S-1-5-21-1004336348-1177238915-682003330-1001";
 
+    const USERS: &str = "S-1-5-32-545";
+
+    fn allow(mask: u32, sid: &str) -> Ace {
+        Ace {
+            allow: true,
+            inherit_only: false,
+            mask,
+            sid: Some(sid.into()),
+        }
+    }
+
     #[test]
-    fn who_else_a_dacl_lets_read() {
-        let others = |sddl: &str| others_allowed(sddl, ME);
-        // What a file made in %APPDATA% inherits: this account, SYSTEM, Administrators.
-        assert!(!others(&format!(
-            "D:AI(A;ID;FA;;;{ME})(A;ID;FA;;;SY)(A;ID;FA;;;BA)"
-        )));
-        // What restrict sets.
-        assert!(!others(&format!(
-            "D:P(A;;FA;;;{ME})(A;;FA;;;SY)(A;;FA;;;BA)"
-        )));
-        // Users, Authenticated Users or Everyone reading it, by any spelling of read.
-        for sid in ["BU", "AU", "WD"] {
-            for rights in ["FR", "0x1200a9", "GR", "FA", "GA", "CC", "0x1"] {
-                let sddl = format!("D:(A;;FA;;;{ME})(A;;{rights};;;{sid})");
-                assert!(others(&sddl), "{sddl}");
+    fn who_else_an_acl_lets_read() {
+        let others = |aces: &[Ace]| lets_others_read(aces, ME, Some(ME));
+        let mine = allow(0x1F01FF, ME);
+        // What a file made in %APPDATA% inherits, and what restrict sets: this account,
+        // SYSTEM, Administrators.
+        assert!(!others(&[
+            mine.clone(),
+            allow(0x1F01FF, "S-1-5-18"),
+            allow(0x1F01FF, "S-1-5-32-544")
+        ]));
+        // Users, Authenticated Users or Everyone, with any mask that reads the data:
+        // FILE_READ_DATA however it's combined (0x20019 prints as KR, 0xF003F as KA),
+        // GENERIC_READ, GENERIC_ALL, MAXIMUM_ALLOWED.
+        for sid in [USERS, "S-1-5-11", "S-1-1-0"] {
+            for mask in [
+                0x120089,
+                0x1200a9,
+                0x20019,
+                0xF003F,
+                0x1,
+                0x8000_0000,
+                0x1000_0000,
+                0x0200_0000,
+            ] {
+                assert!(others(&[mine.clone(), allow(mask, sid)]), "{sid} {mask:#x}");
             }
         }
         // Another account.
-        assert!(others(&format!(
-            "D:(A;;FA;;;{ME})(A;;FA;;;S-1-5-21-1004336348-1177238915-682003330-1002)"
-        )));
-        // Rights that don't read the contents: SYNCHRONIZE, READ_CONTROL.
-        assert!(!others(&format!("D:(A;;FA;;;{ME})(A;;0x100000;;;BU)")));
-        assert!(!others(&format!("D:(A;;FA;;;{ME})(A;;RC;;;BU)")));
-        // Only for what's made inside a folder, not the file itself.
-        assert!(!others(&format!("D:(A;;FA;;;{ME})(A;OICIIO;FA;;;BU)")));
-        // A deny entry lets nobody in.
-        assert!(!others(&format!("D:(D;;FA;;;BU)(A;;FA;;;{ME})")));
-        // The owner, Creator Owner, and the long forms of SYSTEM and Administrators.
-        for sid in ["OW", "CO", "S-1-5-18", "S-1-5-32-544", "S-1-3-4"] {
-            assert!(!others(&format!("D:(A;;FA;;;{sid})")), "{sid}");
+        let other = "S-1-5-21-1004336348-1177238915-682003330-1002";
+        assert!(others(&[mine.clone(), allow(0x1F01FF, other)]));
+        // Rights that don't read the contents: SYNCHRONIZE, READ_CONTROL, writing.
+        for mask in [0x100000, 0x20000, 0x120116] {
+            assert!(!others(&[mine.clone(), allow(mask, USERS)]), "{mask:#x}");
         }
-        // AppContainer and package SIDs, as on AppData a packaged app redirects.
-        assert!(!others("D:(A;;FA;;;AC)"));
-        assert!(!others(
-            "D:(A;;FR;;;S-1-15-2-1430448594-2639229838-973813799-439329657-1197984847)"
-        ));
-        // The built-in Administrator account is "me" only when I am it.
-        assert!(others(&format!("D:(A;;FA;;;{ME})(A;;FA;;;LA)")));
-        assert!(!others_allowed(
-            "D:(A;;FA;;;LA)",
-            "S-1-5-21-1004336348-1177238915-682003330-500"
-        ));
-        // No DACL at all lets everyone in; an object ACE that reads counts too.
-        assert!(others("D:NO_ACCESS_CONTROL"));
-        assert!(others(&format!(
-            "D:(A;;FA;;;{ME})(OA;;CCDC;bf967aba-0de6-11d0-a285-00aa003049e2;;BU)"
-        )));
-        // An O:/G:/S: part around the DACL doesn't confuse it.
-        assert!(others(&format!("O:{ME}G:{ME}D:(A;;FR;;;BU)S:AI")));
-        assert!(!others(&format!("O:BUG:BUD:(A;;FA;;;{ME})")));
+        // Only for what's made inside a folder, not the file itself.
+        let inherit_only = Ace {
+            inherit_only: true,
+            ..allow(0x1F01FF, USERS)
+        };
+        assert!(!others(&[mine.clone(), inherit_only]));
+        // A deny entry lets nobody in.
+        let deny = Ace {
+            allow: false,
+            ..allow(0x1F01FF, USERS)
+        };
+        assert!(!others(&[deny, mine.clone()]));
+        // Creator Owner, Owner Rights, AppContainer and package SIDs.
+        for sid in [
+            "S-1-3-0",
+            "S-1-3-4",
+            "S-1-15-2-1",
+            "S-1-15-2-1430448594-2639229838",
+        ] {
+            assert!(!others(&[allow(0x1F01FF, sid)]), "{sid}");
+        }
+        // An entry whose SID can't be told (an object entry) counts as someone else.
+        let unknown = Ace {
+            sid: None,
+            ..allow(0x1, USERS)
+        };
+        assert!(others(&[mine.clone(), unknown]));
+        // A file someone else owns isn't private, whatever its DACL: the owner can
+        // change it. SYSTEM or Administrators owning it is fine.
+        let only_mine = std::slice::from_ref(&mine);
+        assert!(lets_others_read(only_mine, ME, Some(other)));
+        assert!(!lets_others_read(only_mine, ME, Some("S-1-5-32-544")));
+        assert!(!lets_others_read(only_mine, ME, None));
     }
 
     #[test]
@@ -656,5 +752,41 @@ mod tests {
         assert!(e.starts_with("Couldn't save integrations.toml: "), "{e}");
         assert!(e.ends_with(" Is it open in another program?"), "{e}");
         assert!(!dir.path().join("integrations.toml.tmp").exists());
+    }
+
+    /// Read access Windows prints as a registry-style code (Users with 0x20019 reads back
+    /// as `KR`) still counts as other accounts reading.
+    #[cfg(windows)]
+    #[test]
+    fn privacy_sees_read_access_however_windows_prints_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.toml");
+        fs::write(&path, "secret").unwrap();
+        let me = imp::current_user_sid().unwrap();
+        for rights in ["0x20019", "0xF003F", "0x1", "0x80000000"] {
+            imp::apply_sddl(&path, &format!("D:P(A;;FA;;;{me})(A;;{rights};;;BU)")).unwrap();
+            assert_eq!(privacy(&path), Privacy::ReadableByOthers, "{rights}");
+        }
+        // Rights that don't read the contents.
+        imp::apply_sddl(&path, &format!("D:P(A;;FA;;;{me})(A;;0x120000;;;BU)")).unwrap();
+        assert_eq!(privacy(&path), Privacy::Private);
+    }
+
+    /// While the temporary file is being made private and filled, nobody else can open
+    /// it: a handle opened before restrict could read the secret afterwards.
+    #[cfg(windows)]
+    #[test]
+    fn nobody_else_can_open_the_tmp_while_its_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("integrations.toml");
+        let mut opened = None;
+        write_atomic_with(&path, b"secret", "integrations.toml", |tmp| {
+            opened = Some(fs::File::open(tmp).map(drop).map_err(|e| e.raw_os_error()));
+            restrict(tmp)
+        })
+        .unwrap();
+        assert_eq!(opened, Some(Err(Some(32))), "a sharing violation");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
+        assert_eq!(privacy(&path), Privacy::Private);
     }
 }
