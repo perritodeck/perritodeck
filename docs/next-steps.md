@@ -800,12 +800,16 @@ and the checks):
   step for newcomers and the first thing the OBS pass hits.
 - ✅ **Imports ask about keys that run things (2026-10-24).** Importing a
   `.perritoprofile` now lists every key that runs a program, opens a file, uses a plugin,
-  or types text and presses Enter, on every page, state, step and slider, before anything
-  is written; the person picks Import with these keys off, Import everything, or Cancel
+  or types something and confirms it (text or single-character hotkeys with Enter, Space,
+  or a line break or tab), on every page, state, step and slider, before anything is
+  written; the person picks Import with these keys off, Import everything, or Cancel
   (`host/crates/host/src/import.rs`, `perritodeck_profile::risk`, `ImportCheck.svelte`).
-  MCP's `set_key` uses the same rules, so typing that presses Enter now needs the "run"
-  permission too. Live-value arguments (`{plugin:…:…:argument}`) aren't listed yet
-  (`docs/SECURITY.md`). Not yet tried in the real app: one manual pass with a starter
+  A profile whose keys name images outside the profiles folder is refused, and key images
+  are read only from regular files on this computer (no shares or devices, 20 MB at
+  most). MCP's `set_key` uses the same rules, so such typing now needs the "run"
+  permission too; "edit" with "press" still adds up to it across two keys, which the app
+  and `docs/SECURITY.md` say (the maintainer decides whether to go further). Live-value
+  arguments (`{plugin:…:…:argument}`) aren't listed yet (`docs/SECURITY.md`). Not yet tried in the real app: one manual pass with a starter
   export (the dialog lists Run a command, Narrator reads the heading and intro, Escape
   cancels, and Import with this key off leaves the key as a label).
 - **macOS bundle:** no entitlements or usage strings (the `macOS` block of
