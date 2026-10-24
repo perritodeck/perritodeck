@@ -12,7 +12,7 @@
 schema_version = 1
 name = "Starter"
 # companion = true   # show Bitfocus Companion's buttons instead of the pages below
-#                    # (needs [companion] in integrations.toml)
+#                    # (set it up in Settings → Integrations)
 
 # Every tablet gets this grid. Delete these lines to size the grid to each tablet.
 [grid]
@@ -150,8 +150,9 @@ steps = [
 #   action = { type = "random", actions = [
 #     { type = "text", text = "Good game!" }, { type = "text", text = "Well played!" } ] }
 
-# OBS Studio and Home Assistant: put their addresses and passwords in
-# integrations.toml next to this file (run `perritodeck-host paths` to find it):
+# OBS Studio and Home Assistant: set them up in the app's Settings → Integrations, or put
+# their addresses and passwords in integrations.toml in the settings folder (run
+# `perritodeck-host paths` to find it):
 #
 #   [obs]
 #   url = "ws://127.0.0.1:4455"      # OBS → Tools → WebSocket Server Settings

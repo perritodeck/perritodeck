@@ -197,16 +197,24 @@ pub fn mcp_section(
 /// addresses or secrets.
 pub fn integrations_from_file(data_dir: &Path) -> Section {
     let mut s = Section::new("Integrations");
-    match perritodeck_integrations::Config::load(&crate::integrations_path(data_dir)) {
+    let path = crate::integrations_path(data_dir);
+    match perritodeck_integrations::Config::load(&path) {
         Ok(c) => {
-            let set = |b: bool| if b { "set up" } else { "not set up" };
-            s.field("OBS", set(c.obs.is_some()));
-            s.field("Home Assistant", set(c.home_assistant.is_some()));
-            s.field("Companion", set(c.companion.is_some()));
+            let state = |enabled: Option<bool>| match enabled {
+                Some(true) => "set up",
+                Some(false) => "turned off",
+                None => "not set up",
+            };
+            s.field("OBS", state(c.obs.map(|o| o.enabled)));
+            s.field("Home Assistant", state(c.home_assistant.map(|h| h.enabled)));
+            s.field("Companion", state(c.companion.map(|k| k.enabled)));
         }
         Err(_) => {
             s.line("integrations.toml has a mistake and is ignored");
         }
+    }
+    if let Some(line) = crate::integrations::privacy_line(&path) {
+        s.line(line);
     }
     s
 }

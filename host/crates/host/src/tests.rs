@@ -2596,3 +2596,351 @@ async fn diagnostics_say_what_kind_of_network_this_is() {
         assert!(report.contains(&category), "{report}");
     }
 }
+
+// ---- Settings → Integrations ----
+
+fn ha_input(url: &str, token: Secret) -> IntegrationInput {
+    IntegrationInput::HomeAssistant {
+        change: IntegrationChange::Use(perritodeck_integrations::file::HaInput {
+            url: url.into(),
+            token,
+        }),
+    }
+}
+
+/// The form's view says whether a password is saved, never what it is. Saving writes
+/// the file owner-only, keeps the rest of it, and takes effect after a restart: what
+/// runs now stays as it started.
+#[tokio::test]
+async fn the_form_view_never_holds_secrets_and_saving_asks_for_a_restart() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = integrations_path(dir.path());
+    std::fs::write(
+        &path,
+        "# my note\n[obs]\nurl = \"ws://127.0.0.1:4455\"\npassword = \"hunter2\"\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    let view = host.integrations_view().await.unwrap();
+    let obs = view.obs.as_ref().unwrap();
+    assert!(obs.has_password && obs.enabled);
+    assert!(!view.restart_needed);
+    assert_eq!(view.mistake, None);
+    assert!(!serde_json::to_string(&view).unwrap().contains("hunter2"));
+
+    let view = host
+        .save_integration(ha_input("ha.lan", Secret::Set("Bearer abc".into())))
+        .await
+        .unwrap();
+    assert!(view.restart_needed, "saved settings wait for a restart");
+    let ha = view.home_assistant.as_ref().unwrap();
+    assert_eq!(ha.url, "http://ha.lan:8123");
+    assert!(ha.has_token);
+    let json = serde_json::to_string(&view).unwrap();
+    assert!(!json.contains("abc") && !json.contains("hunter2"), "{json}");
+    assert_eq!(view.privacy, IntegrationsPrivacy::Private);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("# my note\n[obs]\n"), "{text}");
+    assert!(text.contains("password = \"hunter2\""), "{text}");
+    assert!(text.ends_with("[home_assistant]\nurl = \"http://ha.lan:8123\"\ntoken = \"abc\"\n"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    // Not applied live: the running host still has only OBS.
+    assert_eq!(host.status().integrations, ["OBS"]);
+    // Saving what started puts it back to "nothing to restart for".
+    let remove = IntegrationInput::HomeAssistant {
+        change: IntegrationChange::Remove,
+    };
+    let view = host.save_integration(remove).await.unwrap();
+    assert!(!view.restart_needed);
+}
+
+/// `enabled = false` keeps the token, and keys say where to turn it on again.
+#[tokio::test]
+async fn turned_off_ha_says_turned_off_and_keeps_the_token() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        integrations_path(dir.path()),
+        "[home_assistant]\nurl = \"http://ha:8123\"\ntoken = \"t\"\nenabled = false\n\n[companion]\nenabled = false\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    let status = host.status();
+    assert!(status.integrations.is_empty());
+    assert_eq!(status.integrations_off, ["Home Assistant", "Companion"]);
+    assert_eq!(status.companion, None, "Companion isn't started");
+    let ha = ActionSpec::HomeAssistant {
+        service: "light.toggle".into(),
+        entity: None,
+        data: None,
+    };
+    assert_eq!(
+        host.test_action(&ha).await,
+        Err("Home Assistant is turned off in Settings → Integrations".into())
+    );
+    let view = host.integrations_view().await.unwrap();
+    let h = view.home_assistant.unwrap();
+    assert!(!h.enabled && h.has_token);
+    let report = host.diagnostics(None);
+    assert!(report.contains("turned off"), "{report}");
+    let offline = diagnostics::integrations_from_file(dir.path());
+    assert!(offline.lines.iter().any(|l| l.contains("turned off")));
+}
+
+/// A mistake in the file makes the form read-only. Start over puts the file aside,
+/// private, and the form starts from nothing.
+#[tokio::test]
+async fn a_file_with_a_mistake_is_read_only_until_started_over() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = integrations_path(dir.path());
+    std::fs::write(&path, "[obs]\npassword = \"hunter2\"\n").unwrap();
+    let host = quiet_host(dir.path()).await;
+    std::fs::write(&path, "[obs]\npasword = \"hunter2\"\n").unwrap();
+    let view = host.integrations_view().await.unwrap();
+    let mistake = view.mistake.clone().unwrap();
+    assert!(
+        mistake.starts_with("line 2: unknown field `pasword`"),
+        "{mistake}"
+    );
+    assert!(view.running_older, "OBS runs on what was read at start");
+    assert!(view.obs.is_none() && !view.restart_needed);
+    let e = host
+        .save_integration(ha_input("ha.lan", Secret::Set("abc".into())))
+        .await
+        .unwrap_err();
+    assert!(e.starts_with("integrations.toml has a mistake ("), "{e}");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "[obs]\npasword = \"hunter2\"\n"
+    );
+
+    let view = host.start_integrations_over().await.unwrap();
+    let old = dir.path().join("integrations.toml.old");
+    assert_eq!(
+        std::fs::read_to_string(&old).unwrap(),
+        "[obs]\npasword = \"hunter2\"\n"
+    );
+    assert_eq!(
+        perritodeck_core::private::privacy(&old),
+        perritodeck_core::private::Privacy::Private
+    );
+    assert!(!path.exists());
+    assert_eq!(view.mistake, None);
+    assert_eq!(view.privacy, IntegrationsPrivacy::NoFile);
+    assert!(view.restart_needed, "OBS goes at the next start");
+}
+
+/// Open the file makes one from the template when there's none: private, and nothing
+/// set up.
+#[tokio::test]
+async fn opening_the_file_makes_a_private_template() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let path = host.ensure_integrations_file().await.unwrap();
+    assert_eq!(path, integrations_path(dir.path()));
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("# [obs]"));
+    assert_eq!(
+        perritodeck_integrations::Config::parse(&text).unwrap(),
+        Default::default()
+    );
+    let view = host.integrations_view().await.unwrap();
+    assert_eq!(view.privacy, IntegrationsPrivacy::Private);
+    assert!(!view.restart_needed);
+    // A file that's there stays as it is.
+    std::fs::write(&path, "[companion]\n").unwrap();
+    host.ensure_integrations_file().await.unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "[companion]\n");
+}
+
+/// A one-shot Home Assistant that answers /api/config and says which token it got.
+fn fake_ha_config() -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut auth = String::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(v) = line.to_ascii_lowercase().strip_prefix("authorization:") {
+                auth = line[line.len() - v.len()..].trim().to_owned();
+            }
+        }
+        let _ = tx.send(auth);
+        let body = r#"{"version":"2026.10.1","location_name":"Home"}"#;
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(reply.as_bytes()).unwrap();
+    });
+    (url, rx)
+}
+
+/// Test connection with the token kept: the saved one is used, from the file as it is
+/// now, and never reaches the window.
+#[tokio::test]
+async fn test_with_keep_uses_the_saved_token() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let (url, seen) = fake_ha_config();
+    std::fs::write(
+        integrations_path(dir.path()),
+        format!("[home_assistant]\nurl = \"{url}\"\ntoken = \"saved-token\"\n"),
+    )
+    .unwrap();
+    let test = IntegrationTest::HomeAssistant(perritodeck_integrations::file::HaInput {
+        url: url.clone(),
+        token: Secret::Keep,
+    });
+    let got = host.test_integration(test).await;
+    assert_eq!(
+        got,
+        Checked::ok("Connected to Home Assistant 2026.10.1 (Home).")
+    );
+    assert_eq!(seen.recv().unwrap(), "Bearer saved-token");
+}
+
+/// A kept token goes over plain http:// only to the saved host or one on the local
+/// network; anywhere else it has to be typed again. Nothing is sent meanwhile.
+#[tokio::test]
+async fn keep_token_to_a_new_public_http_host_needs_retyping() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        integrations_path(dir.path()),
+        "[home_assistant]\nurl = \"http://homeassistant.local:8123\"\ntoken = \"t\"\n",
+    )
+    .unwrap();
+    let host = quiet_host(dir.path()).await;
+    let test = |url: &str| {
+        IntegrationTest::HomeAssistant(perritodeck_integrations::file::HaInput {
+            url: url.into(),
+            token: Secret::Keep,
+        })
+    };
+    assert_eq!(
+        host.test_integration(test("http://ha.example.com:8123"))
+            .await,
+        Checked::failed("Type the token again to use it with a new address.")
+    );
+    let e = host
+        .save_integration(ha_input("http://ha.example.com:8123", Secret::Keep))
+        .await
+        .unwrap_err();
+    assert_eq!(e, "Type the token again to use it with a new address.");
+}
+
+#[tokio::test]
+async fn a_kept_password_from_a_file_with_a_mistake_says_so() {
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    std::fs::write(integrations_path(dir.path()), "[obs]\npasword = \"x\"\n").unwrap();
+    let test = IntegrationTest::Obs(perritodeck_integrations::file::ObsInput {
+        url: "ws://127.0.0.1:4455".into(),
+        password: Secret::Keep,
+    });
+    let got = host.test_integration(test).await;
+    assert!(!got.ok);
+    assert!(
+        got.message.starts_with(
+            "integrations.toml has a mistake, so the saved password can't be used: line 2: \
+             unknown field `pasword`"
+        ),
+        "{}",
+        got.message
+    );
+}
+
+#[tokio::test]
+async fn test_connection_reads_companions_greeting() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let heard = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        write
+            .write_all(b"BEGIN CompanionVersion=4.1.0 ApiVersion=1.12.0\n")
+            .await
+            .unwrap();
+        let mut lines = tokio::io::BufReader::new(read).lines();
+        lines.next_line().await.unwrap()
+    });
+    let test = IntegrationTest::Companion(perritodeck_integrations::file::CompanionInput {
+        host: "127.0.0.1".into(),
+        port: port.to_string(),
+    });
+    assert_eq!(
+        host.test_integration(test).await,
+        Checked::ok("Connected to Companion 4.1.0 (Satellite API 1.12.0).")
+    );
+    assert_eq!(heard.await.unwrap().as_deref(), Some("QUIT"));
+    // A port that isn't a number never gets as far as the network.
+    let test = IntegrationTest::Companion(perritodeck_integrations::file::CompanionInput {
+        host: "127.0.0.1".into(),
+        port: "70000".into(),
+    });
+    assert_eq!(
+        host.test_integration(test).await,
+        Checked::failed("Use a number from 1 to 65535.")
+    );
+}
+
+#[test]
+fn companions_websocket_port_is_named() {
+    let m = integrations::companion_problem(
+        &perritodeck_companion::ProbeError::Silent,
+        "pc:16623",
+        16623,
+        Duration::from_millis(300),
+    );
+    assert_eq!(
+        m,
+        "Something at pc:16623 took the connection but didn't greet like Companion within \
+         0.3 seconds. Check the port: Companion's Satellite port is 16622, not the port of its \
+         web page. (16623 is Companion's WebSocket port; PerritoDeck uses 16622.)"
+    );
+}
+
+/// A file other accounts can read is reported, not changed; Make it private fixes it.
+#[cfg(unix)]
+#[tokio::test]
+async fn readable_file_is_reported_in_diagnostics() {
+    use std::os::unix::fs::PermissionsExt;
+    let _one = INTEGRATIONS_TOML.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = integrations_path(dir.path());
+    std::fs::write(&path, "[companion]\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let host = quiet_host(dir.path()).await;
+    let says = "integrations.toml can be read by other accounts on this computer";
+    assert!(host.diagnostics(None).contains(says));
+    assert_eq!(
+        host.integrations_view().await.unwrap().privacy,
+        IntegrationsPrivacy::ReadableByOthers
+    );
+    let view = host.protect_integrations_file().await.unwrap();
+    assert_eq!(view.privacy, IntegrationsPrivacy::Private);
+    assert!(!host.diagnostics(None).contains(says));
+}

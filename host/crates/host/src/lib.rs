@@ -9,6 +9,7 @@
 pub mod diagnostics;
 pub mod focus;
 mod import;
+mod integrations;
 mod live;
 pub mod logging;
 pub mod mcp;
@@ -43,8 +44,13 @@ use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::{info, warn};
 
 pub use import::{ImportChoice, ImportPreview, ImportStep, Imported};
+pub use integrations::{IntegrationsPrivacy, IntegrationsView};
 pub use mcp::{McpSnippets, McpState, McpView};
 pub use perritodeck_actions::ActionSpec;
+pub use perritodeck_integrations::{
+    check::Checked,
+    file::{Change as IntegrationChange, IntegrationInput, IntegrationTest, Secret},
+};
 pub use perritodeck_mcp::bridge_stdio_to_http;
 pub use perritodeck_plugins::{
     BrokenPlugin, Manifest as PluginManifest, PluginInfo, Status as PluginStatus,
@@ -301,6 +307,8 @@ pub struct HostStatus {
     pub profile_path: String,
     pub profiles_dir: String,
     pub integrations: Vec<String>,
+    /// Integrations saved with `enabled = false`: kept, but off.
+    pub integrations_off: Vec<String>,
     /// The mistake in `integrations.toml`, if it has one; the file is then ignored, so
     /// OBS, Home Assistant and Companion are all off until it's fixed and the app
     /// restarts.
@@ -514,8 +522,10 @@ pub struct Host {
     pub handle: ServerHandle,
     pub deck: Arc<Deck>,
     insecure: bool,
-    integrations: Vec<String>,
-    integrations_error: Option<String>,
+    /// What integrations.toml said at start: what runs until a restart.
+    integrations_started: integrations::Started,
+    /// One read, edit and write of integrations.toml at a time.
+    integrations_lock: tokio::sync::Mutex<()>,
     shared: Arc<Shared>,
     plugins: Arc<perritodeck_plugins::PluginHost>,
     plugin_catalog: Option<PathBuf>,
@@ -650,22 +660,23 @@ impl Host {
                     (Default::default(), Some(e))
                 }
             };
+        integrations::warn_if_readable(&integrations_path(&dir));
         let companion_config = integrations_config.companion.clone();
         let builtins = perritodeck_integrations::Builtins::new(
-            integrations_config,
+            integrations_config.clone(),
             integrations_error.clone(),
         );
-        let mut integrations: Vec<String> = builtins
-            .configured()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        if companion_config.is_some() {
-            integrations.push("Companion".into());
+        let on = integrations_config.names();
+        let off = integrations_config.turned_off();
+        if !on.is_empty() || !off.is_empty() {
+            let off = off.iter().map(|name| format!("{name} (off)"));
+            let names: Vec<String> = on.iter().map(|n| n.to_string()).chain(off).collect();
+            info!("integrations: {}", names.join(", "));
         }
-        if !integrations.is_empty() {
-            info!("integrations: {}", integrations.join(", "));
-        }
+        let integrations_started = integrations::Started {
+            config: integrations_config,
+            error: integrations_error,
+        };
         // Plugins publish live values into the deck, which exists only below; a shim
         // forwards them once it does.
         let live_sink: Arc<std::sync::OnceLock<Arc<Deck>>> = Arc::default();
@@ -725,7 +736,11 @@ impl Host {
             }
         };
         let companion_state = companion::CompanionState::default();
-        if let Some(c) = companion_config {
+        if companion_config.as_ref().is_some_and(|c| !c.enabled) {
+            // Saved but turned off: tablets on a Companion profile say so.
+            deck.remote_status(Some("Companion\nis off"));
+        }
+        if let Some(c) = companion_config.filter(|c| c.enabled) {
             info!("Companion: connecting to {}:{}", c.host, c.port);
             let names = store.clone();
             let bridge = companion::Bridge::start(
@@ -852,8 +867,8 @@ impl Host {
             handle,
             deck,
             insecure: opts.insecure,
-            integrations,
-            integrations_error,
+            integrations_started,
+            integrations_lock: Default::default(),
             shared,
             history: Default::default(),
             executor: test_executor,
@@ -904,8 +919,15 @@ impl Host {
             logs_dir: self.logs_dir().display().to_string(),
             profile_path: self.profile_path.display().to_string(),
             profiles_dir: self.profiles_dir.display().to_string(),
-            integrations: self.integrations.clone(),
-            integrations_error: self.integrations_error.clone(),
+            integrations: self.integrations(),
+            integrations_off: self
+                .integrations_started
+                .config
+                .turned_off()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            integrations_error: self.integrations_started.error.clone(),
             paused: self.deck.paused(),
             auto_switch_supported: focus::supported(),
             usb_devices: usb.forwarded.iter().cloned().collect(),
@@ -916,8 +938,18 @@ impl Host {
                 .lock()
                 .ok()
                 .map(|s| s.clone())
-                .filter(|_| self.integrations.iter().any(|i| i == "Companion")),
+                .filter(|_| self.integrations().iter().any(|i| i == "Companion")),
         }
+    }
+
+    /// The integrations that are on, as started.
+    fn integrations(&self) -> Vec<String> {
+        self.integrations_started
+            .config
+            .names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
     }
 
     /// The addresses tablets on the network can reach this host at. Looked up each
@@ -1375,13 +1407,20 @@ impl Host {
         sections.push(sd);
 
         let mut integrations = Section::new("Integrations");
-        if self.integrations_error.is_some() {
+        if self.integrations_started.error.is_some() {
             // Settings names the mistake; the report only says the file is ignored.
             integrations.line("integrations.toml has a mistake and is ignored");
         }
+        if let Some(line) = integrations::privacy_line(&integrations_path(&self.data_dir)) {
+            integrations.line(line);
+        }
         let tokens = self.deck.live_tokens();
+        let on = self.integrations();
+        let off = self.integrations_started.config.turned_off();
         for (name, prefix) in [("OBS", "obs:"), ("Home Assistant", "ha:")] {
-            let state = if !self.integrations.iter().any(|i| i == name) {
+            let state = if off.contains(&name) {
+                "turned off".to_owned()
+            } else if !on.iter().any(|i| i == name) {
                 "not set up".to_owned()
             } else {
                 let values: Vec<Option<String>> = tokens
@@ -1401,12 +1440,12 @@ impl Host {
             };
             integrations.field(name, state);
         }
-        integrations.field(
-            "Companion",
-            self.status()
-                .companion
-                .unwrap_or_else(|| "not set up".to_owned()),
-        );
+        let companion = match self.status().companion {
+            Some(state) => state,
+            None if off.contains(&"Companion") => "turned off".to_owned(),
+            None => "not set up".to_owned(),
+        };
+        integrations.field("Companion", companion);
         sections.push(integrations);
 
         let usb = if self.usb_available {
@@ -1885,7 +1924,7 @@ impl Host {
         doc["companion"] = toml_edit::value(true);
         let text = format!(
             "# Shows the buttons from Bitfocus Companion. Tell PerritoDeck where Companion runs in\n\
-             # integrations.toml:\n#   [companion]\n#   host = \"127.0.0.1\"\n{doc}"
+             # Settings → Integrations, or in integrations.toml:\n#   [companion]\n#   host = \"127.0.0.1\"\n{doc}"
         );
         let id = unique_id(&slug(name), |id| self.path_of(id).exists());
         self.write_profile(&self.path_of(&id), &text)?;
