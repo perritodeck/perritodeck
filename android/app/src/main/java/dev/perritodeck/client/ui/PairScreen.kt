@@ -26,10 +26,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -103,6 +106,7 @@ private fun PairForm(state: PairState.Form, onSubmit: (String, String) -> Unit, 
     var address by rememberSaveable(state) { mutableStateOf(state.address) }
     var code by rememberSaveable { mutableStateOf("") }
     val submit = { onSubmit(address, code) }
+    val codeFocus = remember { FocusRequester() }
 
     Text(stringResource(R.string.pair_title), style = MaterialTheme.typography.headlineMedium)
     Spacer(Modifier.height(8.dp))
@@ -116,6 +120,9 @@ private fun PairForm(state: PairState.Form, onSubmit: (String, String) -> Unit, 
         placeholder = { Text("192.168.1.20") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+        // Straight to the code: plain "next" stops on the preset buttons in between whenever
+        // they can take focus (out of touch mode, e.g. typed on a keyboard), closing the keyboard.
+        keyboardActions = KeyboardActions(onNext = { codeFocus.requestFocus() }),
         modifier = Modifier.fillMaxWidth().testTag("address"),
     )
     Spacer(Modifier.height(8.dp))
@@ -131,7 +138,7 @@ private fun PairForm(state: PairState.Form, onSubmit: (String, String) -> Unit, 
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Go),
         keyboardActions = KeyboardActions(onGo = { submit() }),
-        modifier = Modifier.fillMaxWidth().testTag("code"),
+        modifier = Modifier.fillMaxWidth().focusRequester(codeFocus).testTag("code"),
     )
     state.error?.let {
         Spacer(Modifier.height(12.dp))

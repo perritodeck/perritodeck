@@ -66,6 +66,8 @@ A configuration cache entry keeps the file paths it was stored with. If a build 
 
 ## Launcher icon
 
-The icon is the paw from `docs/assets/`: `res/drawable/ic_launcher.xml` on Android 5 to 7 (API 22 to 25), and on Android 8 and newer the adaptive icon in `res/drawable-anydpi-v26/`, with a themed (monochrome) layer for Android 13. The files are copies of `docs/assets/android/`, and `LauncherIconTest` checks that they match and that each one places the paw where its SVG does.
+The icon is the paw from `docs/assets/`: on Android 5 to 7 (API 22 to 25) the bitmaps in `res/drawable-mdpi/` to `res/drawable-xxxhdpi/ic_launcher.png`, and on Android 8 and newer the adaptive icon in `res/drawable-anydpi-v26/`, with a themed (monochrome) layer for Android 13. The files are copies of `docs/assets/android/`, and `LauncherIconTest` checks that they match, that each vector places the paw where its SVG does, and that every density has its bitmap at the right size.
+
+The fallback is bitmaps, not a vector, because on API 22 and 23 a vector is drawn at the screen's own density whatever density the launcher asks for, and launchers don't scale icons up: a 160 dpi tablet's launcher asks for 240 dpi icons, so a 48 dp vector came out a third smaller than the other apps' icons. `py -3 scripts/android-launcher-pngs.py` (needs Pillow) remakes them from `docs/assets/icon-rounded-1024.png`.
 
 To look at the API 22 to 25 icon, use the API 22 or API 25 emulator or a Fire OS 5 tablet. The Fire 7 test tablet runs Fire OS 7 (API 28), so it shows the adaptive icon.
