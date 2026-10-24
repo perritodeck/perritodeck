@@ -194,7 +194,8 @@ check:
 - first run
 - autostart at login
 - upgrade over a running app, with the item-1 bridge connected
-- uninstall: no leftover processes; the data folder is kept unless asked
+- uninstall: no leftover processes; the data folder is kept (even with "Delete the
+  application data" ticked, which doesn't touch it)
 
 Note SmartScreen's "unknown publisher" for the launch checklist. Do **not** create a release
 or tag.
@@ -776,11 +777,15 @@ and the checks):
   user) gives two copies and two autostart entries fighting over port 46710. Test it
   (install, upgrade, uninstall, autostart, `perritodeck-mcp.exe` present) before a release
   adds it.
-- **Release notes.** The Release workflow's notes are a downloads table, the Android
-  certificate and the Android changelog; there's no CHANGELOG, and the only pull request
-  is Dependabot's #1, so `--generate-notes` adds little beyond a compare link
-  (`release.yml` publish job). The first release needs a hand-written summary: what works,
-  what's experimental, known issues.
+- ✅ **Release notes (2026-10-24).** Each tag has hand-written notes in
+  `docs/release-notes/<tag>.md`, and the draft's notes start with them, before the
+  downloads table, the Android certificate and the Android changelog. Check versions
+  refuses a tag, or a run that publishes, whose file is missing, empty or says TODO
+  ([releasing, step 3](releasing.md#3-write-the-changelog); DECISIONS, 2026-10-24). The
+  first is `docs/release-notes/v0.1.0.md`. Its four TODO comments, which block the tag
+  until they're gone, wait on the Twitch pass (item 10), CI and the release-APK checks
+  (phase-8 M3-7 and M3-10), the soak test and the Windows manual steps (M3-16 and M3-17),
+  and Windows signing (D1).
 - ✅ **Third-party notices in the APK (2026-10-15).** The APK carries
   `assets/third-party-licenses.txt`, generated at build time, and Perrito shows it under
   Open-source licences (item 8, launch checklist §3).
@@ -801,11 +806,14 @@ and the checks):
   `tauri.conf.json`), though the host and five plugins drive other apps through
   `osascript`, and ad-hoc signing likely makes users grant Accessibility again after every
   update. Unverified until a Mac run.
-- **NSIS findings (maintainer, fix or accept):** an upgrade runs the old uninstaller, whose
-  "Delete the application data" checkbox wipes pairings and profiles if ticked; the
-  running-app message reads "PerritoDeck is running! Click OK to kill it"; uninstall leaves
-  `HKCU\Software\PerritoDeck`; the login entry's path isn't quoted.
-  (`docs/launch-checklist.md` §7)
+- **NSIS findings (maintainer, fix or accept):** an upgrade runs the old uninstaller, with
+  its "Delete the application data" checkbox. Ticked, it removes only Tauri's own folders
+  (`%APPDATA%\dev.perritodeck.PerritoDeck`, and WebView2's data in
+  `%LOCALAPPDATA%\dev.perritodeck.PerritoDeck`) and `HKCU\Software\PerritoDeck`. The
+  pairings, profiles and settings in `%APPDATA%\perritodeck\PerritoDeck` stay either way,
+  so the box doesn't do what it says. The running-app message reads "PerritoDeck is
+  running! Click OK to kill it"; uninstall leaves `HKCU\Software\PerritoDeck` unless the
+  box is ticked; the login entry's path isn't quoted. (`docs/launch-checklist.md` §7)
 - **Windows manual test-plan steps not yet run (maintainer):** ctrl+shift+esc, win+d, media
   and volume keys, openUrl timing; "Restart now" after a port change, Open data folder, Open
   profile file; auto-switch with Calculator; the Store python stub; mixed-DPI and region

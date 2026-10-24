@@ -308,11 +308,17 @@ on real hardware.
     "Unknown publisher" (More info → Run anyway). This wasn't seen in testing, because a file
     built locally has no download mark. Sign it, or say so on the download page.
   - An upgrade runs the old version's uninstall wizard, which has a "Delete the application
-    data" checkbox (unticked). Consider a custom NSIS template, or making that page skip
-    data deletion during upgrades.
+    data" checkbox (unticked). It doesn't delete PerritoDeck's data: ticked, it removes only
+    Tauri's own folders (`%APPDATA%\dev.perritodeck.PerritoDeck`, and WebView2's data in
+    `%LOCALAPPDATA%\dev.perritodeck.PerritoDeck`) and `HKCU\Software\PerritoDeck`. The
+    pairings, profiles and settings in `%APPDATA%\perritodeck\PerritoDeck` stay either way,
+    on an upgrade and on a real uninstall. Consider a custom NSIS template that removes that
+    folder when ticked, or hides the box; until then, the release notes say to delete the
+    folder by hand.
   - The running-app message reads "PerritoDeck is running! Click OK to kill it"; friendlier
     wording would need custom NSIS language strings.
-  - Uninstall leaves `HKCU\Software\PerritoDeck` (install path and language) behind.
+  - Uninstall leaves `HKCU\Software\PerritoDeck` (install path and language) behind, unless
+    "Delete the application data" is ticked.
   - The login entry's path isn't quoted (upstream `auto-launch`); it still works.
 - [ ] Tag, let the Release workflow build the draft, check it has the NSIS installer and
   the APK and none of the MSI, macOS, Linux or command-line files, test the installer on

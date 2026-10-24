@@ -66,12 +66,35 @@ Not bumped automatically:
 Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a version with a suffix never gets the MSI, even once `SHIP` lists it. Every `0.x` and every `-suffix` version is marked pre-release on GitHub, but only the suffix drops the MSI: `v0.2.0` gets one if `SHIP` lists `windows-msi`.
 
 ### 3. Write the changelog
+- [ ] `docs/release-notes/vX.Y.Z.md`, named after the tag, so a `-rc.N` tag needs its own file. It's the hand-written start of the release notes, for people deciding whether to install. It covers:
+  - who the release is for and what they need;
+  - how to get started;
+  - what was tested on real hardware, and what only in emulators;
+  - what's Experimental;
+  - the known issues;
+  - how to get help;
+  - the licence.
+
+  Every claim should trace to a file in the tree. Write it as Markdown with `##` headings and no title (the release has one). Use absolute links, because relative ones don't work in a release. The workflow adds the downloads table, the Android certificate and the Android changelog after it.
+
+  Put anything that must be settled before the tag in an HTML comment containing `TODO`. For a tag, or a manual run that publishes, Check versions stops in seconds if the file is missing, empty, or contains `TODO` anywhere, comments included. Pre-releases get the same check. It reads the file from the tagged commit, so commit the file before tagging; fixing it afterwards takes a new commit and a new tag.
+
+  `scripts/release-version.py` reminds you to write it after a bump. If the draft already exists, a re-run replaces its files but not its notes, so after changing the notes, edit or delete the draft by hand.
+
+  `docs/release-notes/v0.1.0.md` is the first one. Its `TODO` comments each name the item that settles them:
+  - the Twitch pass;
+  - CI and the release-APK checks (phase-8 M3-7 and M3-10);
+  - the soak test and the Windows manual steps (M3-16 and M3-17);
+  - Windows signing (D1).
+
+  A v0.1.0 tag stops at Check versions until every one of them is resolved.
 - [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid and IzzyOnDroid show it, and the release notes include it. The workflow fails without it.
 - [ ] Optional: a `<release>` entry in `packaging/flatpak/dev.perritodeck.PerritoDeck.metainfo.xml`.
 
 ### 4. Check locally, commit
 ```sh
 python3 scripts/release-version.py --check 0.2.0
+grep -nF TODO docs/release-notes/v0.2.0.md   # must print nothing: Check versions fails on it
 cd host && cargo test && cd app/src-tauri && cargo check --locked
 ```
 Commit ("release: v0.2.0"), push to `main` and let CI pass. The push changes `website/download.html`, so the Site publish workflow publishes the website with the new download links, and they return 404 until the release is published: go on to the tag straight away.
@@ -85,13 +108,13 @@ To try the build **without** a release, go to Actions → Release → Run workfl
 ### 6. What the workflow does
 | Job | Output |
 |---|---|
-| Check versions | fails early if any version or the changelog is missing, and works out from `SHIP` which desktop and command-line builds run |
+| Check versions | fails early if any version or the changelog is missing, or, for a tag or a run that publishes, if `docs/release-notes/<tag>.md` is missing, empty or says TODO, and works out from `SHIP` which desktop and command-line builds run |
 | Android APK | `perrito-X.Y.Z.apk`, signed and checked (see [what CI checks](#android-the-release-key)). A manual run without the key and without "publish" gives `perrito-X.Y.Z-unsigned.apk`. The APK carries `assets/third-party-licenses.txt`, generated at build time, which Perrito shows under Open-source licences. The Play bundle `perrito-X.Y.Z.aab` stays a workflow artifact (`play-bundle`), not a release asset; it's kept for Google Play, which isn't used for now (D8) |
 | Third-party licence texts | `third-party-licenses.txt`: every dependency's licence text, from `scripts/third-party-notices.py --check --full` (run after `cargo fetch` and `npm ci`, since it reads each package's own licence files). `--check` fails the release if `THIRD_PARTY_NOTICES.md` is out of date, and a fixed `PYTHONHASHSEED` gives the same file on every run |
 | Command-line host | Skipped on a v0.1.0 tag: `SHIP` lists no `cli-*`. With "untested": `perritodeck-host-X.Y.Z-linux-x86_64.tar.gz`, `-windows-x86_64.zip`, `-macos-universal.tar.gz` (`perritodeck-host`, `perritodeck-mcp` and `perritodeck-fakedeck`, plus LICENSE, `third-party-licenses.txt` and README) |
 | Desktop app | On a v0.1.0 tag, Windows only: `perritodeck-X.Y.Z-windows-x64-setup.exe` (NSIS, per user, no admin). With "untested", also `-windows-x64.msi` (per machine), `-macos-universal.dmg`, `-linux-x86_64.AppImage`, `-linux-amd64.deb` and `-linux-x86_64.rpm`. `third-party-licenses.txt` goes in the app's resource folder, and the first-party plugins inside come with their MIT licence (`plugins/LICENSE`) |
 | Plugin catalogue | `perritodeck-X.Y.Z-plugin-catalogue.zip`, what `plugins/build_catalog.py` produces (index.json, index.html, one zip per plugin) |
-| Draft GitHub Release | checks that the files are exactly what `SHIP` lists plus the APK, the catalogue and the licences, and attaches them with `SHA256SUMS`. The notes have a downloads row for each of them, the Android certificate's SHA-256 and the Android changelog, plus GitHub's generated notes (only a "Full Changelog" link while changes land without pull requests). If the draft already exists, files of the same name are replaced and any others stay, so delete a stale one by hand |
+| Draft GitHub Release | checks that the files are exactly what `SHIP` lists plus the APK, the catalogue and the licences, and attaches them with `SHA256SUMS`. The notes start with `docs/release-notes/<tag>.md`, then a downloads row for each of them, the Android certificate's SHA-256 and the Android changelog, plus GitHub's generated notes (only a "Full Changelog" link while changes land without pull requests). If the draft already exists, files of the same name are replaced and any others stay, and its notes stay as they were, so delete a stale file, or the draft after a notes change, by hand |
 
 Linux builds run on Ubuntu 22.04 so they work with glibc 2.35 and newer. A published (non-draft) release is never overwritten: the job stops instead. The workflow never creates tags (`--verify-tag`). Every job has a time limit, so a stuck runner can't use up minutes for hours. Every action in `.github/workflows/` is pinned to a full commit SHA, with its version in a comment after it, so a moved or hijacked tag can't change what runs; `.github/dependabot.yml` checks for new versions weekly and opens one pull request for minor and patch updates and one for new major versions.
 
