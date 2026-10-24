@@ -8,6 +8,7 @@
 
 pub mod diagnostics;
 pub mod focus;
+mod import;
 mod live;
 pub mod logging;
 pub mod mcp;
@@ -41,6 +42,7 @@ use serde::Serialize;
 use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::{info, warn};
 
+pub use import::{ImportChoice, ImportPreview, ImportStep, Imported};
 pub use mcp::{McpSnippets, McpState, McpView};
 pub use perritodeck_actions::ActionSpec;
 pub use perritodeck_mcp::bridge_stdio_to_http;
@@ -529,6 +531,8 @@ pub struct Host {
     mcp_bridges: mcp::BridgesSeen,
     /// What Windows Firewall does with tablets, and when that was asked.
     firewall: Mutex<Option<(std::time::Instant, Option<discovery::Firewall>)>>,
+    /// A profile import waiting for the person's choice.
+    import_staging: Mutex<import::Staging>,
     server: JoinHandle<std::io::Result<()>>,
     _watcher: Option<notify::RecommendedWatcher>,
     _mdns: Option<Advertisement>,
@@ -857,6 +861,7 @@ impl Host {
             mcp_state: Mutex::new(McpState::Off),
             mcp_bridges: Default::default(),
             firewall: Mutex::new(None),
+            import_staging: Default::default(),
             server,
             _watcher: watcher,
             _mdns: mdns,
@@ -1961,79 +1966,6 @@ impl Host {
         }
         zip.finish().map_err(|e| fail(&e))?;
         Ok(())
-    }
-
-    /// Add a profile from a `.perritoprofile` file. Returns its id.
-    pub fn import_profile(&self, src: &Path) -> Result<String, String> {
-        use std::io::Read;
-        const MAX: u64 = 20 * 1024 * 1024;
-        // All its images together. They stay in memory until every one is read, so a
-        // bad file writes nothing.
-        const MAX_TOTAL: u64 = 100 * 1024 * 1024;
-        const MAX_FILES: usize = 5_000;
-        let bad = || format!("{} isn't a PerritoDeck profile file.", src.display());
-        let file = std::fs::File::open(src)
-            .map_err(|e| format!("Couldn't open {}: {e}", src.display()))?;
-        let mut zip = zip::ZipArchive::new(file).map_err(|_| bad())?;
-        if zip.len() > MAX_FILES {
-            return Err(format!("{} has too many files.", src.display()));
-        }
-        let mut text = String::new();
-        {
-            let mut entry = zip.by_name("profile.toml").map_err(|_| bad())?;
-            if entry.size() > MAX {
-                return Err(bad());
-            }
-            entry.read_to_string(&mut text).map_err(|_| bad())?;
-        }
-        let profile = Profile::parse(&text).map_err(|e| format!("{}: {e}", bad()))?;
-        let problems = profile.problems();
-        if !problems.is_empty() {
-            return Err(format!(
-                "{} has problems: {}",
-                src.display(),
-                problems.join("; ")
-            ));
-        }
-        // Only the images its keys show, which is all export_profile packs. With the
-        // profile in the data folder, anything else could land among the host's own
-        // files: a plugin, which would start with the host.
-        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
-        let mut total = 0;
-        for icon in icons_of(&profile) {
-            let Some(rel) = importable_image(&icon) else {
-                continue;
-            };
-            let mut entry = match zip.by_name(&format!("images/{rel}")) {
-                Ok(entry) => entry,
-                Err(zip::result::ZipError::FileNotFound) => continue,
-                Err(_) => return Err(bad()),
-            };
-            if entry.size() > MAX {
-                return Err(bad());
-            }
-            // A read past the size the zip gives fails, so this is all it can unpack.
-            total += entry.size();
-            if total > MAX_TOTAL {
-                return Err(format!("{} is too big once unpacked.", src.display()));
-            }
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes).map_err(|_| bad())?;
-            images.push((rel, bytes));
-        }
-        for (rel, bytes) in images {
-            let path = self.profiles_dir.join(&rel);
-            if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-            }
-            // Images are named by content, so an existing file is the same image.
-            if !path.exists() {
-                std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-            }
-        }
-        let id = unique_id(&slug(&profile.name), |id| self.path_of(id).exists());
-        self.write_profile(&self.path_of(&id), &text)?;
-        Ok(id)
     }
 
     /// Delete a profile (the default can't be). Its file is kept in the settings

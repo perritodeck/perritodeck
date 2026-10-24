@@ -348,3 +348,67 @@ export interface SdPluginsView {
   broken: { folder: string; problem: string }[];
   folder: string;
 }
+
+/** A value from a file, safe to show: text; marks for line breaks ("Enter"), tabs ("Tab") and
+ * invisible or direction-changing characters ("U+202E"); how many characters were left out. */
+export type Piece = string | { mark: string } | { more: number };
+export type Shown = Piece[];
+/** Where an action sits inside several steps or a random pick, counted from 1. */
+export type RiskPlace = { in: "step" | "choice"; n: number; of: number };
+type PluginWhat = {
+  plugin: Shown;
+  action: Shown;
+  settings: Shown | null;
+  installed: boolean;
+  pluginName: Shown | null;
+  actionName: Shown | null;
+};
+export type RiskWhat =
+  | { type: "command"; program: Shown; args: Shown[]; moreArgs: number; cwd: Shown | null }
+  | { type: "launch" | "commandSlider"; program: Shown; args: Shown[]; moreArgs: number }
+  | { type: "openPath"; path: Shown }
+  | ({ type: "plugin" | "pluginSlider" } & PluginWhat)
+  | ({ type: "sdPlugin"; onShow: boolean } & PluginWhat)
+  | { type: "typing"; text: Shown; enterInText: boolean };
+/** One thing a key does that an import lists. */
+export interface RiskItem {
+  kind: "runs" | "types";
+  /** Toggle states (from 1) whose press does it. */
+  states: number[];
+  /** The key's own action in a toggle whose states all have their own. */
+  unused: boolean;
+  place: RiskPlace[];
+  what: RiskWhat;
+}
+export interface RiskyKey {
+  page: Shown;
+  pageNumber: number;
+  row: number;
+  col: number;
+  title: Shown;
+  stateCount: number;
+  items: RiskItem[];
+  moreItems: number;
+}
+/** What the window shows before adding a profile whose keys run things. */
+export interface ImportPreview {
+  token: string;
+  name: Shown;
+  file: Shown;
+  pages: number;
+  keys: number;
+  /** Keys with something listed, including any past the cap. */
+  total: number;
+  pagesWithRisky: number;
+  keysThatRun: number;
+  keysThatType: number;
+  hasSliders: boolean;
+  risky: RiskyKey[];
+  moreKeys: number;
+}
+export type ImportChoice = "everything" | "switchOff";
+export interface Imported {
+  id: string;
+  switchedOff: number;
+}
+export type ImportStep = { step: "cancelled" } | ({ step: "imported" } & Imported) | { step: "confirm"; preview: ImportPreview };

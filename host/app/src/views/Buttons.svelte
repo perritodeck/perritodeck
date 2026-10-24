@@ -2,8 +2,21 @@
   import { onMount, tick } from "svelte";
   import { api } from "../lib/api";
   import { canon } from "../lib/canon";
+  import ImportCheck from "../components/ImportCheck.svelte";
   import KeyInspector from "../components/KeyInspector.svelte";
-  import type { Edit, HostStatus, KeyFields, KeyView, PluginManifest, Pos, ProfileSummary, ProfileView } from "../lib/types";
+  import type {
+    Edit,
+    HostStatus,
+    ImportChoice,
+    ImportPreview,
+    Imported,
+    KeyFields,
+    KeyView,
+    PluginManifest,
+    Pos,
+    ProfileSummary,
+    ProfileView,
+  } from "../lib/types";
 
   let { status: hostStatus }: { status: HostStatus } = $props();
 
@@ -154,18 +167,48 @@
     }
   }
 
+  // A profile whose keys run things waits here until the person chooses.
+  let importing = $state<ImportPreview | null>(null);
+  let importBusy = $state(false);
+  let profileOptions = $state<HTMLButtonElement | null>(null);
+
   async function importProfile() {
     profileMenu = false;
     try {
-      const id = await api.importProfile();
-      if (id) {
-        profiles = await api.profiles();
-        await openProfile(id);
-        notice = "Profile imported.";
-      }
+      const s = await api.importProfile();
+      if (s.step === "imported") await imported(s);
+      else if (s.step === "confirm") importing = s.preview;
       error = null;
     } catch (e) {
       error = String(e);
+    }
+  }
+
+  async function imported(r: Imported) {
+    profiles = await api.profiles();
+    await openProfile(r.id);
+    notice = r.switchedOff
+      ? `Profile imported, with ${r.switchedOff} ${r.switchedOff === 1 ? "key" : "keys"} switched off.`
+      : "Profile imported.";
+  }
+
+  /** The dialog's answer: a choice, or null to cancel. */
+  async function chooseImport(choice: ImportChoice | null) {
+    const p = importing;
+    if (!p || importBusy) return;
+    importBusy = true;
+    try {
+      if (choice) await imported(await api.finishImport(p.token, choice));
+      else await api.cancelImport(p.token);
+      error = null;
+    } catch (e) {
+      error = String(e);
+    } finally {
+      importBusy = false;
+      importing = null;
+      // The menu item that started it is gone; the menu's button is the nearest thing.
+      await tick();
+      profileOptions?.focus();
     }
   }
 
@@ -403,6 +446,8 @@
   let copied = $state.raw<KeyFields | null>(null);
 
   function onWindowKey(e: KeyboardEvent) {
+    // Keys pressed in the import dialog still reach the window: no undo behind it.
+    if (importing) return;
     const typing = (e.target as HTMLElement)?.closest?.("input, textarea, select");
     if (typing || !(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
@@ -454,6 +499,8 @@
     return () => {
       clearInterval(t);
       off.then((f) => f());
+      // Switching views drops a waiting import rather than leave it in the host.
+      if (importing) api.cancelImport(importing.token).catch(() => {});
     };
   });
 </script>
@@ -495,8 +542,12 @@
           <span class="sub">{profile.companion ? "From Companion" : `${profile.cols} × ${profile.rows} keys`}</span>
           <button class="btn small quiet" onclick={() => startProfileNaming("new")}>+ Profile</button>
           <div class="menu-wrap">
-            <button class="btn small quiet" aria-expanded={profileMenu} aria-haspopup="menu" onclick={() => (profileMenu = !profileMenu)}
-              >Profile options</button
+            <button
+              class="btn small quiet"
+              bind:this={profileOptions}
+              aria-expanded={profileMenu}
+              aria-haspopup="menu"
+              onclick={() => (profileMenu = !profileMenu)}>Profile options</button
             >
             {#if profileMenu}
               <div class="menu" role="menu">
@@ -704,6 +755,10 @@ port = 16622         # Companion's Satellite port</pre>
       {/if}
     </aside>
   </div>
+{/if}
+
+{#if importing}
+  <ImportCheck preview={importing} busy={importBusy} onchoose={chooseImport} />
 {/if}
 
 <style>

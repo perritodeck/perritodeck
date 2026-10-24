@@ -2,7 +2,7 @@
 // through `window.__perritoMock`.
 
 import { DEFAULT_BG, DEFAULT_FG, kindOf } from "./describe";
-import type { McpSettings, McpView, NetworkHint, OnlineEntry, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
+import type { ImportChoice, ImportPreview, McpSettings, McpView, NetworkHint, OnlineEntry, PluginManifest, PluginsView, SdPlugin, AutoSwitch, DeviceInfo, Edit, HostEvent, HostStatus, KeyFields, KeyView, PairingOffer, ProfileSummary, ProfileView } from "./types";
 
 type Listener = (payload: unknown) => void;
 
@@ -518,11 +518,32 @@ export const mock = {
         this.exported.push(args?.id as string);
         return out(true);
       case "import_profile": {
+        // The mock doesn't look at keys: a test sets importPreview to have it ask.
+        if (this.importPreview) return out({ step: "confirm", preview: this.importPreview });
         let id = "imported";
         for (let n = 2; profiles[id]; n++) id = `imported-${n}`;
         profiles[id] = { ...structuredClone(streaming), id, name: "Imported" };
-        return out(id);
+        return out({ step: "imported", id, switchedOff: 0 });
       }
+      case "finish_import": {
+        const p = this.importPreview;
+        const token = args?.token as string;
+        const choice = args?.choice as ImportChoice;
+        this.importAnswers.push({ token, choice });
+        this.importPreview = null;
+        if (this.importError) throw this.importError;
+        if (!p || p.token !== token) throw "That import was replaced or cancelled; import the file again.";
+        const name = p.name.filter((x): x is string => typeof x === "string").join("");
+        const base = slug(name);
+        let id = base;
+        for (let n = 2; profiles[id]; n++) id = `${base}-${n}`;
+        profiles[id] = { ...structuredClone(streaming), id, name };
+        return out({ id, switchedOff: choice === "switchOff" ? p.total : 0 });
+      }
+      case "cancel_import":
+        this.importAnswers.push({ token: args?.token as string, choice: null });
+        this.importPreview = null;
+        return out(undefined);
       case "list_plugins":
         return out(pluginsView());
       case "install_catalog_plugin": {
@@ -717,6 +738,12 @@ export const mock = {
   /** What open_licences fails with, if anything. */
   licencesError: null as string | null,
   exported: [] as string[],
+  /** What import_profile asks about; null imports at once. */
+  importPreview: null as ImportPreview | null,
+  /** Every finish_import (a choice) and cancel_import (null), for tests. */
+  importAnswers: [] as { token: string; choice: ImportChoice | null }[],
+  /** What finish_import fails with, if anything. */
+  importError: null as string | null,
   accessibility: null as boolean | null,
   setReloadError(msg: string | null) {
     profiles.default.reloadError = msg;

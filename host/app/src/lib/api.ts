@@ -1,7 +1,7 @@
 // Talks to the Rust side through Tauri. Opened in a plain browser (`npm run dev`,
 // Playwright), it uses the in-memory mock instead so the UI can be worked on alone.
 
-import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
+import type { ActionSpec, AutoSwitch, DeviceInfo, Edit, ImportChoice, ImportStep, Imported, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PluginsView, SdPluginsView, Update, ProfileSummary, HostEvent, HostStatus, PairingOffer, ProfileView, View } from "./types";
 import { mock } from "./mock";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -84,8 +84,13 @@ export const api = {
   importIconData: (pngBase64: string) => call<string>("import_icon_data", { pngBase64 }),
   /** Save a profile to a file the person picks; false if they cancelled. */
   exportProfile: (id: string) => call<boolean>("export_profile", { id }),
-  /** Add a profile from a file; resolves to its id, or null if cancelled. */
-  importProfile: () => call<string | null>("import_profile"),
+  /** Pick a profile file and read it. A profile whose keys run things isn't added until
+   * finishImport; one without is added at once. */
+  importProfile: () => call<ImportStep>("import_profile"),
+  /** Add the profile importProfile asked about, as the person chose. */
+  finishImport: (token: string, choice: ImportChoice) => call<Imported>("finish_import", { token, choice }),
+  /** Drop the profile importProfile asked about, writing nothing. */
+  cancelImport: (token: string) => call<void>("cancel_import", { token }),
   /** macOS: may PerritoDeck send key presses? null on other systems. */
   accessibilityAllowed: () => call<boolean | null>("accessibility_allowed"),
   openAccessibilitySettings: () => call<void>("open_accessibility_settings"),

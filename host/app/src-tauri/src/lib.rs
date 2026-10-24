@@ -13,8 +13,9 @@ use std::{
 
 use perritodeck_host::{
     logging, updates, ActionSpec, AppSettings, AutoSwitch, DeviceInfo, Edit, Host, HostEvent,
-    HostOptions, HostStatus, McpSettings, McpView, Network, NetworkHint, OnlineEntry, PairingOffer,
-    PluginsView, ProfileSummary, ProfileView, SdPluginsView,
+    HostOptions, HostStatus, ImportChoice, ImportStep, Imported, McpSettings, McpView, Network,
+    NetworkHint, OnlineEntry, PairingOffer, PluginsView, ProfileSummary, ProfileView,
+    SdPluginsView,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -366,9 +367,10 @@ async fn export_profile(handle: AppHandle, app: State<'_, App>, id: String) -> R
     host.export_profile(&id, &path).map(|()| true)
 }
 
-/// Add a profile from a `.perritoprofile` file. `None` if the person cancelled.
+/// Pick a `.perritoprofile` file and read it. A profile whose keys run things comes back
+/// as a question (`Confirm`), with nothing written until `finish_import`.
 #[tauri::command]
-async fn import_profile(handle: AppHandle, app: State<'_, App>) -> Res<Option<String>> {
+async fn import_profile(handle: AppHandle, app: State<'_, App>) -> Res<ImportStep> {
     use tauri_plugin_dialog::DialogExt;
     let host = app.host()?.clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
@@ -381,9 +383,25 @@ async fn import_profile(handle: AppHandle, app: State<'_, App>) -> Res<Option<St
     })
     .await
     .map_err(|e| e.to_string())?;
-    let Some(file) = picked else { return Ok(None) };
+    let Some(file) = picked else {
+        return Ok(ImportStep::Cancelled);
+    };
     let path = file.into_path().map_err(|e| e.to_string())?;
-    host.import_profile(&path).map(Some)
+    blocking(move || host.stage_import(&path)).await
+}
+
+/// Add the profile `import_profile` asked about, as the person chose.
+#[tauri::command]
+async fn finish_import(app: State<'_, App>, token: String, choice: ImportChoice) -> Res<Imported> {
+    let host = app.host()?.clone();
+    blocking(move || host.finish_import(&token, choice)).await
+}
+
+/// Drop the profile `import_profile` asked about, writing nothing.
+#[tauri::command]
+fn cancel_import(app: State<'_, App>, token: String) -> Res<()> {
+    app.host()?.cancel_import(&token);
+    Ok(())
 }
 
 #[tauri::command]
@@ -933,6 +951,8 @@ pub fn run() {
             open_plugins_folder,
             export_profile,
             import_profile,
+            finish_import,
+            cancel_import,
             accessibility_allowed,
             open_accessibility_settings,
             get_network,

@@ -574,6 +574,220 @@ test.describe("profiles, tablets and switching", () => {
     await page.getByRole("menuitem", { name: "Import a profile…" }).click();
     await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("imported");
     await expect(page.getByText("Profile imported.")).toBeVisible();
+    // Nothing in it runs anything, so nothing to ask.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  // ---- Importing a profile whose keys run things ----
+
+  const cmdItem = (place: object[] = []) => ({
+    kind: "runs",
+    states: [],
+    unused: false,
+    place,
+    what: { type: "command", program: ["C:\\Windows\\System32\\cmd.exe"], args: [["/c"], ["echo hi"]], moreArgs: 0, cwd: null },
+  });
+  const riskyKey = (o: object = {}) => ({
+    page: ["More"],
+    pageNumber: 2,
+    row: 0,
+    col: 1,
+    title: ["Build", { mark: "U+202E" }, "dliub"],
+    stateCount: 0,
+    items: [cmdItem([{ in: "step", n: 2, of: 3 }])],
+    moreItems: 0,
+    ...o,
+  });
+  const preview = (o: object = {}) => ({
+    token: "import-1",
+    name: ["Shared tools"],
+    file: ["shared.perritoprofile"],
+    pages: 2,
+    keys: 18,
+    total: 1,
+    pagesWithRisky: 1,
+    keysThatRun: 1,
+    keysThatType: 0,
+    hasSliders: false,
+    risky: [riskyKey()],
+    moreKeys: 0,
+    ...o,
+  });
+  const setPreview = (page: Page, p: object) => page.evaluate((p) => ((window as any).__perritoMock.importPreview = p), p);
+  const answers = (page: Page) => page.evaluate(() => (window as any).__perritoMock.importAnswers);
+  const startImport = async (page: Page) => {
+    await page.getByRole("button", { name: "Profile options" }).click();
+    await page.getByRole("menuitem", { name: "Import a profile…" }).click();
+  };
+
+  test("importing keys that run things asks first", async ({ page }) => {
+    // Record what the window asks the host, to see that nothing happens behind the dialog.
+    await page.evaluate(() => {
+      const m = (window as any).__perritoMock;
+      const invoke = m.invoke.bind(m);
+      m.calls = [];
+      m.invoke = (cmd: string, args?: object) => (m.calls.push(cmd), invoke(cmd, args));
+    });
+    await setPreview(page, preview());
+    await startImport(page);
+    const dialog = page.getByRole("dialog", { name: "“Shared tools” has a key that runs things" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("From shared.perritoprofile");
+    await expect(dialog).toContainText("Pressing them runs programs or plugins on this computer.");
+    await expect(dialog).toContainText("1 of 18 keys, on 1 of 2 pages:");
+    await expect(dialog.getByRole("heading", { level: 3, name: "Page “More” · 1 key" })).toBeVisible();
+    await expect(dialog.getByText("C:\\Windows\\System32\\cmd.exe", { exact: true })).toBeVisible();
+    // Each argument on its own, exactly.
+    await expect(dialog.getByText("echo hi", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("/c", { exact: true })).toBeVisible();
+    // The direction-changing character is shown, not obeyed.
+    await expect(dialog.getByText("U+202E", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Step 2 of 3", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("row 1, column 2")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Import with this key off" })).toBeFocused();
+
+    // Ctrl+Z doesn't undo behind it.
+    const before = await page.evaluate(() => (window as any).__perritoMock.calls.length);
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(100);
+    expect(await page.evaluate((n) => (window as any).__perritoMock.calls.slice(n), before)).toEqual([]);
+
+    // Escape cancels.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    expect(await answers(page)).toEqual([{ token: "import-1", choice: null }]);
+    await expect(page.getByRole("button", { name: "Profile options" })).toBeFocused();
+    await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("default");
+  });
+
+  test("importing: a dialog closed without a cancel event still cancels", async ({ page }) => {
+    await setPreview(page, preview());
+    await startImport(page);
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.locator("dialog").evaluate((d) => (d as HTMLDialogElement).close());
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect.poll(() => answers(page)).toEqual([{ token: "import-1", choice: null }]);
+    // And the closed dialog goes away rather than linger, hidden.
+    await expect(page.locator("dialog")).toHaveCount(0);
+  });
+
+  test("importing with the keys off, or everything", async ({ page }) => {
+    await setPreview(page, preview());
+    await startImport(page);
+    await page.getByRole("button", { name: "Import with this key off" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await answers(page)).toEqual([{ token: "import-1", choice: "switchOff" }]);
+    await expect(page.getByText("Profile imported, with 1 key switched off.")).toBeVisible();
+    await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("shared-tools");
+
+    await setPreview(page, preview({ token: "import-2" }));
+    await startImport(page);
+    await page.getByRole("button", { name: "Import everything" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect((await answers(page))[1]).toEqual({ token: "import-2", choice: "everything" });
+    await expect(page.getByText("Profile imported.", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Profile", { exact: true })).toHaveValue("shared-tools-2");
+  });
+
+  test("importing 200 keys that run things", async ({ page }) => {
+    const risky = Array.from({ length: 200 }, (_, i) =>
+      riskyKey({ page: [`Page ${Math.floor(i / 50) + 1}`], pageNumber: Math.floor(i / 50) + 1, row: Math.floor((i % 50) / 8), col: i % 8, title: [`Key ${i + 1}`], items: [cmdItem()] }),
+    );
+    await setPreview(page, preview({ total: 200, keys: 240, pages: 4, pagesWithRisky: 4, keysThatRun: 200, risky }));
+    await startImport(page);
+    const dialog = page.getByRole("dialog", { name: "“Shared tools” has keys that run things" });
+    await expect(dialog).toContainText("200 of 240 keys, on 4 of 4 pages:");
+    await expect(dialog.getByRole("heading", { level: 3 })).toHaveCount(4);
+    await expect(dialog.getByRole("heading", { level: 3, name: "Page “Page 1” · 50 keys" })).toBeVisible();
+    const list = dialog.getByRole("region", { name: "Keys that run things" });
+    expect(await list.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Import everything" })).toBeInViewport();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
+    const last = dialog.getByText("Key 200", { exact: true });
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toBeInViewport();
+    await expect(dialog.getByRole("button", { name: "Import everything" })).toBeInViewport();
+
+    // Tab stays inside: the list, then the buttons, and round again.
+    const safe = dialog.getByRole("button", { name: "Import with these keys off" });
+    await expect(safe).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Import everything" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(list).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(safe).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Import everything" })).toBeFocused();
+    // Enter on a focused button is that button.
+    await page.keyboard.press("Shift+Tab");
+    await expect(safe).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toHaveCount(0);
+    expect(await answers(page)).toEqual([{ token: "import-1", choice: "switchOff" }]);
+    await expect(page.getByText("Profile imported, with 200 keys switched off.")).toBeVisible();
+  });
+
+  test("importing sliders, Stream Deck keys, typing and plugins", async ({ page }) => {
+    const plugin = { plugin: ["dev.none.such"], action: ["go"], settings: null, installed: false, pluginName: null, actionName: null };
+    const items = [
+      { kind: "runs", states: [], unused: false, place: [], what: { type: "sdPlugin", ...plugin, plugin: ["com.x"], action: ["com.x.y"], installed: true, pluginName: ["Counter"], actionName: ["Count"], onShow: true } },
+      { kind: "runs", states: [], unused: false, place: [], what: { type: "plugin", ...plugin } },
+      { kind: "types", states: [1], unused: false, place: [], what: { type: "typing", text: ["calc", { mark: "Enter" }], enterInText: true } },
+      { kind: "runs", states: [], unused: true, place: [], what: { type: "launch", program: ["notepad"], args: [[]], moreArgs: 0 } },
+    ];
+    const slider = riskyKey({
+      row: 1,
+      col: 0,
+      title: ["Bright"],
+      items: [{ kind: "runs", states: [], unused: false, place: [], what: { type: "commandSlider", program: ["brightnessctl"], args: [["set"], ["{value}%"]], moreArgs: 0 } }],
+    });
+    await setPreview(
+      page,
+      preview({ total: 2, keysThatType: 1, hasSliders: true, risky: [riskyKey({ stateCount: 2, title: ["Mixed"], items, moreItems: 3 }), slider], moreKeys: 5 }),
+    );
+    await startImport(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Pressing them runs programs or plugins, or types text and presses Enter.");
+    await expect(dialog).toContainText("Sliders become plain keys.");
+    await expect(dialog).toContainText("It gets this key’s settings as soon as a tablet shows its page.");
+    await expect(dialog).toContainText("Counter: Count");
+    await expect(dialog).toContainText("(not installed, so it does nothing until you add it)");
+    await expect(dialog).toContainText("Types this (⏎ is Enter):");
+    await expect(dialog.getByText("State 1 of 2", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Not used by any state now", { exact: true })).toBeVisible();
+    await expect(dialog).toContainText("Each move of the slider runs");
+    // An empty argument still shows as one.
+    await expect(dialog.getByText('""', { exact: true })).toBeVisible();
+    await expect(dialog).toContainText("…and 3 more in this key");
+    await expect(dialog).toContainText("…and 5 more keys not listed here.");
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(await answers(page)).toEqual([{ token: "import-1", choice: null }]);
+  });
+
+  test("importing: the dialog in light and dark", async ({ page }) => {
+    await setPreview(page, preview());
+    await startImport(page);
+    const dialog = page.locator("dialog");
+    await expect(dialog).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(dialog).toHaveCSS("background-color", "rgb(31, 37, 51)");
+  });
+
+  test("importing: a failed import says why", async ({ page }) => {
+    await setPreview(page, preview());
+    await page.evaluate(() => ((window as any).__perritoMock.importError = "Couldn't save the profile."));
+    await startImport(page);
+    await page.getByRole("button", { name: "Import everything" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText("Couldn't save the profile.");
+    await expect(page.getByRole("button", { name: "Profile options" })).toBeFocused();
   });
 
   test("tablets can be renamed and given a profile", async ({ page }) => {

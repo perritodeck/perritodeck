@@ -893,11 +893,28 @@ async fn profiles_export_and_import_with_their_images() {
     let file = dir.path().join("starter.perritoprofile");
     host.export_profile("default", &file).unwrap();
 
-    // Into another host, which has never seen the image.
+    // Into another host, which has never seen the image. The starter's "Run a command"
+    // key runs a program, so the import asks first and writes nothing until then.
     let dir2 = tempfile::tempdir().unwrap();
     let other = quiet_host(dir2.path()).await;
-    let id = other.import_profile(&file).unwrap();
-    assert_eq!(id, "starter");
+    let ImportStep::Confirm { preview } = other.stage_import(&file).unwrap() else {
+        panic!("the starter runs a command, so the import asks first");
+    };
+    assert!(
+        !other.profiles_dir.join(&rel).exists(),
+        "nothing written yet"
+    );
+    let imported = other
+        .finish_import(&preview.token, ImportChoice::Everything)
+        .unwrap();
+    assert_eq!(
+        imported,
+        Imported {
+            id: "starter".into(),
+            switched_off: 0
+        }
+    );
+    let id = imported.id;
     let view = other.profile_view(Some(&id)).unwrap();
     let key = view.pages[0]
         .keys
@@ -906,10 +923,38 @@ async fn profiles_export_and_import_with_their_images() {
         .unwrap();
     assert!(key.icon_data.is_some(), "image came along");
     assert!(other.profiles_dir.join(&rel).exists());
+    // Byte for byte what was exported.
+    assert_eq!(
+        std::fs::read_to_string(other.path_of(&id)).unwrap(),
+        std::fs::read_to_string(&host.profile_path).unwrap()
+    );
     // Importing twice makes a second profile rather than overwriting.
-    assert_eq!(other.import_profile(&file).unwrap(), "starter-2");
+    assert_eq!(import_now(&other, &file).unwrap(), "starter-2");
     // Not a profile file.
-    assert!(other.import_profile(&src).is_err());
+    assert!(other.stage_import(&src).is_err());
+}
+
+/// Import a file, choosing "Import everything" if it asks.
+fn import_now(host: &Host, file: &Path) -> Result<String, String> {
+    match host.stage_import(file)? {
+        ImportStep::Imported(i) => Ok(i.id),
+        ImportStep::Confirm { preview } => host
+            .finish_import(&preview.token, ImportChoice::Everything)
+            .map(|i| i.id),
+        ImportStep::Cancelled => unreachable!("only the app cancels"),
+    }
+}
+
+/// A `.perritoprofile` holding only this profile text.
+fn perritoprofile(dir: &Path, name: &str, toml: &str) -> PathBuf {
+    use std::io::Write;
+    let file = dir.join(format!("{name}.perritoprofile"));
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+    zip.start_file("profile.toml", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(toml.as_bytes()).unwrap();
+    zip.finish().unwrap();
+    file
 }
 
 /// A profile whose keys show `icons`, for `.perritoprofile` files made by hand.
@@ -932,7 +977,12 @@ async fn imports_cannot_write_outside_the_profiles_folder() {
     // `C:/…/escaped-too.png` on Windows, which joins onto the folder as itself.
     let absolute = dir.path().join("escaped-too.png");
     let absolute_name = absolute.display().to_string().replace('\\', "/");
-    let icons = ["../escaped.png", absolute_name.as_str()];
+    let icons = [
+        "../escaped.png",
+        absolute_name.as_str(),
+        "C:escaped3.png",
+        "a:b.png",
+    ];
     let file = dir.path().join("evil.perritoprofile");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
     let opts = zip::write::SimpleFileOptions::default();
@@ -943,9 +993,15 @@ async fn imports_cannot_write_outside_the_profiles_folder() {
         zip.write_all(b"x").unwrap();
     }
     zip.finish().unwrap();
-    host.import_profile(&file).unwrap();
+    assert!(matches!(
+        host.stage_import(&file).unwrap(),
+        ImportStep::Imported(_)
+    ));
     assert!(!dir.path().join("escaped.png").exists());
     assert!(!absolute.exists());
+    for name in ["escaped3.png", "a:b.png", "b.png"] {
+        assert!(!host.profiles_dir.join(name).exists(), "{name}");
+    }
 }
 
 /// With `--profile` in the data folder, the profiles folder holds the host's own files
@@ -969,7 +1025,8 @@ async fn imports_bring_only_the_images_the_profile_shows() {
     let opts = zip::write::SimpleFileOptions::default();
     zip.start_file("profile.toml", opts).unwrap();
     // A profile saved on Windows can say `icons\b.gif`; its zip says `images/icons/b.gif`.
-    let shown = ["icons/a.png", r"icons\b.gif", plugin];
+    // A key may name any file as its icon; a profile file still isn't written.
+    let shown = ["icons/a.png", r"icons\b.gif", plugin, "icons/x.toml"];
     zip.write_all(profile_showing(&shown).as_bytes()).unwrap();
     let packed = [
         "icons/a.png",
@@ -978,13 +1035,14 @@ async fn imports_bring_only_the_images_the_profile_shows() {
         plugin,
         "integrations.toml",
         "other.toml",
+        "icons/x.toml",
     ];
     for name in packed {
         zip.start_file(format!("images/{name}"), opts).unwrap();
         zip.write_all(b"x").unwrap();
     }
     zip.finish().unwrap();
-    assert_eq!(host.import_profile(&file).unwrap(), "shared");
+    assert_eq!(import_now(&host, &file).unwrap(), "shared");
     assert!(dir.path().join("icons/a.png").exists());
     assert!(dir.path().join("icons/b.gif").exists());
     for name in [
@@ -992,9 +1050,12 @@ async fn imports_bring_only_the_images_the_profile_shows() {
         "plugins/com.example.planted",
         "integrations.toml",
         "other.toml",
+        "icons/x.toml",
     ] {
         assert!(!dir.path().join(name).exists(), "{name}");
     }
+    let ids: Vec<String> = host.profiles().into_iter().map(|p| p.id).collect();
+    assert_eq!(ids.len(), 2, "{ids:?}");
 }
 
 #[tokio::test]
@@ -1013,7 +1074,7 @@ async fn imports_refuse_zips_of_over_5000_files() {
             .unwrap();
     }
     zip.finish().unwrap();
-    assert!(host.import_profile(&file).is_err());
+    assert!(host.stage_import(&file).is_err());
     assert_eq!(host.profiles().len(), 1, "nothing was added");
 }
 
@@ -1041,7 +1102,7 @@ async fn imports_refuse_over_100_mb_of_images_altogether() {
     }
     let file = dir.path().join("big.perritoprofile");
     std::fs::write(&file, out.into_inner()).unwrap();
-    assert!(host.import_profile(&file).is_err());
+    assert!(host.stage_import(&file).is_err());
     assert!(!host.profiles_dir.join("icons").exists());
 }
 
@@ -1071,9 +1132,218 @@ async fn imports_refuse_entries_over_20_mb_even_if_the_zip_says_less() {
     for (name, bytes) in [("honest", honest), ("lying", lying)] {
         let file = dir.path().join(format!("{name}.perritoprofile"));
         std::fs::write(&file, bytes).unwrap();
-        assert!(host.import_profile(&file).is_err(), "{name}");
+        assert!(host.stage_import(&file).is_err(), "{name}");
     }
     assert!(!host.profiles_dir.join("icons/big.png").exists());
+}
+
+#[tokio::test]
+async fn a_profile_with_no_running_keys_imports_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = perritoprofile(
+        dir.path(),
+        "quiet",
+        "schema_version = 1\nname = \"Quiet\"\n[[pages]]\nname = \"Main\"\n\
+         [[pages.keys]]\nat = [0, 0]\naction = { type = \"hotkey\", keys = \"Ctrl+C\" }\n\
+         [[pages.keys]]\nat = [0, 1]\naction = { type = \"text\", text = \"Hello\" }\n",
+    );
+    let ImportStep::Imported(i) = host.stage_import(&file).unwrap() else {
+        panic!("nothing runs, so nothing to ask");
+    };
+    assert_eq!(
+        i,
+        Imported {
+            id: "quiet".into(),
+            switched_off: 0
+        }
+    );
+    assert!(host.path_of("quiet").exists());
+}
+
+#[tokio::test]
+async fn risky_keys_are_shown_before_anything_is_written() {
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = dir.path().join("starter.perritoprofile");
+    host.export_profile("default", &file).unwrap();
+    let before = host.profiles().len();
+    let ImportStep::Confirm { preview } = host.stage_import(&file).unwrap() else {
+        panic!("the starter runs a command");
+    };
+    let p = serde_json::to_value(&preview).unwrap();
+    assert_eq!(p["token"], "import-1");
+    assert_eq!(p["name"], json!(["Starter"]));
+    assert_eq!(p["file"], json!(["starter.perritoprofile"]));
+    for (field, n) in [
+        ("total", 1),
+        ("pagesWithRisky", 1),
+        ("keysThatRun", 1),
+        ("keysThatType", 0),
+        ("pages", 2),
+        ("moreKeys", 0),
+    ] {
+        assert_eq!(p[field], n, "{field}");
+    }
+    assert_eq!(p["hasSliders"], false);
+    let key = &p["risky"][0];
+    assert_eq!(key["page"], json!(["More"]));
+    assert_eq!(
+        (
+            &key["pageNumber"],
+            &key["row"],
+            &key["col"],
+            &key["stateCount"]
+        ),
+        (&json!(2), &json!(0), &json!(1), &json!(0))
+    );
+    assert_eq!(key["title"], json!(["Run a", {"mark": "Enter"}, "command"]));
+    assert_eq!(
+        key["items"][0],
+        json!({
+            "kind": "runs", "states": [], "unused": false, "place": [],
+            "what": {"type": "command", "program": ["hostname"], "args": [], "moreArgs": 0, "cwd": null}
+        })
+    );
+    assert_eq!(host.profiles().len(), before, "nothing added yet");
+
+    host.cancel_import(&preview.token);
+    assert!(host
+        .finish_import(&preview.token, ImportChoice::Everything)
+        .is_err());
+    assert_eq!(host.profiles().len(), before, "nothing added at all");
+    assert!(!host.path_of("starter").exists());
+}
+
+#[tokio::test]
+async fn switch_off_on_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = dir.path().join("starter.perritoprofile");
+    host.export_profile("default", &file).unwrap();
+    let ImportStep::Confirm { preview } = host.stage_import(&file).unwrap() else {
+        panic!("the starter runs a command");
+    };
+    let i = host
+        .finish_import(&preview.token, ImportChoice::SwitchOff)
+        .unwrap();
+    assert_eq!(i.switched_off, 1);
+    let p = host.deck.profile_by_id(&i.id).unwrap();
+    assert_eq!(p.risky_keys(), []);
+    let more = &p.pages[p.page_index("More").unwrap()];
+    let k = more.keys.iter().find(|k| k.at == [0, 1]).unwrap();
+    assert_eq!(k.title.as_deref(), Some("Run a\ncommand"));
+    assert_eq!(k.action, None);
+}
+
+#[tokio::test]
+async fn tokens_are_single_use_and_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = dir.path().join("starter.perritoprofile");
+    host.export_profile("default", &file).unwrap();
+    let token = |step: ImportStep| match step {
+        ImportStep::Confirm { preview } => preview.token,
+        _ => panic!("expected a question"),
+    };
+    let a = token(host.stage_import(&file).unwrap());
+    let b = token(host.stage_import(&file).unwrap());
+    assert_ne!(a, b);
+    let stale = host
+        .finish_import(&a, ImportChoice::Everything)
+        .unwrap_err();
+    assert!(stale.contains("import the file again"), "{stale}");
+    // Cancelling the old one doesn't drop the new one either.
+    host.cancel_import(&a);
+    assert_eq!(
+        host.finish_import(&b, ImportChoice::Everything).unwrap().id,
+        "starter"
+    );
+    assert!(host.finish_import(&b, ImportChoice::Everything).is_err());
+}
+
+#[tokio::test]
+async fn plugin_keys_say_if_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = perritoprofile(
+        dir.path(),
+        "plugin",
+        "schema_version = 1\nname = \"P\"\n[[pages]]\nname = \"Main\"\n\
+         [[pages.keys]]\nat = [0, 0]\n\
+         action = { type = \"plugin\", plugin = \"dev.none.such\", action = \"go\", settings = { host = \"10.0.0.1\" } }\n",
+    );
+    let ImportStep::Confirm { preview } = host.stage_import(&file).unwrap() else {
+        panic!("a plugin key asks");
+    };
+    let what = serde_json::to_value(&preview.risky[0].items[0].what).unwrap();
+    assert_eq!(
+        what,
+        serde_json::json!({
+            "type": "plugin", "plugin": ["dev.none.such"], "action": ["go"],
+            "settings": ["{\"host\":\"10.0.0.1\"}"], "installed": false,
+            "pluginName": null, "actionName": null
+        })
+    );
+}
+
+#[tokio::test]
+async fn preview_caps() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let head = "schema_version = 1\nname = \"Big\"\n[[pages]]\nname = \"Main\"\n";
+    let preview = |name: &str, keys: String| {
+        let file = perritoprofile(dir.path(), name, &format!("{head}{keys}"));
+        match host.stage_import(&file).unwrap() {
+            ImportStep::Confirm { preview } => preview,
+            _ => panic!("{name} asks"),
+        }
+    };
+
+    // 600 keys that run things: 500 listed, 100 counted.
+    let keys: String = (0..600)
+        .map(|i| {
+            format!(
+                "[[pages.keys]]\nat = [{}, {}]\naction = {{ type = \"command\", program = \"p{i}\" }}\n",
+                i / 30,
+                i % 30
+            )
+        })
+        .collect();
+    let p = preview("many", keys);
+    assert_eq!((p.total, p.risky.len(), p.more_keys), (600, 500, 100));
+
+    // A 30-step key: 20 items listed, 10 counted.
+    let steps: Vec<String> = (0..30)
+        .map(|i| format!("{{ action = {{ type = \"command\", program = \"p{i}\" }} }}"))
+        .collect();
+    let p = preview(
+        "steps",
+        format!(
+            "[[pages.keys]]\nat = [0, 0]\naction = {{ type = \"multi\", steps = [{}] }}\n",
+            steps.join(", ")
+        ),
+    );
+    assert_eq!((p.risky[0].items.len(), p.risky[0].more_items), (20, 10));
+
+    // A 4,100-character argument ends with what was left out; 150 arguments list 100.
+    let long = "a".repeat(4_100);
+    let args: Vec<String> = (0..150).map(|i| format!("\"{i}\"")).collect();
+    let p = preview(
+        "args",
+        format!(
+            "[[pages.keys]]\nat = [0, 0]\naction = {{ type = \"command\", program = \"x\", args = [\"{long}\"] }}\n\
+             [[pages.keys]]\nat = [0, 1]\naction = {{ type = \"launch\", program = \"x\", args = [{}] }}\n",
+            args.join(", ")
+        ),
+    );
+    let first = serde_json::to_value(&p.risky[0].items[0].what).unwrap();
+    assert_eq!(first["args"][0][1], serde_json::json!({"more": 4}));
+    assert_eq!(first["args"][0][0].as_str().unwrap().len(), 4_096);
+    let second = serde_json::to_value(&p.risky[1].items[0].what).unwrap();
+    assert_eq!(second["args"].as_array().unwrap().len(), 100);
+    assert_eq!(second["moreArgs"], 50);
 }
 
 #[tokio::test(flavor = "multi_thread")]
