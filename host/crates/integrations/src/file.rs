@@ -156,6 +156,7 @@ const COMPANION_SCHEME: &str = "Type just the name or address, without http:// o
 const COMPANION_PORT_IN_HOST: &str = "Put the port in the Satellite port box.";
 const PORT_RANGE: &str = "Use a number from 1 to 65535.";
 const RETYPE_TOKEN: &str = "Type the token again to use it with a new address.";
+const RETYPE_PASSWORD: &str = "Type the password again to use it with a new address.";
 
 const OBS_PORT: u16 = 4455;
 const HA_PORT: u16 = 8123;
@@ -292,38 +293,28 @@ fn clean_token(text: &str) -> Result<String, &'static str> {
     Ok(t.to_owned())
 }
 
-/// Whether `host` is on the local network: a loopback, private, link-local or unique
-/// local address, a name without dots, or a name under `.local`, `.lan`, `.home.arpa` or
-/// `.internal`.
-pub(crate) fn is_local(host: &str) -> bool {
-    use std::net::IpAddr;
-    let host = crate::check::bare(host)
-        .trim_end_matches('.')
-        .to_ascii_lowercase();
-    match host.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
-        Ok(IpAddr::V6(ip)) => {
-            let first = ip.segments()[0];
-            ip.is_loopback() || (first & 0xffc0) == 0xfe80 || (first & 0xfe00) == 0xfc00
-        }
-        Err(_) => {
-            !host.contains('.')
-                || [".local", ".lan", ".home.arpa", ".internal"]
-                    .iter()
-                    .any(|end| host.ends_with(end))
-        }
-    }
-}
-
-/// The host in a saved address, when it can be read.
-fn saved_host(url: &str) -> Option<String> {
-    let url = url.trim();
-    let full = if url.contains("://") {
-        url.to_owned()
-    } else {
-        with_scheme(url, "http")
+/// Whether a secret saved for `saved` (a saved address, as keys use it after `normalize`)
+/// may go to `now` without being typed again: the same scheme, host and port, or the
+/// same host and port moved from http:// to https://. A saved address that can't be read
+/// matches nothing.
+fn may_keep(
+    saved: &str,
+    now: &str,
+    normalize: fn(&str) -> Result<String, &'static str>,
+) -> Result<bool, String> {
+    let now = split_address(now).map_err(str::to_owned)?;
+    let Some(was) = normalize(saved).ok().and_then(|s| split_address(&s).ok()) else {
+        return Ok(false);
     };
-    split_address(&full).ok().map(|a| a.bare_host().to_owned())
+    let port = |a: &Address| {
+        a.port.unwrap_or(match a.scheme.as_str() {
+            "https" => 443,
+            "ws" => OBS_PORT,
+            _ => 80,
+        })
+    };
+    let scheme_ok = was.scheme == now.scheme || (was.scheme == "http" && now.scheme == "https");
+    Ok(scheme_ok && was.bare_host() == now.bare_host() && port(&was) == port(&now))
 }
 
 /// What the form shows for each section: `None` where nothing is saved.
@@ -378,11 +369,19 @@ fn ha_suggestion(url: &str) -> Option<String> {
 }
 
 /// The settings to save or test from the form's OBS section. A kept password is the
-/// one in `saved`.
+/// one in `saved`, and only for the address it was saved with.
 pub fn resolve_obs(i: &ObsInput, saved: Option<&ObsConfig>) -> Result<ObsConfig, String> {
     let url = obs_url(&i.url)?;
     let password = match &i.password {
-        Secret::Keep => saved.and_then(|s| s.password.clone()),
+        Secret::Keep => {
+            match saved.filter(|s| s.password.as_deref().is_some_and(|p| !p.is_empty())) {
+                // A fake OBS chooses the salt and challenge: never answer one with the saved
+                // password unless it's where the password was saved for.
+                Some(s) if !may_keep(&s.url, &url, obs_url)? => return Err(RETYPE_PASSWORD.into()),
+                Some(s) => s.password.clone(),
+                None => None,
+            }
+        }
         Secret::Set(p) if p.is_empty() => None,
         Secret::Set(p) => Some(p.clone()),
         Secret::Clear => None,
@@ -395,7 +394,8 @@ pub fn resolve_obs(i: &ObsInput, saved: Option<&ObsConfig>) -> Result<ObsConfig,
 }
 
 /// The settings to save or test from the form's Home Assistant section. A kept token is
-/// the one in `saved`, and only for an address where it's safe to send it.
+/// the one in `saved`, and only for the address it was saved with (or that address on
+/// https).
 pub fn resolve_ha(i: &HaInput, saved: Option<&HaConfig>) -> Result<HaConfig, String> {
     let url = ha_url(&i.url)?;
     let token = match &i.token {
@@ -405,11 +405,9 @@ pub fn resolve_ha(i: &HaInput, saved: Option<&HaConfig>) -> Result<HaConfig, Str
             let saved = saved
                 .filter(|s| !s.token.trim().is_empty())
                 .ok_or(NO_TOKEN)?;
-            // The token travels in the clear over http://: never to a new host out on
-            // the internet without being typed again.
-            let new = split_address(&url).map_err(|e| e.to_string())?;
-            let moved = saved_host(&saved.url).as_deref() != Some(new.bare_host());
-            if moved && new.scheme == "http" && !is_local(&new.host) {
+            // The window can't send the saved token anywhere new, or over a weaker
+            // scheme: it has to be typed again for that.
+            if !may_keep(&saved.url, &url, ha_url)? {
                 return Err(RETYPE_TOKEN.into());
             }
             saved.token.clone()
@@ -726,7 +724,8 @@ host = \"10.0.0.7\" # the rack
 
     #[test]
     fn edits_keep_comments_order_and_other_tables() {
-        let out = edit(FILE, &obs("192.168.1.6", Secret::Keep)).unwrap();
+        // A new address needs the password typed again; the same value stays as written.
+        let out = edit(FILE, &obs("192.168.1.6", Secret::Set("hunter2".into()))).unwrap();
         assert_eq!(
             out,
             "\
@@ -886,7 +885,7 @@ token = \"t\"
     #[test]
     fn inline_and_dotted_tables_are_edited_in_place() {
         let inline = "obs = { url = \"ws://pc:4455\", password = \"pw\" } # inline\n";
-        let out = edit(inline, &obs("ws://pc2:4455", Secret::Keep)).unwrap();
+        let out = edit(inline, &obs("ws://pc2:4455", Secret::Set("pw".into()))).unwrap();
         assert_eq!(
             out,
             "obs = { url = \"ws://pc2:4455\", password = \"pw\" } # inline\n"
@@ -953,6 +952,108 @@ token = \"t\"
         assert!(e.contains("not wss://"), "{e}");
         let e = edit(FILE, &companion("10.0.0.7", "0")).unwrap_err();
         assert_eq!(e, "Use a number from 1 to 65535.");
+    }
+
+    /// A kept token or password goes only where it was saved for: the same scheme, host
+    /// and port, or the same host and port moved from http:// to https://. Anything else
+    /// (another host however it's written, a downgrade to http://, another port) needs
+    /// it typed again, so the window can't send a saved secret somewhere new.
+    #[test]
+    fn kept_secrets_go_only_to_the_saved_origin() {
+        let saved = |url: &str| HaConfig {
+            url: url.into(),
+            token: "SECRET".into(),
+            enabled: true,
+        };
+        let keep = |url: &str, s: &HaConfig| {
+            resolve_ha(
+                &HaInput {
+                    url: url.into(),
+                    token: Secret::Keep,
+                },
+                Some(s),
+            )
+        };
+        let retype = Err("Type the token again to use it with a new address.".to_owned());
+        let local = saved("http://homeassistant.local:8123");
+        for url in [
+            "https://attacker.example.com",
+            "http://134744072:8123",
+            "http://0x8080808",
+            "http://ai.:8123",
+            "http://ha:8123",
+            "http://192.168.1.20:8123",
+            "http://homeassistant.local:8124",
+            "https://homeassistant.local",
+        ] {
+            assert_eq!(keep(url, &local).map(|c| c.url), retype, "{url}");
+        }
+        // The same place, however it's typed, and the move to https on the same port.
+        for url in [
+            "homeassistant.local",
+            "HTTP://HomeAssistant.local:8123/lovelace",
+            "https://homeassistant.local:8123",
+        ] {
+            assert_eq!(keep(url, &local).unwrap().token, "SECRET", "{url}");
+        }
+        // A downgrade to plain http on the same host.
+        let tls = saved("https://ha.example.com");
+        assert_eq!(keep("http://ha.example.com", &tls).map(|c| c.url), retype);
+        assert_eq!(
+            keep("http://ha.example.com:443", &tls).map(|c| c.url),
+            retype
+        );
+        assert!(keep("https://ha.example.com:443/", &tls).is_ok());
+        // A typed token goes anywhere: it was just typed.
+        assert!(resolve_ha(
+            &HaInput {
+                url: "https://attacker.example.com".into(),
+                token: Secret::Set("typed".into()),
+            },
+            Some(&local),
+        )
+        .is_ok());
+
+        // OBS: the same for its password.
+        let obs_saved = ObsConfig {
+            url: "ws://127.0.0.1:4455".into(),
+            password: Some("OBS-PW".into()),
+            enabled: true,
+        };
+        let keep_obs = |url: &str| {
+            resolve_obs(
+                &ObsInput {
+                    url: url.into(),
+                    password: Secret::Keep,
+                },
+                Some(&obs_saved),
+            )
+        };
+        let retype_pw = Err("Type the password again to use it with a new address.".to_owned());
+        for url in [
+            "ws://attacker.example.com:4455",
+            "ws://127.0.0.1:4456",
+            "localhost",
+        ] {
+            assert_eq!(keep_obs(url).map(|c| c.url), retype_pw, "{url}");
+        }
+        assert_eq!(
+            keep_obs("127.0.0.1").unwrap().password.as_deref(),
+            Some("OBS-PW")
+        );
+        // Nothing saved to keep: nothing to protect.
+        let no_pw = ObsConfig {
+            password: None,
+            ..obs_saved.clone()
+        };
+        let got = resolve_obs(
+            &ObsInput {
+                url: "ws://elsewhere:4455".into(),
+                password: Secret::Keep,
+            },
+            Some(&no_pw),
+        );
+        assert_eq!(got.unwrap().password, None);
     }
 
     #[derive(Deserialize)]

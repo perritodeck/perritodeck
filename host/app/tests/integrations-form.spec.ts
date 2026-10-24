@@ -144,16 +144,32 @@ test("the saved password can be removed, or kept after all", async ({ page }) =>
   await expect(section.getByText("A password is saved.")).toHaveCount(0);
 });
 
-test("a kept token for a new address says where it goes", async ({ page }) => {
+test("a kept token or password goes only to the address it was saved for", async ({ page }) => {
   await openSettings(page, {
     homeAssistant: { enabled: true, url: "http://homeassistant.local:8123", token: "abc" },
   });
   const section = ha(page);
+  const retype = section.getByText("Type the token again to use it with a new address.");
+  const save = section.getByRole("button", { name: "Save", exact: true });
+  // Another computer, even one on this network: type it again.
   await section.getByLabel("Address").fill("http://192.168.1.20:8123");
-  await expect(section.getByText("This sends the saved token to 192.168.1.20.")).toBeVisible();
-  await section.getByLabel("Address").fill("http://ha.example.com:8123");
-  await expect(section.getByText("Type the token again to use it with a new address.")).toBeVisible();
-  await expect(section.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(retype).toBeVisible();
+  await expect(save).toBeDisabled();
+  await expect(section.getByRole("button", { name: "Test connection" })).toBeDisabled();
+  // The same one moved to https is fine.
+  await section.getByLabel("Address").fill("https://homeassistant.local:8123");
+  await expect(retype).toHaveCount(0);
+  await expect(save).toBeEnabled();
+  // Typing the token again lets it go anywhere.
+  await section.getByLabel("Address").fill("http://192.168.1.20:8123");
+  await section.getByLabel("Access token").fill("abc");
+  await expect(retype).toHaveCount(0);
+  await expect(save).toBeEnabled();
+
+  const o = obs(page);
+  await o.getByLabel("Address").fill("ws://studio-pc:4455");
+  await expect(o.getByText("Type the password again to use it with a new address.")).toBeVisible();
+  await expect(o.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 });
 
 test("an address keys can't use gets a suggestion", async ({ page }) => {

@@ -4,7 +4,7 @@
   // Saved settings are used after a restart, which the form offers.
   import { onMount } from "svelte";
   import { api } from "../lib/api";
-  import { hostOf, validationMessage } from "../lib/integrations";
+  import { validationMessage } from "../lib/integrations";
   import type { Checked, HostStatus, IntegrationInput, IntegrationsView, Secret } from "../lib/types";
   import SecretField from "./SecretField.svelte";
 
@@ -107,17 +107,6 @@
     companion: comp.on ? validationMessage("companion", { host: comp.host, port: comp.port }, null) : null,
   });
 
-  /** "This uses the saved password with …" when a kept secret goes to a new host. */
-  const keptNote = $derived({
-    obs:
-      view?.obs?.hasPassword && obs.password.kind === "keep" && !problems.obs && hostOf(obs.url) !== hostOf(view.obs.url)
-        ? `This uses the saved password with ${hostOf(obs.url)}.`
-        : null,
-    homeAssistant:
-      view?.homeAssistant?.hasToken && ha.token.kind === "keep" && !problems.homeAssistant && hostOf(ha.url) !== hostOf(view.homeAssistant.url)
-        ? `This sends the saved token to ${hostOf(ha.url)}.`
-        : null,
-  });
 
   async function load() {
     try {
@@ -338,7 +327,6 @@
           {/if}
           <SecretField id="obs-password" label="Password" what="password" saved={!!v.obs?.hasPassword} optional disabled={!obs.on} bind:value={obs.password} />
           {#if problems.obs}<p class="problem">{problems.obs}</p>{/if}
-          {#if keptNote.obs}<small>{keptNote.obs}</small>{/if}
         {/if}
         {@render actions("obs", obs.on, !!v.obs)}
       </fieldset>
@@ -379,7 +367,6 @@
             bind:value={ha.token}
           />
           {#if problems.homeAssistant}<p class="problem">{problems.homeAssistant}</p>{/if}
-          {#if keptNote.homeAssistant}<small>{keptNote.homeAssistant}</small>{/if}
         {/if}
         {@render actions("homeAssistant", ha.on, !!v.homeAssistant)}
       </fieldset>

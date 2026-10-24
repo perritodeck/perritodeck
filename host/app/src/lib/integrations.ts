@@ -18,6 +18,7 @@ const COMPANION_SCHEME = "Type just the name or address, without http:// or ws:/
 const COMPANION_PORT_IN_HOST = "Put the port in the Satellite port box.";
 const PORT_RANGE = "Use a number from 1 to 65535.";
 const RETYPE_TOKEN = "Type the token again to use it with a new address.";
+const RETYPE_PASSWORD = "Type the password again to use it with a new address.";
 
 /** What the window knows about what's saved: never the secret itself. */
 export interface SavedSection {
@@ -109,26 +110,20 @@ export function haUrl(text: string): { url: string } | { message: string } {
   return { url: `${a.scheme}://${a.host}${port === null ? "" : `:${port}`}` };
 }
 
-/** The host in an address, without an IPv6 address's brackets; null if unreadable. */
-export function hostOf(url: string): string | null {
-  const t = url.trim();
-  const a = splitAddress(t.includes("://") ? t : withScheme(t, "http"));
-  return typeof a === "string" ? null : a.host.replace(/^\[|\]$/g, "");
-}
-
-/** On the local network: as the host decides when a kept token may go to a new address. */
-export function isLocal(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
-  const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
-  }
-  if (h.includes(":")) {
-    const first = parseInt(h.split(":")[0] || "0", 16);
-    return h === "::1" || (first & 0xffc0) === 0xfe80 || (first & 0xfe00) === 0xfc00;
-  }
-  return !h.includes(".") || [".local", ".lan", ".home.arpa", ".internal"].some((end) => h.endsWith(end));
+/**
+ * Whether a secret saved for `saved` may go to `now` (both as the host saves them) without
+ * being typed again: the same scheme, host and port, or the same host and port moved
+ * from http:// to https://. As the host decides (may_keep in file.rs).
+ */
+export function mayKeep(saved: string, now: string, normalize: (t: string) => { url: string } | { message: string }): boolean {
+  const s = normalize(saved);
+  if (!("url" in s)) return false;
+  const was = splitAddress(s.url);
+  const is = splitAddress(now);
+  if (typeof was === "string" || typeof is === "string") return false;
+  const port = (a: Address) => a.port ?? (a.scheme === "https" ? 443 : a.scheme === "ws" ? 4455 : 80);
+  const schemeOk = was.scheme === is.scheme || (was.scheme === "http" && is.scheme === "https");
+  return schemeOk && was.host === is.host && port(was) === port(is);
 }
 
 function tokenProblem(token: Secret, saved: SavedSection | null, url: string): string | null {
@@ -142,11 +137,7 @@ function tokenProblem(token: Secret, saved: SavedSection | null, url: string): s
     return null;
   }
   if (!saved?.hasToken) return NO_TOKEN;
-  const a = splitAddress(url);
-  if (typeof a === "string") return a;
-  const host = a.host.replace(/^\[|\]$/g, "");
-  if (hostOf(saved.url) !== host && a.scheme === "http" && !isLocal(host)) return RETYPE_TOKEN;
-  return null;
+  return mayKeep(saved.url, url, haUrl) ? null : RETYPE_TOKEN;
 }
 
 /** What's wrong with a section as typed, as the host would say it; null if nothing. */
@@ -156,8 +147,11 @@ export function validationMessage(
   saved: SavedSection | null,
 ): string | null {
   if (kind === "obs") {
-    const r = obsUrl((input as ObsInput).url);
-    return "message" in r ? r.message : null;
+    const i = input as ObsInput;
+    const r = obsUrl(i.url);
+    if ("message" in r) return r.message;
+    if (i.password.kind === "keep" && saved?.hasPassword && !mayKeep(saved.url, r.url, obsUrl)) return RETYPE_PASSWORD;
+    return null;
   }
   if (kind === "homeAssistant") {
     const i = input as HaInput;
