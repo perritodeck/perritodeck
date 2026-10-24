@@ -76,7 +76,7 @@
   <li>Click <span class="ui">Test connection</span>. It tries what you typed, before you save it, and says what it found, for example <strong>Connected to OBS 31.0.3</strong>, or what went wrong and what to check.</li>
   <li>Click <span class="ui">Save</span>, then <span class="ui">Restart now</span>. PerritoDeck uses the new settings after it restarts.</li>
 </ol>
-<p>Saved passwords and tokens are never shown again: the box says one is saved, and typing in it replaces it. To change only the address, leave the password box empty.</p>
+<p>Saved passwords and tokens are never shown again: the box says one is saved, and typing in it replaces it. A saved one is used only with the address it was saved for (or that address moved to <code>https://</code>); if you change the address to another computer, type the password or token again.</p>
 <p>To turn one off for a while, untick it and click <span class="ui">Save</span>: its settings are kept, so you can turn it back on without typing them again (handy for Home Assistant, which shows a token only once). <span class="ui">Remove saved settings…</span> deletes them.</p>
 <p>What <span class="ui">Test connection</span> can say, and what to do about it:</p>
 <div class="table-wrap"><table>
@@ -160,7 +160,7 @@ port = 16622</code></pre>
   <li>Under <strong>Long-lived access tokens</strong>, click <strong>Create token</strong>, name it "PerritoDeck" and copy the token. Home Assistant shows it only once.</li>
   <li>In PerritoDeck, go to <span class="ui">Settings</span> → <strong>Integrations</strong>, tick <span class="ui">Use Home Assistant</span>, type its address and paste the token. Click <span class="ui">Test connection</span>, then <span class="ui">Save</span> and <span class="ui">Restart now</span>. (By hand, it's a <code>[home_assistant]</code> section in <a href="#integrations-file">the integrations file</a>.)</li>
 </ol>
-<p>Use the same address you use to open Home Assistant in your browser, such as <code>http://homeassistant.local:8123</code>. A saved token is sent over plain <code>http://</code> only to the address it was saved with or to one on your own network; for any other address, the form asks you to paste it again.</p>
+<p>Use the same address you use to open Home Assistant in your browser, such as <code>http://homeassistant.local:8123</code>. A saved token goes only to the address it was saved with, or to that same address on <code>https://</code>; for any other address the form asks you to paste it again. The OBS password works the same way. If Home Assistant answers with a redirect, Test connection says where it sends you: use that address instead.</p>
 
 <h3 id="ha-buttons">Home Assistant buttons</h3>
 <p>Choose <strong>Home Assistant</strong> under <strong>When pressed</strong> and fill in:</p>
