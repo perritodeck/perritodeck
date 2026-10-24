@@ -2244,13 +2244,15 @@ fn icon_bytes(st: &mut Slot, path: &Path) -> Option<Vec<u8>> {
     let full = st.base_dir.join(path);
     st.icons
         .entry(full.clone())
-        .or_insert_with(|| match std::fs::read(&full) {
-            Ok(b) => Some(b),
-            Err(e) => {
-                warn!("icon {} can't be read: {e}", full.display());
-                None
-            }
-        })
+        .or_insert_with(
+            || match perritodeck_profile::read_icon(&st.base_dir, path) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    warn!("icon {} can't be read: {e}", full.display());
+                    None
+                }
+            },
+        )
         .clone()
 }
 

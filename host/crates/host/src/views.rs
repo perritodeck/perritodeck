@@ -182,7 +182,7 @@ pub fn view_with_icons(
                         has_icon: k.icon.is_some() || k.states.iter().any(|s| s.icon.is_some()),
                         icon_data: look.icon.as_ref().zip(base_dir).and_then(|(icon, dir)| {
                             use base64::Engine;
-                            let bytes = std::fs::read(dir.join(icon)).ok()?;
+                            let bytes = perritodeck_profile::read_icon(dir, icon).ok()?;
                             if !perritodeck_render::is_gif(&bytes) {
                                 return Some(perritodeck_render::data_url(&bytes));
                             }

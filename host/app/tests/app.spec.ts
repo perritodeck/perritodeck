@@ -738,7 +738,22 @@ test.describe("profiles, tablets and switching", () => {
     const items = [
       { kind: "runs", states: [], unused: false, place: [], what: { type: "sdPlugin", ...plugin, plugin: ["com.x"], action: ["com.x.y"], installed: true, pluginName: ["Counter"], actionName: ["Count"], onShow: true } },
       { kind: "runs", states: [], unused: false, place: [], what: { type: "plugin", ...plugin } },
-      { kind: "types", states: [1], unused: false, place: [], what: { type: "typing", text: ["calc", { mark: "Enter" }], enterInText: true } },
+      {
+        kind: "types",
+        states: [1],
+        unused: false,
+        place: [],
+        what: {
+          type: "typing",
+          steps: [
+            { kind: "keys", keys: ["Win+R"], place: [{ in: "step", n: 1, of: 4 }] },
+            { kind: "text", text: ["calc", { mark: "Tab" }], place: [{ in: "step", n: 2, of: 4 }] },
+            { kind: "keys", keys: ["Space"], place: [{ in: "step", n: 3, of: 4 }, { in: "choice", n: 1, of: 2 }] },
+            { kind: "keys", keys: ["Enter"], place: [{ in: "step", n: 3, of: 4 }, { in: "choice", n: 2, of: 2 }] },
+          ],
+          moreSteps: 7,
+        },
+      },
       { kind: "runs", states: [], unused: true, place: [], what: { type: "launch", program: ["notepad"], args: [[]], moreArgs: 0 } },
     ];
     const slider = riskyKey({
@@ -753,12 +768,19 @@ test.describe("profiles, tablets and switching", () => {
     );
     await startImport(page);
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toContainText("Pressing them runs programs or plugins, or types text and presses Enter.");
+    await expect(dialog).toContainText("Pressing them runs programs or plugins, or types text and confirms it with a key such as Enter.");
     await expect(dialog).toContainText("Sliders become plain keys.");
     await expect(dialog).toContainText("It gets this key’s settings as soon as a tablet shows its page.");
     await expect(dialog).toContainText("Counter: Count");
     await expect(dialog).toContainText("(not installed, so it does nothing until you add it)");
-    await expect(dialog).toContainText("Types this (⏎ is Enter):");
+    // Every key the typing presses shows, so a chain of hotkeys can't hide its Enter.
+    await expect(dialog).toContainText("Types and presses, in order:");
+    for (const chord of ["Win+R", "Space", "Enter"]) {
+      await expect(dialog.locator("kbd", { hasText: chord })).toBeVisible();
+    }
+    await expect(dialog.locator("code", { hasText: "calc" })).toBeVisible();
+    await expect(dialog).toContainText("choice 1 of 2, picked at random");
+    await expect(dialog).toContainText("…and 7 more steps");
     await expect(dialog.getByText("State 1 of 2", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Not used by any state now", { exact: true })).toBeVisible();
     await expect(dialog).toContainText("Each move of the slider runs");
@@ -935,6 +957,12 @@ test.describe("getting help and AI assistants", () => {
     await page.getByLabel("Run actions").check();
     await expect(page.getByRole("note")).toContainText("can do anything you can do on this computer");
     await page.getByLabel("Run actions").uncheck();
+    await expect(page.getByRole("note")).toHaveCount(0);
+
+    // So does pressing and editing together: keys that type and then press Enter.
+    await page.getByLabel("Edit profiles").check();
+    await expect(page.getByRole("note")).toContainText("type and submit anything a keyboard can");
+    await page.getByLabel("Edit profiles").uncheck();
     await expect(page.getByRole("note")).toHaveCount(0);
 
     // The port: checked, and a port in use is reported.

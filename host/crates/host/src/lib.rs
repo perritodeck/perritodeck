@@ -1954,11 +1954,10 @@ impl Host {
         zip.write_all(text.as_bytes()).map_err(|e| fail(&e))?;
         for icon in icons_of(&profile) {
             // Only images inside the profiles folder travel with it.
-            let rel = icon.to_string_lossy().replace('\\', "/");
-            if icon.is_absolute() || rel.split('/').any(|part| part == "..") {
+            let Some(rel) = inside_profiles_folder(&icon) else {
                 continue;
-            }
-            if let Ok(bytes) = std::fs::read(self.profiles_dir.join(&icon)) {
+            };
+            if let Ok(bytes) = perritodeck_profile::read_icon(&self.profiles_dir, &icon) {
                 zip.start_file(format!("images/{rel}"), opts)
                     .map_err(|e| fail(&e))?;
                 zip.write_all(&bytes).map_err(|e| fail(&e))?;
@@ -2173,15 +2172,49 @@ fn icons_of(profile: &Profile) -> Vec<PathBuf> {
     icons
 }
 
-/// Where an imported profile's `icon` is written, relative to the profiles folder and
-/// named as in the zip. `None` for a path outside the folder, or for a file that isn't
-/// a picture the app takes as an icon.
-fn importable_image(icon: &Path) -> Option<String> {
+/// `icon`, with forward slashes, if it names a file inside the profiles folder on every
+/// system: relative, plain folder and file names only (no `..`, `.`, empty parts, drive
+/// or share). The only icons an imported profile may have.
+fn inside_profiles_folder(icon: &Path) -> Option<String> {
     let rel = icon.to_string_lossy().replace('\\', "/");
     // No colon either: Windows joins `C:/x` or `C:x` onto the folder as a path of its own.
-    let inside = !rel.starts_with('/')
+    let inside = !rel.is_empty()
+        && !rel.starts_with('/')
         && !rel.contains(':')
-        && rel.split('/').all(|p| !p.is_empty() && p != "..");
+        && rel
+            .split('/')
+            .all(|p| !p.is_empty() && p != "." && p != "..")
+        && Path::new(&rel)
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)));
+    inside.then_some(rel)
+}
+
+/// A file name Windows treats as a device, whatever follows it (`CON.png`, `nul.tar.gif`,
+/// `LPT1 .gif`, `COM¹.jpg`, `CONOUT$.png`), in any case.
+fn windows_device_name(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or_default();
+    let stem = stem.trim_end_matches([' ', '.']).to_uppercase();
+    if ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].contains(&stem.as_str()) {
+        return true;
+    }
+    let mut chars = stem.chars();
+    let start: String = chars.by_ref().take(3).collect();
+    let digit = chars.next();
+    (start == "COM" || start == "LPT")
+        && chars.next().is_none()
+        && matches!(digit, Some('0'..='9' | '¹' | '²' | '³'))
+}
+
+/// Where an imported profile's `icon` is written, relative to the profiles folder and
+/// named as in the zip. `None` for a path outside the folder, a name Windows treats as a
+/// device or quietly changes (a part ending in a dot or space), or a file that isn't a
+/// picture the app takes as an icon.
+fn importable_image(icon: &Path) -> Option<String> {
+    let rel = inside_profiles_folder(icon)?;
+    let plain = rel
+        .split('/')
+        .all(|p| !p.ends_with(['.', ' ']) && !windows_device_name(p));
     let image = Path::new(&rel)
         .extension()
         .and_then(|e| e.to_str())
@@ -2190,7 +2223,7 @@ fn importable_image(icon: &Path) -> Option<String> {
                 .iter()
                 .any(|i| e.eq_ignore_ascii_case(i))
         });
-    (inside && image).then_some(rel)
+    (plain && image).then_some(rel)
 }
 
 /// A timer for a background loop that ticks every `period`. After a slow round, or

@@ -303,3 +303,67 @@ nav = { profile = "" }
     );
     assert!(bad[0].contains("which profile"), "{bad:?}");
 }
+
+/// Key images are read whenever a page is shown, so only from files on this computer:
+/// not a share on another one (Windows would sign in to it), not a device, a folder or
+/// anything bigger than an image could be.
+#[test]
+fn icons_are_read_only_from_files_on_this_computer() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("icons")).unwrap();
+    std::fs::write(dir.path().join("icons/a.png"), b"png").unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let mine = outside.path().join("mine.png");
+    std::fs::write(&mine, b"mine").unwrap();
+    let big = outside.path().join("big.png");
+    std::fs::write(&big, vec![0u8; MAX_ICON_BYTES as usize + 1]).unwrap();
+    let read = |icon: &str| read_icon(dir.path(), Path::new(icon));
+
+    assert_eq!(read("icons/a.png").unwrap(), b"png");
+    // A hand-written absolute path to one's own image keeps working.
+    assert_eq!(read(&mine.display().to_string()).unwrap(), b"mine");
+    assert!(read(&big.display().to_string()).is_err(), "too big");
+    assert!(read("icons").is_err(), "a folder");
+    assert!(read("icons/none.png").is_err());
+    for share in [
+        r"\\attacker.example\share\x.png",
+        "//attacker.example/share/x.png",
+        r"\\?\UNC\attacker.example\share\x.png",
+        r"\\.\pipe\x",
+    ] {
+        assert_eq!(icon_path(dir.path(), Path::new(share)), None, "{share}");
+        assert!(read(share).is_err(), "{share}");
+    }
+    #[cfg(windows)]
+    for device in [
+        format!(r"\\?\{}", mine.display()),
+        format!(r"\\.\{}", mine.display()),
+        format!("//?/{}", mine.display()),
+        r"\\.\COM3".to_owned(),
+    ] {
+        assert_eq!(icon_path(dir.path(), Path::new(&device)), None, "{device}");
+        assert!(read(&device).is_err(), "{device}");
+    }
+    #[cfg(unix)]
+    for device in ["/dev/zero", "/dev/null"] {
+        assert!(read(device).is_err(), "{device}");
+    }
+}
+
+#[test]
+fn icons_that_cant_be_read_count_as_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = Profile::parse(
+        r#"
+schema_version = 1
+name = "Shares"
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+icon = '\\attacker.example\share\x.png'
+"#,
+    )
+    .unwrap();
+    assert_eq!(p.missing_icons(dir.path()).len(), 1);
+}

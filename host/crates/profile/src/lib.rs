@@ -308,7 +308,8 @@ impl Profile {
         out
     }
 
-    /// Icon paths used anywhere, resolved against `base_dir`, that don't exist.
+    /// Icon paths used anywhere, resolved against `base_dir`, that don't exist or can't be
+    /// used (see [`icon_path`]); those are never looked up.
     pub fn missing_icons(&self, base_dir: &Path) -> Vec<PathBuf> {
         let mut missing = Vec::new();
         for page in &self.pages {
@@ -318,8 +319,9 @@ impl Profile {
                     .iter()
                     .chain(key.states.iter().filter_map(|s| s.icon.as_ref()));
                 for icon in icons {
+                    let usable = icon_path(base_dir, icon).is_some_and(|p| p.exists());
                     let p = base_dir.join(icon);
-                    if !p.exists() && !missing.contains(&p) {
+                    if !usable && !missing.contains(&p) {
                         missing.push(p);
                     }
                 }
@@ -359,6 +361,55 @@ pub fn ensure_starter(path: &Path) -> std::io::Result<bool> {
     }
     std::fs::write(path, STARTER_PROFILE)?;
     Ok(true)
+}
+
+/// Most bytes read for one key image: as much as one image in an imported profile.
+pub const MAX_ICON_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The file a key's `icon` names, resolved against `base_dir`, or `None` when it names
+/// something other than a file of this computer's: a share on another computer
+/// (`\\server\share\…`, where Windows would sign in to it), or a device path (`\\.\…`,
+/// `\\?\…`), written with either kind of slash. Relative and absolute local paths are
+/// fine: a person's own profile may use an image anywhere on the computer.
+pub fn icon_path(base_dir: &Path, icon: &Path) -> Option<PathBuf> {
+    let text = icon.to_string_lossy();
+    let mut start = text.chars().take(2);
+    let slash = |c: Option<char>| matches!(c, Some('/' | '\\'));
+    if slash(start.next()) && slash(start.next()) {
+        return None;
+    }
+    #[cfg(windows)]
+    if let Some(std::path::Component::Prefix(p)) = icon.components().next() {
+        if !matches!(p.kind(), std::path::Prefix::Disk(_)) {
+            return None;
+        }
+    }
+    Some(base_dir.join(icon))
+}
+
+/// A key image's bytes, read only from a regular file (never a folder, device or pipe)
+/// of at most [`MAX_ICON_BYTES`], at a path [`icon_path`] accepts.
+pub fn read_icon(base_dir: &Path, icon: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let path = icon_path(base_dir, icon)
+        .ok_or_else(|| "it's on another computer or a device, not a file here".to_owned())?;
+    // Looked at before opening: opening a pipe would wait for a writer.
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("it isn't a file".into());
+    }
+    let too_big = || format!("it's bigger than {} MB", MAX_ICON_BYTES >> 20);
+    if meta.len() > MAX_ICON_BYTES {
+        return Err(too_big());
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&path)
+        .and_then(|f| f.take(MAX_ICON_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_ICON_BYTES {
+        return Err(too_big());
+    }
+    Ok(bytes)
 }
 
 pub fn is_color(s: &str) -> bool {

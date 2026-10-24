@@ -260,11 +260,20 @@
           <input type="checkbox" checked={m.settings.run} onchange={(e) => saveMcp({ run: e.currentTarget.checked })} />
           Run actions
         </label>
-        <small>Run any action straight away, including programs and commands, and give keys actions that run programs.</small>
+        <small
+          >Run any action straight away, including programs and commands, and give keys actions that run programs, or that
+          type text and press Enter.</small
+        >
         {#if m.settings.run}
           <p class="warn" role="note">
             An assistant allowed to run actions can do anything you can do on this computer. Turn this on only for an
             assistant you trust, and only while you need it.
+          </p>
+        {:else if m.settings.press && m.settings.edit}
+          <p class="warn" role="note">
+            Together, pressing and editing let an assistant type and submit anything a keyboard can: it can make one key
+            that types a command and another that presses Enter, then press both. Turn one of them off if you don’t want
+            that.
           </p>
         {/if}
       </fieldset>

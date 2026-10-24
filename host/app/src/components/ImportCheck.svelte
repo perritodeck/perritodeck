@@ -3,7 +3,7 @@
   // file, already made safe by the host: invisible and direction-changing characters
   // arrive as marks, never as themselves.
   import { onMount } from "svelte";
-  import type { ImportChoice, ImportPreview, RiskItem, RiskyKey, Shown } from "../lib/types";
+  import type { ImportChoice, ImportPreview, RiskItem, RiskPlace, RiskyKey, Shown } from "../lib/types";
 
   let { preview, busy, onchoose }: { preview: ImportPreview; busy: boolean; onchoose: (choice: ImportChoice | null) => void } =
     $props();
@@ -28,11 +28,19 @@
   });
   const intro = $derived(
     preview.keysThatRun && preview.keysThatType
-      ? "Pressing them runs programs or plugins, or types text and presses Enter."
+      ? "Pressing them runs programs or plugins, or types text and confirms it with a key such as Enter."
       : preview.keysThatType
-        ? "Pressing them types text and presses Enter. In a terminal or the Run box, that runs a command."
+        ? "Pressing them types text and confirms it with a key such as Enter. In a terminal or the Run box, that runs a command."
         : "Pressing them runs programs or plugins on this computer.",
   );
+
+  /** Where a typed step sits, when it's one of several picked at random. */
+  function choiceOf(place: RiskPlace[]) {
+    return place
+      .filter((p) => p.in === "choice")
+      .map((p) => `choice ${p.n} of ${p.of}, picked at random`)
+      .join(" · ");
+  }
 
   function choose(choice: ImportChoice | null) {
     if (!busy) onchoose(choice);
@@ -174,8 +182,18 @@
                       Uses the Stream Deck plugin {@render plugin(w)}
                       {#if w.onShow}<span class="note">It gets this key’s settings as soon as a tablet shows its page.</span>{/if}
                     {:else if w.type === "typing"}
-                      {w.enterInText ? "Types this (⏎ is Enter):" : "Types this, then another step presses Enter:"}
-                      {@render value(w.text, "v block")}
+                      Types and presses, in order:
+                      <ol class="typed">
+                        {#each w.steps as s, j (j)}
+                          {@const choice = choiceOf(s.place)}
+                          <li>
+                            {#if s.kind === "keys"}Presses <kbd dir="ltr" class="v key">{@render plain(s.keys)}</kbd
+                              >{:else}Types {@render value(s.text, "v block")}{/if}
+                            {#if choice}<span class="where-inline">({choice})</span>{/if}
+                          </li>
+                        {/each}
+                      </ol>
+                      {#if w.moreSteps}<span class="cut">…and {w.moreSteps} more steps</span>{/if}
                     {/if}
                   </span>
                 </li>
@@ -315,6 +333,19 @@
   .v.block {
     display: block;
     margin-top: 2px;
+  }
+  .v.key {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+  }
+  .typed {
+    margin: 2px 0 0;
+    padding-left: 20px;
+    list-style: decimal;
+  }
+  .where-inline {
+    color: var(--ink-soft);
+    font-size: 0.8125rem;
   }
   .mark {
     display: inline-block;

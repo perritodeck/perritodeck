@@ -858,6 +858,35 @@ async fn keys_that_type_and_press_enter_need_the_run_permission() {
     assert!(is_error(&r), "{}", text(&r));
 }
 
+/// The same command line, spelled with one hotkey per letter or confirmed with Tab and
+/// Space instead of Enter, needs "run" too.
+#[tokio::test]
+async fn typing_chains_need_the_run_permission() {
+    let fake = Fake::new();
+    fake.allow(true, true, false);
+    let (server, mut s) = ready(&fake).await;
+    let mut letters = vec![json!({"action":{"type":"hotkey","keys":"Win+R"},"delayMs":400})];
+    for c in "calc".chars() {
+        letters.push(json!({"action":{"type":"hotkey","keys":c.to_string()}}));
+    }
+    letters.push(json!({"action":{"type":"hotkey","keys":"Enter"}}));
+    let tab_space = json!([
+        {"action":{"type":"hotkey","keys":"Win+R"}},
+        {"action":{"type":"text","text":"calc\t"}},
+        {"action":{"type":"hotkey","keys":"Space"}}]);
+    for steps in [json!(letters), tab_space] {
+        let r = call(
+            &server,
+            &mut s,
+            "set_key",
+            json!({"row":2,"col":2,"title":"Mute","action":{"type":"multi","steps":steps}}),
+        )
+        .await;
+        assert!(is_error(&r), "accepted without run: {}", text(&r));
+        assert!(text(&r).contains("run actions"), "{}", text(&r));
+    }
+}
+
 #[tokio::test]
 async fn running_actions() {
     let fake = Fake::new();

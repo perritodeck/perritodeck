@@ -969,6 +969,9 @@ fn profile_showing(icons: &[impl AsRef<str>]) -> String {
     toml
 }
 
+/// A key's image is read whenever its page is shown, so an imported profile may only
+/// name images inside the profiles folder: not a file elsewhere on the computer, not a
+/// share on another computer (Windows would sign in to it), not a device.
 #[tokio::test]
 async fn imports_cannot_write_outside_the_profiles_folder() {
     use std::io::Write;
@@ -977,19 +980,73 @@ async fn imports_cannot_write_outside_the_profiles_folder() {
     // `C:/…/escaped-too.png` on Windows, which joins onto the folder as itself.
     let absolute = dir.path().join("escaped-too.png");
     let absolute_name = absolute.display().to_string().replace('\\', "/");
-    let icons = [
+    let before = host.profiles().len();
+    for icon in [
         "../escaped.png",
+        "icons/../../escaped.png",
         absolute_name.as_str(),
         "C:escaped3.png",
         "a:b.png",
+        r"\\attacker.example\share\x.png",
+        "//attacker.example/share/x.png",
+        r"\\?\C:\x.png",
+        r"\\.\pipe\x",
+        "/dev/zero",
+    ] {
+        let file = dir.path().join("evil.perritoprofile");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("profile.toml", opts).unwrap();
+        zip.write_all(profile_showing(&["icons/fine.png", icon]).as_bytes())
+            .unwrap();
+        for name in ["icons/fine.png", icon] {
+            zip.start_file(format!("images/{name}"), opts).unwrap();
+            zip.write_all(b"x").unwrap();
+        }
+        zip.finish().unwrap();
+        let err = host.stage_import(&file).unwrap_err();
+        assert!(err.contains("outside the profiles folder"), "{icon}: {err}");
+        assert!(err.contains("row 1, column 2"), "{icon}: {err}");
+    }
+    assert_eq!(host.profiles().len(), before, "nothing was added");
+    assert!(!dir.path().join("escaped.png").exists());
+    assert!(!absolute.exists());
+    for name in ["escaped3.png", "a:b.png", "b.png", "icons/fine.png"] {
+        assert!(!host.profiles_dir.join(name).exists(), "{name}");
+    }
+}
+
+/// An import doesn't write images named like Windows devices (CON, NUL, COM1…), which
+/// Windows 10 opens as the device, or with a part ending in a dot or space, which
+/// Windows quietly drops.
+#[tokio::test]
+async fn imports_skip_images_named_like_devices() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let names = [
+        "CON.png",
+        "icons/nul.GIF",
+        "icons/Com1.jpg",
+        "COM¹.png",
+        "LPT1 .gif",
+        "lpt9.tar.png",
+        "CONOUT$.png",
+        "conin$.jpeg",
+        "aux",
+        "icons/prn.png",
+        "icons/a /b.png",
+        "icons/a./b.png",
     ];
-    let file = dir.path().join("evil.perritoprofile");
+    let file = dir.path().join("devices.perritoprofile");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&file).unwrap());
     let opts = zip::write::SimpleFileOptions::default();
     zip.start_file("profile.toml", opts).unwrap();
-    zip.write_all(profile_showing(&icons).as_bytes()).unwrap();
-    for icon in icons {
-        zip.start_file(format!("images/{icon}"), opts).unwrap();
+    let mut shown = names.to_vec();
+    shown.push("icons/console.png");
+    zip.write_all(profile_showing(&shown).as_bytes()).unwrap();
+    for name in &shown {
+        zip.start_file(format!("images/{name}"), opts).unwrap();
         zip.write_all(b"x").unwrap();
     }
     zip.finish().unwrap();
@@ -997,10 +1054,79 @@ async fn imports_cannot_write_outside_the_profiles_folder() {
         host.stage_import(&file).unwrap(),
         ImportStep::Imported(_)
     ));
-    assert!(!dir.path().join("escaped.png").exists());
-    assert!(!absolute.exists());
-    for name in ["escaped3.png", "a:b.png", "b.png"] {
-        assert!(!host.profiles_dir.join(name).exists(), "{name}");
+    // A name that only starts like a device is an ordinary image.
+    assert!(host.profiles_dir.join("icons/console.png").exists());
+    let written: Vec<String> = walk(&host.profiles_dir)
+        .into_iter()
+        .filter(|p| !p.ends_with(".toml"))
+        .collect();
+    assert_eq!(written, ["icons/console.png"], "{written:?}");
+}
+
+/// Every file under `dir`, relative to it, with forward slashes.
+fn walk(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                todo.push(p);
+            } else {
+                let rel = p
+                    .strip_prefix(dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push(rel);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A person's own profile may name an image anywhere on this computer, but the editor
+/// never reads a share, a device, a folder or a file too big to be a key image.
+#[tokio::test]
+async fn icons_are_read_only_from_files_on_this_computer() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let outside = tempfile::tempdir().unwrap();
+    let png = outside.path().join("mine.png");
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]))
+        .save(&png)
+        .unwrap();
+    let big = outside.path().join("big.png");
+    std::fs::write(&big, vec![0u8; 20 * 1024 * 1024 + 1]).unwrap();
+    let shown = |icon: String| {
+        let edit = Edit::SetKey {
+            page: "Main".into(),
+            at: [2, 2],
+            key: KeyFields {
+                title: Some("I".into()),
+                icon: Some(icon.clone().into()),
+                ..Default::default()
+            },
+        };
+        let view = host.edit_profile("default", &[edit]).unwrap();
+        let key = view.pages[0]
+            .keys
+            .iter()
+            .find(|k| k.row == 2 && k.col == 2)
+            .unwrap();
+        key.icon_data.is_some()
+    };
+    // A hand-written absolute path to an image of one's own keeps working.
+    assert!(shown(png.display().to_string()));
+    assert!(!shown(big.display().to_string()), "too big");
+    assert!(!shown(outside.path().display().to_string()), "a folder");
+    #[cfg(windows)]
+    {
+        // The same image through device paths.
+        assert!(!shown(format!(r"\\?\{}", png.display())));
+        assert!(!shown(format!(r"\\.\{}", png.display())));
+        assert!(!shown(format!("//?/{}", png.display())));
     }
 }
 
@@ -1214,6 +1340,58 @@ async fn risky_keys_are_shown_before_anything_is_written() {
         .is_err());
     assert_eq!(host.profiles().len(), before, "nothing added at all");
     assert!(!host.path_of("starter").exists());
+}
+
+/// "Win+R, c, a, l, c, Enter" as hotkeys types a command into the Run box: the import
+/// asks, and the dialog shows every key it presses.
+#[tokio::test]
+async fn a_typing_chain_asks_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = quiet_host(dir.path()).await;
+    let file = perritoprofile(
+        dir.path(),
+        "chain",
+        r#"schema_version = 1
+name = "Chain"
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "Mute"
+[pages.keys.action]
+type = "multi"
+steps = [
+  { action = { type = "hotkey", keys = "Win+R" }, delayMs = 400 },
+  { action = { type = "hotkey", keys = "c" } },
+  { action = { type = "hotkey", keys = "a" } },
+  { action = { type = "text", text = "lc" } },
+  { action = { type = "hotkey", keys = "Enter" } },
+]
+"#,
+    );
+    let ImportStep::Confirm { preview } = host.stage_import(&file).unwrap() else {
+        panic!("a key that types a command and presses Enter asks first");
+    };
+    assert_eq!((preview.keys_that_type, preview.keys_that_run), (1, 0));
+    let what = serde_json::to_value(&preview.risky[0].items[0].what).unwrap();
+    let step = |kind: &str, v: &str, n: usize| {
+        let field = if kind == "keys" { "keys" } else { "text" };
+        serde_json::json!({"kind": kind, field: [v], "place": [{"in": "step", "n": n, "of": 5}]})
+    };
+    assert_eq!(
+        what,
+        serde_json::json!({
+            "type": "typing",
+            "steps": [
+                step("keys", "Win+R", 1),
+                step("keys", "c", 2),
+                step("keys", "a", 3),
+                step("text", "lc", 4),
+                step("keys", "Enter", 5),
+            ],
+            "moreSteps": 0
+        })
+    );
 }
 
 #[tokio::test]

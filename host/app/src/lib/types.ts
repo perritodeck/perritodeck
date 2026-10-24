@@ -369,7 +369,9 @@ export type RiskWhat =
   | { type: "openPath"; path: Shown }
   | ({ type: "plugin" | "pluginSlider" } & PluginWhat)
   | ({ type: "sdPlugin"; onShow: boolean } & PluginWhat)
-  | { type: "typing"; text: Shown; enterInText: boolean };
+  | { type: "typing"; steps: TypedStep[]; moreSteps: number };
+/** One step of what a key types and presses: text, or a hotkey. `place` is within the item. */
+export type TypedStep = { kind: "text"; text: Shown; place: RiskPlace[] } | { kind: "keys"; keys: Shown; place: RiskPlace[] };
 /** One thing a key does that an import lists. */
 export interface RiskItem {
   kind: "runs" | "types";

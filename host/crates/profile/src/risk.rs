@@ -4,14 +4,16 @@
 //!
 //! Two kinds are listed. **Runs**: an action that starts a program, opens a file with
 //! its app, or hands the press to a plugin ([`ActionSpec::runs_programs`]), and sliders
-//! that run a program or plugin on every move. **Types**: text that ends a line, or
-//! text in a key that also presses Enter, because "Win+R, type a command, Enter" runs a
-//! command just as surely. Hotkeys alone, plain text, web addresses, media, OBS and
-//! Home Assistant are not listed.
+//! that run a program or plugin on every move. **Types**: a key that both types
+//! characters (text, or single-character hotkeys) and confirms them (Enter, Space, a
+//! line break or tab in text), because "Win+R, type a command, Enter" runs a command
+//! just as surely, however it's spelled. Shortcuts, plain text with nothing confirming
+//! it, web addresses, media, OBS and Home Assistant are not listed, nor typing on one
+//! key confirmed by another: no per-key rule can link those.
 //!
 //! This holds raw values; making them safe to show is the host's job.
 
-use perritodeck_actions::{ActionSpec, Chord, Place, SliderSpec};
+use perritodeck_actions::{ActionSpec, Chord, Key, Modifier, Place, SliderSpec};
 use serde::Serialize;
 
 use crate::{
@@ -25,7 +27,7 @@ use crate::{
 pub enum RiskKind {
     /// Runs a program or a plugin.
     Runs,
-    /// Types text and presses Enter.
+    /// Types characters and confirms them.
     Types,
 }
 
@@ -41,12 +43,7 @@ pub enum Source {
 }
 
 /// What it runs or types, with the values from the file.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum What {
     Command {
         program: String,
@@ -83,11 +80,21 @@ pub enum What {
         action: String,
         settings: Option<String>,
     },
-    /// `enter_in_text`: the text itself ends a line; otherwise another step presses Enter.
+    /// What one action of the key types and presses, in order: its text and every
+    /// hotkey, so the keys that confirm it show too.
     Typing {
-        text: String,
-        enter_in_text: bool,
+        steps: Vec<Typed>,
     },
+}
+
+/// One step of what a key types or presses. `place` is where it sits inside the
+/// listed action (empty when it is that action).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Typed {
+    /// Text typed as it is.
+    Text { text: String, place: Vec<Place> },
+    /// A hotkey, as written in the file.
+    Keys { keys: String, place: Vec<Place> },
 }
 
 /// One listed action in a key.
@@ -150,39 +157,40 @@ pub fn risks_of(
         .iter()
         .map(|(source, a, states, unused)| (*source, a.leaves(), states, *unused))
         .collect();
-    // Enter pressed anywhere in the key: typed text then runs as a command line.
-    let enter = walked
-        .iter()
-        .flat_map(|(_, leaves, _, _)| leaves)
-        .any(|(_, a)| match a {
-            ActionSpec::Hotkey { keys } => keys.parse::<Chord>().is_ok_and(|c| c.presses_enter()),
-            _ => false,
-        });
+    // Typing that the key also confirms runs as a command line ("Win+R, type a command,
+    // Enter"), wherever the two sit in the key.
+    let typing = types_and_confirms(
+        walked
+            .iter()
+            .flat_map(|(_, leaves, _, _)| leaves.iter().map(|(_, a)| *a)),
+    );
     // A tablet hands a Stream Deck plugin its key as soon as it shows it: the action for
     // the first state.
     let first_state_falls_back = states.first().map_or(true, |s| s.action.is_none());
     let mut out = Vec::new();
     for (source, leaves, states, unused) in walked {
-        for (place, leaf) in leaves {
+        // One typing entry per action, where its first text or hotkey is, with every
+        // text and hotkey of that action in order, so the keys that confirm show too.
+        let mut typing_listed = !typing;
+        for (place, leaf) in &leaves {
             let on_show = place.is_empty()
                 && match source {
                     Source::State(0) => true,
                     Source::Key => first_state_falls_back,
                     _ => false,
                 };
-            let (kind, what) = match leaf {
-                ActionSpec::Text { text } => {
-                    let enter_in_text = text.contains(['\n', '\r']);
-                    if !(enter_in_text || enter) {
+            let (kind, place, what) = match leaf {
+                ActionSpec::Text { .. } | ActionSpec::Hotkey { .. } => {
+                    if typing_listed {
                         continue;
                     }
-                    let what = What::Typing {
-                        text: text.clone(),
-                        enter_in_text,
-                    };
-                    (RiskKind::Types, what)
+                    typing_listed = true;
+                    let (place, steps) = typing_steps(&leaves);
+                    (RiskKind::Types, place, What::Typing { steps })
                 }
-                leaf if leaf.runs_programs() => (RiskKind::Runs, what_runs(leaf, on_show)),
+                leaf if leaf.runs_programs() => {
+                    (RiskKind::Runs, place.clone(), what_runs(leaf, on_show))
+                }
                 _ => continue,
             };
             out.push(Risk {
@@ -225,6 +233,78 @@ pub fn risks_of(
         });
     }
     out
+}
+
+/// Whether these actions, taken together, type characters and confirm them. Types:
+/// any text, or a hotkey of a character or Space with nothing but Shift. Confirms: an
+/// Enter-like chord ([`Chord::presses_enter`]), any Space chord (it presses the focused
+/// button), or a line break or tab in text (a tab moves to the next field or button).
+/// Text that confirms types too; any other confirming key needs something else that
+/// types, so a lone Space (play or pause) isn't listed. Linear, however long the key.
+fn types_and_confirms<'a>(leaves: impl Iterator<Item = &'a ActionSpec>) -> bool {
+    let mut typists = 0usize;
+    let mut confirms_alone = false;
+    // Confirming keys that also type (a bare Space): each needs another typist.
+    let mut confirm_typists = 0usize;
+    let mut confirms = 0usize;
+    for a in leaves {
+        match a {
+            ActionSpec::Text { text } => {
+                typists += 1;
+                if text.contains(['\n', '\r', '\t']) {
+                    confirms_alone = true;
+                }
+            }
+            ActionSpec::Hotkey { keys } => {
+                let Ok(c) = keys.parse::<Chord>() else {
+                    continue;
+                };
+                let types = matches!(c.key, Key::Char(_) | Key::Space)
+                    && c.modifiers.iter().all(|m| *m == Modifier::Shift);
+                let confirm = c.presses_enter() || c.key == Key::Space;
+                typists += usize::from(types);
+                if confirm {
+                    confirms += 1;
+                    confirm_typists += usize::from(types);
+                }
+            }
+            _ => {}
+        }
+    }
+    // A confirming key that doesn't type needs one typist; one that does needs another.
+    let plain_confirms = confirms - confirm_typists;
+    confirms_alone || (plain_confirms > 0 && typists > 0) || (confirm_typists > 0 && typists > 1)
+}
+
+/// An action's texts and hotkeys in order, each placed relative to where they all sit.
+fn typing_steps(leaves: &[(Vec<Place>, &ActionSpec)]) -> (Vec<Place>, Vec<Typed>) {
+    let typed: Vec<&(Vec<Place>, &ActionSpec)> = leaves
+        .iter()
+        .filter(|(_, a)| matches!(a, ActionSpec::Text { .. } | ActionSpec::Hotkey { .. }))
+        .collect();
+    let mut common: Vec<Place> = typed.first().map(|(p, _)| p.clone()).unwrap_or_default();
+    for (p, _) in &typed {
+        let same = common.iter().zip(p).take_while(|(a, b)| a == b).count();
+        common.truncate(same);
+    }
+    let steps = typed
+        .iter()
+        .map(|(p, a)| {
+            let place = p[common.len()..].to_vec();
+            match a {
+                ActionSpec::Text { text } => Typed::Text {
+                    text: text.clone(),
+                    place,
+                },
+                ActionSpec::Hotkey { keys } => Typed::Keys {
+                    keys: keys.clone(),
+                    place,
+                },
+                _ => unreachable!("only texts and hotkeys are kept"),
+            }
+        })
+        .collect();
+    (common, steps)
 }
 
 fn settings_text(v: &serde_json::Value) -> Option<String> {
@@ -314,7 +394,16 @@ impl What {
                 "a slider that uses the plugin {plugin}: {action}{}",
                 with(settings)
             ),
-            What::Typing { text, .. } => format!("types {} and presses Enter", q(text)),
+            What::Typing { steps } => {
+                let steps: Vec<String> = steps
+                    .iter()
+                    .map(|s| match s {
+                        Typed::Text { text, .. } => format!("types {}", q(text)),
+                        Typed::Keys { keys, .. } => format!("presses {keys}"),
+                    })
+                    .collect();
+                steps.join(", ")
+            }
         }
     }
 }
@@ -718,34 +807,60 @@ states = [
         assert_eq!(on_show(&k), [true]);
     }
 
+    /// Each typing entry, as (states, steps written "t:text" or "k:keys").
+    fn typing(k: &KeyDef) -> Vec<(Vec<usize>, Vec<String>)> {
+        k.risks()
+            .into_iter()
+            .map(|r| match r.what {
+                What::Typing { steps } => {
+                    assert_eq!(r.kind, RiskKind::Types);
+                    let steps = steps
+                        .into_iter()
+                        .map(|s| match s {
+                            Typed::Text { text, .. } => format!("t:{text}"),
+                            Typed::Keys { keys, .. } => format!("k:{keys}"),
+                        })
+                        .collect();
+                    (r.states, steps)
+                }
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// A key whose action is these steps: `t:` text, `k:` a hotkey.
+    fn chain(steps: &[&str]) -> KeyDef {
+        let steps: Vec<String> = steps
+            .iter()
+            .map(|s| match s.split_once(':') {
+                Some(("t", t)) => format!("{{ action = {{ type = \"text\", text = {t:?} }} }}"),
+                Some(("k", k)) => format!("{{ action = {{ type = \"hotkey\", keys = {k:?} }} }}"),
+                _ => panic!("{s}"),
+            })
+            .collect();
+        key(&format!(
+            "at = [0, 0]\naction = {{ type = \"multi\", steps = [{}] }}",
+            steps.join(", ")
+        ))
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn typing_that_presses_enter() {
-        let typing = |k: &KeyDef| -> Vec<(bool, Vec<usize>)> {
-            k.risks()
-                .into_iter()
-                .map(|r| match r.what {
-                    What::Typing { enter_in_text, .. } => {
-                        assert_eq!(r.kind, RiskKind::Types);
-                        (enter_in_text, r.states)
-                    }
-                    other => panic!("{other:?}"),
-                })
-                .collect()
-        };
         let text = |t: &str| format!("at = [0, 0]\naction = {{ type = \"text\", text = {t:?} }}");
-        assert_eq!(typing(&key(&text("ls\n"))), [(true, vec![])]);
-        assert_eq!(typing(&key(&text("a\r\nb"))), [(true, vec![])]);
-        assert_eq!(typing(&key(&text("a\rb"))), [(true, vec![])]);
+        assert_eq!(
+            typing(&key(&text("ls\n"))),
+            [(vec![], strings(&["t:ls\n"]))]
+        );
+        assert_eq!(typing(&key(&text("a\r\nb"))).len(), 1);
+        assert_eq!(typing(&key(&text("a\rb"))).len(), 1);
+        // A tab moves to the next field or button, where Space or Enter confirms.
+        assert_eq!(typing(&key(&text("calc\t"))).len(), 1);
         assert_eq!(typing(&key(&text("hello"))), []);
 
-        let with_chord = |chord: &str| {
-            key(&format!(
-                r#"at = [0, 0]
-action = {{ type = "multi", steps = [
-  {{ action = {{ type = "text", text = "hello" }} }},
-  {{ action = {{ type = "hotkey", keys = "{chord}" }} }} ] }}"#
-            ))
-        };
         for chord in [
             "Enter",
             "Return",
@@ -753,33 +868,115 @@ action = {{ type = "multi", steps = [
             "Shift+Enter",
             "Ctrl+M",
             "Ctrl+J",
+            "Space",
         ] {
-            assert_eq!(typing(&with_chord(chord)), [(false, vec![])], "{chord}");
+            let k = chain(&["t:hello", &format!("k:{chord}")]);
+            assert_eq!(
+                typing(&k),
+                [(vec![], strings(&["t:hello", &format!("k:{chord}")]))],
+                "{chord}"
+            );
         }
-        for chord in ["Ctrl+Shift+M", "Ctrl+C"] {
-            assert_eq!(typing(&with_chord(chord)), [], "{chord}");
+        for chord in ["Ctrl+Shift+M", "Ctrl+C", "Tab", "Escape"] {
+            assert_eq!(
+                typing(&chain(&["t:hello", &format!("k:{chord}")])),
+                [],
+                "{chord}"
+            );
         }
 
-        // Text in state 1, Enter in state 2: the key types and presses Enter.
+        // Text in state 1, Enter in state 2: the key types and presses Enter, and the
+        // dialog shows both.
         let k = key(r#"at = [0, 0]
 states = [
   { action = { type = "text", text = "calc" } },
   { action = { type = "hotkey", keys = "Enter" } } ]"#);
-        assert_eq!(typing(&k), [(false, vec![1])]);
+        assert_eq!(
+            typing(&k),
+            [
+                (vec![1], strings(&["t:calc"])),
+                (vec![2], strings(&["k:Enter"]))
+            ]
+        );
 
-        // Picked at random.
+        // Picked at random: one entry, each step saying where it sits.
         let k = key(r#"at = [0, 0]
 action = { type = "random", actions = [ { type = "text", text = "gg" }, { type = "hotkey", keys = "enter" } ] }"#);
         let r = k.risks();
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0].place, [Place::Choice { n: 1, of: 2 }]);
+        assert_eq!(r[0].place, []);
         assert_eq!(
             r[0].what,
             What::Typing {
-                text: "gg".into(),
-                enter_in_text: false
+                steps: vec![
+                    Typed::Text {
+                        text: "gg".into(),
+                        place: vec![Place::Choice { n: 1, of: 2 }]
+                    },
+                    Typed::Keys {
+                        keys: "enter".into(),
+                        place: vec![Place::Choice { n: 2, of: 2 }]
+                    },
+                ]
             }
         );
+    }
+
+    /// "Win+R, type a command, Enter" spelled with one hotkey per letter, or confirmed
+    /// with Tab and Space instead of Enter, runs the command just the same.
+    #[test]
+    fn typing_chains_without_text_or_enter_are_listed() {
+        let letters = chain(&["k:Win+R", "k:c", "k:a", "k:l", "k:c", "k:Enter"]);
+        assert_eq!(
+            typing(&letters),
+            [(
+                vec![],
+                strings(&["k:Win+R", "k:c", "k:a", "k:l", "k:c", "k:Enter"])
+            )]
+        );
+        // Shift+letter types a capital.
+        assert_eq!(typing(&chain(&["k:Shift+C", "k:Ctrl+J"])).len(), 1);
+        // Text ending in a tab, then Space on the OK button.
+        assert_eq!(typing(&chain(&["k:Win+R", "t:calc\t", "k:Space"])).len(), 1);
+        // The same with hotkeys only.
+        assert_eq!(
+            typing(&chain(&["k:Win+R", "k:c", "k:Tab", "k:Space"])).len(),
+            1
+        );
+        // A space typed, then Enter.
+        assert_eq!(typing(&chain(&["k:Space", "k:Enter"])).len(), 1);
+    }
+
+    #[test]
+    fn keys_that_only_press_shortcuts_are_quiet() {
+        // A lone Space (play/pause in most players) types a space but nothing before it.
+        assert_eq!(typing(&chain(&["k:Space"])), []);
+        // Letters with nothing that confirms them.
+        assert_eq!(typing(&chain(&["k:Win+R", "k:c", "k:a", "k:Tab"])), []);
+        // Shortcuts that type nothing, then Enter.
+        assert_eq!(
+            typing(&chain(&["k:Win+R", "k:Ctrl+V", "k:Alt+F4", "k:Enter"])),
+            []
+        );
+        assert_eq!(typing(&chain(&["k:Win+E", "k:F5", "k:Enter"])), []);
+        assert_eq!(typing(&chain(&["k:Ctrl+Shift+M"])), []);
+    }
+
+    /// Typing on one key and Enter on another aren't linked: a per-key rule can't see
+    /// that (docs/SECURITY.md says so).
+    #[test]
+    fn typing_across_keys_is_not_linked() {
+        let p = Profile::parse(&one_page(
+            r#"[[pages.keys]]
+at = [0, 0]
+action = { type = "multi", steps = [ { action = { type = "hotkey", keys = "Win+R" } }, { action = { type = "text", text = "calc" } } ] }
+[[pages.keys]]
+at = [0, 1]
+action = { type = "hotkey", keys = "Enter" }
+"#,
+        ))
+        .unwrap();
+        assert_eq!(p.risky_keys(), []);
     }
 
     #[test]

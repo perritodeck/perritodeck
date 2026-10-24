@@ -10,13 +10,13 @@ use std::{collections::HashMap, io::Read, path::Path};
 
 use perritodeck_actions::Place;
 use perritodeck_profile::{
-    risk::{self, RiskKind, RiskyKey, Source, What},
+    risk::{self, RiskKind, RiskyKey, Source, Typed, What},
     Profile,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::{icons_of, importable_image, slug, unique_id, Host};
+use crate::{icons_of, importable_image, inside_profiles_folder, slug, unique_id, Host};
 
 /// How much of a `.perritoprofile` is read before it's refused as not a profile file.
 pub(crate) struct Limits {
@@ -81,6 +81,19 @@ impl ProfileArchive {
                 problems.join("; ")
             ));
         }
+        // A key's image is read whenever its page is shown, so an imported profile may
+        // name only images inside the profiles folder: not another file of this
+        // computer's, a share (Windows would sign in to it) or a device.
+        let outside = outside_icons(&profile);
+        if !outside.is_empty() {
+            return Err(format!(
+                "{} names images outside the profiles folder, which an imported profile can't \
+                 use: {}. Put the images next to the profile, name them relative to it, and \
+                 export it again.",
+                src.display(),
+                outside
+            ));
+        }
         // Only the images its keys show, which is all export_profile packs. With the
         // profile in the data folder, anything else could land among the host's own
         // files: a plugin, which would start with the host, or another profile, which
@@ -124,6 +137,38 @@ impl ProfileArchive {
             images,
         })
     }
+}
+
+/// Keys whose image isn't inside the profiles folder, described for an error: "page
+/// "Main", row 1, column 2 ("C:\\x.png")", the first few and how many more.
+fn outside_icons(profile: &Profile) -> String {
+    const SHOWN: usize = 5;
+    let mut found = Vec::new();
+    for page in &profile.pages {
+        for k in &page.keys {
+            let mut icons = k
+                .icon
+                .iter()
+                .chain(k.states.iter().filter_map(|s| s.icon.as_ref()));
+            if let Some(icon) = icons.find(|i| inside_profiles_folder(i).is_none()) {
+                // Quoted with escapes, so nothing in the path can disguise itself.
+                found.push(format!(
+                    "page {:?}, row {}, column {} ({:?})",
+                    page.name,
+                    k.at[0] + 1,
+                    k.at[1] + 1,
+                    icon.to_string_lossy()
+                ));
+            }
+        }
+    }
+    let more = found.len().saturating_sub(SHOWN);
+    found.truncate(SHOWN);
+    let mut out = found.join("; ");
+    if more > 0 {
+        out += &format!("; and {more} more");
+    }
+    out
 }
 
 /// What the person chose for a profile whose keys run things.
@@ -180,7 +225,7 @@ pub type Shown = Vec<Piece>;
 pub const MAX_LISTED_KEYS: usize = 500;
 /// Most items listed for one key.
 pub const MAX_ITEMS_PER_KEY: usize = 20;
-/// Most arguments listed for one program.
+/// Most arguments listed for one program, and steps for one typing entry.
 pub const MAX_ARGS: usize = 100;
 /// Most characters of a program, path, argument, typed text or settings.
 pub const VALUE: usize = 4_096;
@@ -281,37 +326,63 @@ pub enum WhatView {
         action_name: Option<Shown>,
     },
     Typing {
-        text: Shown,
-        enter_in_text: bool,
+        steps: Vec<TypedView>,
+        more_steps: usize,
     },
 }
 
-/// Characters that show nothing, or change the direction of what follows: bidi
-/// controls, zero-width characters, separators, fillers and tags. U+FE0F (emoji
-/// presentation) isn't here, so emoji stay readable.
+/// One step of a typing entry: text typed, or a hotkey pressed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TypedView {
+    Text { text: Shown, place: Vec<Place> },
+    Keys { keys: Shown, place: Vec<Place> },
+}
+
+/// Characters that show nothing, or change how what's around them shows: every code
+/// point in Unicode's general categories Cc, Cf, Zl and Zp, or with the property
+/// Default_Ignorable_Code_Point (bidi controls, zero-width characters, fillers, variation
+/// selectors, tags, and the unassigned ones reserved as ignorable), in sorted ranges.
+/// Generated from Unicode 17.0 (Node 26's tables) by testing every code point against
+/// `/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u`, leaving out U+FE0F
+/// (emoji presentation) so emoji stay readable. Regenerate when Unicode adds some.
 const INVISIBLE: &[(u32, u32)] = &[
+    (0x0000, 0x001F),
+    (0x007F, 0x009F),
     (0x00AD, 0x00AD),
     (0x034F, 0x034F),
+    (0x0600, 0x0605),
     (0x061C, 0x061C),
+    (0x06DD, 0x06DD),
+    (0x070F, 0x070F),
+    (0x0890, 0x0891),
+    (0x08E2, 0x08E2),
     (0x115F, 0x1160),
     (0x17B4, 0x17B5),
     (0x180B, 0x180F),
     (0x200B, 0x200F),
     (0x2028, 0x202E),
     (0x2060, 0x206F),
-    (0x2800, 0x2800),
     (0x3164, 0x3164),
     (0xFE00, 0xFE0E),
     (0xFEFF, 0xFEFF),
     (0xFFA0, 0xFFA0),
-    (0xFFF9, 0xFFFB),
-    (0xE0000, 0xE007F),
-    (0xE0100, 0xE01EF),
+    (0xFFF0, 0xFFFB),
+    (0x110BD, 0x110BD),
+    (0x110CD, 0x110CD),
+    (0x13430, 0x1343F),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
 ];
 
+/// Blank-looking characters in no category above, marked as well: the Braille blank.
+const BLANK: &[char] = &['\u{2800}'];
+
 fn invisible(c: char) -> bool {
-    let c = u32::from(c);
-    INVISIBLE.iter().any(|&(lo, hi)| (lo..=hi).contains(&c))
+    let c32 = u32::from(c);
+    let i = INVISIBLE.partition_point(|&(_, hi)| hi < c32);
+    INVISIBLE.get(i).is_some_and(|&(lo, _)| lo <= c32) || BLANK.contains(&c)
 }
 
 /// `s` as pieces safe to show: line breaks, tabs, control characters and the
@@ -482,12 +553,22 @@ fn what_view(what: &What, names: &Names) -> WhatView {
                 action_name: p.action_name,
             }
         }
-        What::Typing {
-            text,
-            enter_in_text,
-        } => WhatView::Typing {
-            text: shown(text, VALUE),
-            enter_in_text: *enter_in_text,
+        What::Typing { steps } => WhatView::Typing {
+            steps: steps
+                .iter()
+                .take(MAX_ARGS)
+                .map(|s| match s {
+                    Typed::Text { text, place } => TypedView::Text {
+                        text: shown(text, VALUE),
+                        place: place.clone(),
+                    },
+                    Typed::Keys { keys, place } => TypedView::Keys {
+                        keys: shown(keys, NAME),
+                        place: place.clone(),
+                    },
+                })
+                .collect(),
+            more_steps: steps.len().saturating_sub(MAX_ARGS),
         },
     }
 }
@@ -711,6 +792,26 @@ mod tests {
             ('\u{7F}', "U+007F"),
             ('\u{2066}', "U+2066"),
             ('\u{FEFF}', "U+FEFF"),
+            // Format characters: Arabic number signs, the Syriac abbreviation mark,
+            // Kaithi, Egyptian hieroglyph and shorthand format controls, musical
+            // symbol formatting, the Mongolian vowel separator, unassigned ignorables.
+            ('\u{0600}', "U+0600"),
+            ('\u{0605}', "U+0605"),
+            ('\u{06DD}', "U+06DD"),
+            ('\u{070F}', "U+070F"),
+            ('\u{0890}', "U+0890"),
+            ('\u{08E2}', "U+08E2"),
+            ('\u{110BD}', "U+110BD"),
+            ('\u{110CD}', "U+110CD"),
+            ('\u{13430}', "U+13430"),
+            ('\u{1343F}', "U+1343F"),
+            ('\u{1BCA0}', "U+1BCA0"),
+            ('\u{1D173}', "U+1D173"),
+            ('\u{1D17A}', "U+1D17A"),
+            ('\u{180E}', "U+180E"),
+            ('\u{E0080}', "U+E0080"),
+            ('\u{E01F0}', "U+E01F0"),
+            ('\u{FFF0}', "U+FFF0"),
         ] {
             assert_eq!(shown(&c.to_string(), VALUE), [mark(code)], "{code}");
         }

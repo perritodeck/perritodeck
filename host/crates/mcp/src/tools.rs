@@ -3,7 +3,7 @@
 use std::path::{Component, Path};
 
 use perritodeck_actions::{ActionSpec, Chord, SliderSpec};
-use perritodeck_profile::{edit::Edit, is_color, NavSpec, StateDef};
+use perritodeck_profile::{edit::Edit, is_color, risk::What, NavSpec, StateDef};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
@@ -239,9 +239,10 @@ fn defs() -> Vec<ToolDef> {
                  key is small; about 8 characters a line). {TITLES} {ACTIONS} {HOTKEYS} Colours \
                  are \"#RRGGBB\". Actions that run programs or plugins (command, launch, \
                  openPath, plugin, sdPlugin, and command or plugin sliders) also need the \
-                 person to allow running actions, and so does text that presses Enter: text \
-                 with a line break, or text in a key that also has an Enter hotkey (Enter, \
-                 Ctrl+M or Ctrl+J), since typing a command and pressing Enter runs it."
+                 person to allow running actions, and so does a key that types and then \
+                 confirms: text or single-character hotkeys together with Enter, Ctrl+M, \
+                 Ctrl+J or Space, or text with a line break or tab, since typing a command \
+                 and pressing Enter runs it."
             ),
             input: with_defs(object(
                 json!({
@@ -1207,9 +1208,11 @@ fn set_key(b: &dyn Backend, args: &Args, perms: Permissions) -> Result<ToolOutpu
         if let Some(new) = risky(&f).into_iter().find(|r| !before.contains(r)) {
             return Err(format!(
                 "Giving a key an action that runs programs or plugins, or types text and \
-                 presses Enter ({new}), also needs PerritoDeck's \"run actions\" permission, \
-                 which is off. The person can turn it on in PerritoDeck's settings, under AI \
-                 assistants, or make this key in the app themselves."
+                 presses Enter or another key that confirms it ({}), also needs \
+                 PerritoDeck's \"run actions\" permission, which is off. The person can turn \
+                 it on in PerritoDeck's settings, under AI assistants, or make this key in \
+                 the app themselves.",
+                new.summary()
             ));
         }
     }
@@ -1300,11 +1303,11 @@ fn check_action(a: &ActionSpec) -> Result<(), String> {
     }
 }
 
-/// What in the key runs programs or plugins, or types text and presses Enter: what a
-/// profile import lists (`perritodeck_profile::risk`). Each is described in full, so
-/// changing a command's arguments or the text typed counts as new.
-fn risky(f: &KeyFields) -> Vec<String> {
-    f.risks().iter().map(|r| r.what.summary()).collect()
+/// What in the key runs programs or plugins, or types and confirms: what a profile
+/// import lists (`perritodeck_profile::risk`). Compared as values, in full, so changing
+/// a command's arguments or the text typed counts as new.
+fn risky(f: &KeyFields) -> Vec<What> {
+    f.risks().into_iter().map(|r| r.what).collect()
 }
 
 fn clear_key(b: &dyn Backend, args: &Args) -> Result<ToolOutput, String> {
@@ -1703,34 +1706,36 @@ mod tests {
                 })
                 .collect(),
         };
-        assert_eq!(
-            risky(&key(text(
-                "ls
-"
-            )))
-            .len(),
-            1
-        );
+        assert_eq!(risky(&key(text("ls\n"))).len(), 1);
         assert!(risky(&key(text("ls"))).is_empty());
-        assert_eq!(
-            risky(&key(multi(vec![text("ls"), hotkey("Enter")]))).len(),
-            1
-        );
-        assert_eq!(
-            risky(&key(multi(vec![text("ls"), hotkey("Ctrl+J")]))).len(),
-            1
-        );
+        for chain in [
+            vec![text("ls"), hotkey("Enter")],
+            vec![text("ls"), hotkey("Ctrl+J")],
+            // One hotkey per letter, then Enter.
+            vec![hotkey("Win+R"), hotkey("c"), hotkey("a"), hotkey("Enter")],
+            // A tab to the OK button, then Space.
+            vec![hotkey("Win+R"), text("calc\t"), hotkey("Space")],
+        ] {
+            assert_eq!(risky(&key(multi(chain.clone()))).len(), 1, "{chain:?}");
+        }
         assert!(risky(&key(multi(vec![text("ls"), hotkey("Ctrl+Shift+M")]))).is_empty());
+        assert!(risky(&key(hotkey("Space"))).is_empty());
         // Different text is a different risk, so changing it counts as new.
-        assert_ne!(
-            risky(&key(text(
-                "a
-"
-            ))),
-            risky(&key(text(
-                "b
-"
-            )))
-        );
+        assert_ne!(risky(&key(text("a\n"))), risky(&key(text("b\n"))));
+    }
+
+    /// Risks are compared as values, not descriptions: two Stream Deck actions whose ids
+    /// read the same once joined ("a: b" + "c", "a" + "b: c") are different actions.
+    #[test]
+    fn risks_compare_by_value() {
+        let sd = |plugin: &str, action: &str| KeyFields {
+            action: Some(ActionSpec::SdPlugin {
+                plugin: plugin.into(),
+                action: action.into(),
+                settings: serde_json::Value::Null,
+            }),
+            ..Default::default()
+        };
+        assert_ne!(risky(&sd("a: b", "c")), risky(&sd("a", "b: c")));
     }
 }
