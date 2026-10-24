@@ -754,7 +754,7 @@ and the checks):
   `SHA256SUMS` (done 2026-10-15, phase-8 M3-12;
   [releasing, What ships](releasing.md#what-ships)). It hasn't run on GitHub yet.
 - ✅ **The installed icons are the paw-of-keys (2026-10-15).** Perrito has the adaptive and
-  monochrome set from `docs/assets/android/` and a plain vector for API 22–25
+  monochrome set from `docs/assets/android/` and a PNG per density for API 22–25 (2026-10-24)
   (`LauncherIconTest` keeps them matching the SVGs); the desktop icons in
   `host/app/src-tauri/icons/` were made with `npx tauri icon` from
   `docs/assets/icon-master-rounded.svg`, and the Flatpak and AUR drafts take theirs from
@@ -853,10 +853,13 @@ and the checks):
   `enableEdgeToEdge()`, which would change how older Android, Fire OS 5–9 included, looks
   too.
   (`compileSdk` and `targetSdk` in `android/app/build.gradle.kts`, `.github/workflows/e2e.yml`)
-- **Not yet looked at on a device or emulator:** the licences screen, and the launcher
-  icons: the adaptive icon on API 26+ (the Fire 7, Fire OS 7.3 = API 28, shows that one),
-  the plain vector fallback on API 22–25 (an API 22 or 25 emulator, or a Fire OS 5 tablet),
-  and the themed icon on API 33+.
+- ✅ **The release APK on a device and emulators (2026-10-24):** on the Fire 7 (API 28) and
+  API 22 and 34 emulators, the minified build showed no R8 breakage: launcher icons
+  (adaptive, themed on 34, the API 22 fallback), the licences screen, pairing by code, keys,
+  sliders, USB reconnect and edge to edge on 34. It found the host's dead deck after a
+  cable takeover, a too-small icon on Android 5, the pair form's Next key on API 22 and a
+  stale "On this network", all fixed. Still by hand: QR decoding, and the host and
+  discovery fixes on the Fire 7.
 - **Hardware matrix, then minSdk (maintainer).** The only real tablet so far is the Fire 7
   (Fire OS 7). minSdk 22, with AndroidX and Compose pinned for it, is justified only by
   Fire OS 5, seen only in emulators; raising it after the first release would strand
