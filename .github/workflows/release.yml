@@ -88,6 +88,20 @@ jobs:
             echo "code=$code"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
+      # The draft's notes start with docs/release-notes/<tag>.md as the tag has it. Checked here,
+      # before any build, for a tag and a manual run that publishes, pre-releases included.
+      - name: The tag must have finished release notes
+        if: github.event_name == 'push' || inputs.publish
+        run: |
+          notes="docs/release-notes/$TAG.md"
+          if [ ! -f "$notes" ] || ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error::$TAG has no release notes: $notes is missing or empty. The draft's notes start with that file, read from the tagged commit, so write it, commit it and tag that commit (docs/releasing.md, step 3)."
+            exit 1
+          fi
+          if grep -nF TODO "$notes"; then
+            echo "::error file=$notes::$notes still says TODO at $TAG (the lines above). Finish the notes, commit them and tag that commit."
+            exit 1
+          fi
       # Turns SHIP (top of this file) into the desktop and command-line build matrices. A tag
       # build, and a manual run that publishes, build what ships and nothing else. A manual run
       # with "untested" ticked builds everything, as workflow artifacts only.
@@ -615,6 +629,8 @@ jobs:
           mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
           cat SHA256SUMS
           { echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # The notes start with the hand-written docs/release-notes/<tag>.md, which Check versions
+      # has already checked (it's there, and says no TODO).
       - name: Release notes
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
@@ -628,6 +644,8 @@ jobs:
           cert_colons=$(printf '%s' "$CERT" | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
           ships() { [[ " $SHIPS " == *" $1 "* ]]; }
           {
+            cat "docs/release-notes/$TAG.md"
+            echo
             echo "## Downloads"
             echo
             echo "| | File |"
@@ -639,10 +657,10 @@ jobs:
             if ships linux; then echo "| Linux x86_64 | \`.AppImage\`, \`.deb\` (Debian, Ubuntu) or \`.rpm\` (Fedora, openSUSE) |"; fi
             echo "| Android 5.1+ | \`perrito-$VERSION.apk\` |"
             if [[ " $SHIPS " == *" cli-"* ]]; then echo "| Command-line host | \`perritodeck-host-$VERSION-<os>\` archives |"; fi
-            echo "| Plugin catalogue | \`perritodeck-$VERSION-plugin-catalogue.zip\` (what perritodeck.dev/plugins/ serves) |"
+            echo "| Plugin catalogue | \`perritodeck-$VERSION-plugin-catalogue.zip\` (not needed to install: it's what perritodeck.dev/plugins/ serves) |"
             echo "| Licences | \`third-party-licenses.txt\`: the licence texts of the open-source code PerritoDeck is built on |"
             echo
-            echo "Check a download with \`sha256sum -c SHA256SUMS --ignore-missing\`. How to verify, and what an unsigned build looks like on each OS: https://perritodeck.dev/download.html"
+            echo "Check a download against SHA256SUMS: on Windows, \`Get-FileHash <file> -Algorithm SHA256\` in PowerShell, and compare it with that file's line; on Linux, \`sha256sum -c SHA256SUMS --ignore-missing\`. How to verify, and what an unsigned build looks like on each OS: https://perritodeck.dev/download.html"
             echo
             echo "## Android signing certificate"
             echo

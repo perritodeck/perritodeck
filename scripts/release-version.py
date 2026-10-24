@@ -162,9 +162,15 @@ def set_version(new):
         write(DOWNLOAD_PAGE, text)
 
     print(f"Version {old} -> {new}; Android versionCode {code}; iOS build {build}.")
+    to_write = []
     note = changelog(code)
     if not os.path.isfile(path(note)):
-        print(f"Now write {note} (500 characters at most), then commit.")
+        to_write.append(f"{note} (500 characters at most)")
+    notes = f"docs/release-notes/v{new}.md"
+    if not os.path.isfile(path(notes)):
+        to_write.append(f"{notes} (the release notes; docs/releasing.md, step 3)")
+    if to_write:
+        print(f"Now write {' and '.join(to_write)}, then commit.")
 
 
 def main(argv):
