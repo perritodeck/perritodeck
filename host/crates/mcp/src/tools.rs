@@ -239,7 +239,9 @@ fn defs() -> Vec<ToolDef> {
                  key is small; about 8 characters a line). {TITLES} {ACTIONS} {HOTKEYS} Colours \
                  are \"#RRGGBB\". Actions that run programs or plugins (command, launch, \
                  openPath, plugin, sdPlugin, and command or plugin sliders) also need the \
-                 person to allow running actions."
+                 person to allow running actions, and so does text that presses Enter: text \
+                 with a line break, or text in a key that also has an Enter hotkey (Enter, \
+                 Ctrl+M or Ctrl+J), since typing a command and pressing Enter runs it."
             ),
             input: with_defs(object(
                 json!({
@@ -1204,10 +1206,10 @@ fn set_key(b: &dyn Backend, args: &Args, perms: Permissions) -> Result<ToolOutpu
         let before = risky(&old);
         if let Some(new) = risky(&f).into_iter().find(|r| !before.contains(r)) {
             return Err(format!(
-                "Giving a key an action that runs programs or plugins ({new}) also needs \
-                 PerritoDeck's \"run actions\" permission, which is off. The person can turn \
-                 it on in PerritoDeck's settings, under AI assistants, or make this key in the \
-                 app themselves."
+                "Giving a key an action that runs programs or plugins, or types text and \
+                 presses Enter ({new}), also needs PerritoDeck's \"run actions\" permission, \
+                 which is off. The person can turn it on in PerritoDeck's settings, under AI \
+                 assistants, or make this key in the app themselves."
             ));
         }
     }
@@ -1298,45 +1300,11 @@ fn check_action(a: &ActionSpec) -> Result<(), String> {
     }
 }
 
-/// Actions in the key that run programs or plugins, described.
+/// What in the key runs programs or plugins, or types text and presses Enter: what a
+/// profile import lists (`perritodeck_profile::risk`). Each is described in full, so
+/// changing a command's arguments or the text typed counts as new.
 fn risky(f: &KeyFields) -> Vec<String> {
-    let mut out = Vec::new();
-    for a in f
-        .action
-        .iter()
-        .chain(f.states.iter().filter_map(|s| s.action.as_ref()))
-    {
-        risky_action(a, &mut out);
-    }
-    if let Some(s @ (SliderSpec::Command { .. } | SliderSpec::Plugin { .. })) = &f.slider {
-        // The whole spec, so changing the program counts as new.
-        out.push(format!(
-            "slider: {} {}",
-            s.describe(),
-            serde_json::to_string(s).unwrap_or_default()
-        ));
-    }
-    out
-}
-
-fn risky_action(a: &ActionSpec, out: &mut Vec<String>) {
-    match a {
-        ActionSpec::Command { .. }
-        | ActionSpec::Launch { .. }
-        | ActionSpec::OpenPath { .. }
-        | ActionSpec::Plugin { .. }
-        | ActionSpec::SdPlugin { .. } => {
-            // The whole spec, so changing a command's arguments counts as new.
-            out.push(format!(
-                "{} {}",
-                describe_action(a),
-                serde_json::to_string(a).unwrap_or_default()
-            ));
-        }
-        ActionSpec::Multi { steps } => steps.iter().for_each(|s| risky_action(&s.action, out)),
-        ActionSpec::Random { actions } => actions.iter().for_each(|a| risky_action(a, out)),
-        _ => {}
-    }
+    f.risks().iter().map(|r| r.what.summary()).collect()
 }
 
 fn clear_key(b: &dyn Backend, args: &Args) -> Result<ToolOutput, String> {
@@ -1716,5 +1684,53 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(risky(&slider).len(), 1);
+    }
+
+    #[test]
+    fn typing_and_enter_count_as_running() {
+        let text = |t: &str| ActionSpec::Text { text: t.into() };
+        let hotkey = |k: &str| ActionSpec::Hotkey { keys: k.into() };
+        let key = |a: ActionSpec| KeyFields {
+            action: Some(a),
+            ..Default::default()
+        };
+        let multi = |actions: Vec<ActionSpec>| ActionSpec::Multi {
+            steps: actions
+                .into_iter()
+                .map(|action| perritodeck_actions::Step {
+                    action,
+                    delay_ms: 0,
+                })
+                .collect(),
+        };
+        assert_eq!(
+            risky(&key(text(
+                "ls
+"
+            )))
+            .len(),
+            1
+        );
+        assert!(risky(&key(text("ls"))).is_empty());
+        assert_eq!(
+            risky(&key(multi(vec![text("ls"), hotkey("Enter")]))).len(),
+            1
+        );
+        assert_eq!(
+            risky(&key(multi(vec![text("ls"), hotkey("Ctrl+J")]))).len(),
+            1
+        );
+        assert!(risky(&key(multi(vec![text("ls"), hotkey("Ctrl+Shift+M")]))).is_empty());
+        // Different text is a different risk, so changing it counts as new.
+        assert_ne!(
+            risky(&key(text(
+                "a
+"
+            ))),
+            risky(&key(text(
+                "b
+"
+            )))
+        );
     }
 }

@@ -778,6 +778,86 @@ async fn keys_that_run_programs_need_the_run_permission() {
     assert!(!is_error(&r), "{}", text(&r));
 }
 
+/// Typing a command and pressing Enter runs it as surely as a command action, so a key
+/// that does both needs the same permission (the import check lists the same keys).
+#[tokio::test]
+async fn keys_that_type_and_press_enter_need_the_run_permission() {
+    let fake = Fake::new();
+    fake.allow(true, true, false);
+    let (server, mut s) = ready(&fake).await;
+    let before = fake.profiles.lock().unwrap()["starter"].clone();
+    let enter_after = |text: &str, chord: &str| {
+        json!({"type":"multi","steps":[
+            {"action":{"type":"hotkey","keys":"Win+R"}},
+            {"action":{"type":"text","text":text}},
+            {"action":{"type":"hotkey","keys":chord}}]})
+    };
+    for args in [
+        json!({"row":2,"col":2,"action":{"type":"text","text":"calc
+"}}),
+        json!({"row":2,"col":2,"action":{"type":"text","text":"calc
+"}}),
+        json!({"row":2,"col":2,"action":enter_after("calc", "Enter")}),
+        json!({"row":2,"col":2,"action":enter_after("calc", "Ctrl+M")}),
+        json!({"row":2,"col":2,"action":{"type":"random","actions":[{"type":"text","text":"gg"},{"type":"hotkey","keys":"Return"}]}}),
+        // Text in one state, Enter in the other.
+        json!({"row":2,"col":2,"states":[
+            {"title":"A","action":{"type":"text","text":"calc"}},
+            {"title":"B","action":{"type":"hotkey","keys":"Enter"}}]}),
+        // The starter's "Type hello" key, given an Enter after its text.
+        json!({"row":1,"col":3,"action":{"type":"multi","steps":[
+            {"action":{"type":"text","text":"Hello from Perrito! "}},
+            {"action":{"type":"hotkey","keys":"Enter"}}]}}),
+    ] {
+        let r = call(&server, &mut s, "set_key", args.clone()).await;
+        assert!(is_error(&r), "{args}");
+        assert!(text(&r).contains("run actions"), "{}", text(&r));
+        assert!(text(&r).contains("presses Enter"), "{}", text(&r));
+    }
+    assert_eq!(fake.profiles.lock().unwrap()["starter"], before);
+
+    // Typing alone, Enter alone, and a chord that isn't Enter are fine.
+    for args in [
+        json!({"row":2,"col":2,"action":{"type":"text","text":"Hello"}}),
+        json!({"row":2,"col":2,"action":{"type":"hotkey","keys":"Enter"}}),
+        json!({"row":2,"col":2,"action":enter_after("calc", "Ctrl+Shift+M")}),
+    ] {
+        let r = call(&server, &mut s, "set_key", args.clone()).await;
+        assert!(!is_error(&r), "{args}: {}", text(&r));
+    }
+
+    // With the permission it's allowed; without it, retitling that key still is.
+    fake.allow(true, true, true);
+    let r = call(
+        &server,
+        &mut s,
+        "set_key",
+        json!({"row":2,"col":3,"action":{"type":"text","text":"ls
+"}}),
+    )
+    .await;
+    assert!(!is_error(&r), "{}", text(&r));
+    fake.allow(true, true, false);
+    let r = call(
+        &server,
+        &mut s,
+        "set_key",
+        json!({"row":2,"col":3,"title":"ls"}),
+    )
+    .await;
+    assert!(!is_error(&r), "{}", text(&r));
+    // But changing what it types is new.
+    let r = call(
+        &server,
+        &mut s,
+        "set_key",
+        json!({"row":2,"col":3,"action":{"type":"text","text":"rm -rf ~
+"}}),
+    )
+    .await;
+    assert!(is_error(&r), "{}", text(&r));
+}
+
 #[tokio::test]
 async fn running_actions() {
     let fake = Fake::new();
