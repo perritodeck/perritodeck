@@ -245,8 +245,8 @@ what PerritoDeck says.
 | ID | Steps | Expected | How |
 |---|---|---|---|
 | A1 | Right password, OBS running. Press a built-in key; watch the plugin's `connected` value | Built-in key ✓; `connected` = `on` within 1 s; OBS's session list shows two clients | Auto |
-| A2 | Wrong password in `integrations.toml` (restart the host) and in the plugin's settings | Built-in key ⚠ "OBS rejected the password in integrations.toml" (§1); plugin log and key: "OBS rejected the password: check it in this plugin's settings…"; both retry with backoff, not in a tight loop | Auto |
-| A3 | No password while OBS requires one | Built-in: "OBS needs a password; add it to integrations.toml"; plugin: "OBS needs a password: enter it in this plugin's settings…" | Auto |
+| A2 | Wrong password in `integrations.toml` (restart the host) and in the plugin's settings | Built-in key ⚠ "OBS rejected the password in Settings → Integrations" (§1; before 2026-10-24 "… in integrations.toml"); Settings → Integrations' Test connection: "OBS rejected the password. Copy it again from OBS: …"; plugin log and key: "OBS rejected the password: check it in this plugin's settings…"; both retry with backoff, not in a tight loop | Auto |
+| A3 | No password while OBS requires one | Built-in: "OBS needs a password; add it in Settings → Integrations"; plugin: "OBS needs a password: enter it in this plugin's settings…" | Auto |
 | A4 | Untick authentication in OBS, password still set | Both connect (OBS sends no challenge) | Semi (untick in OBS) |
 | A5 | Plugin address without scheme or port (`127.0.0.1`), `localhost`, `[::1]`; the same in `integrations.toml` | Plugin normalises the address; record what the built-in path says without `ws://` | Auto |
 | A6 | Wrong port; then the server turned off | Built-in: "can't reach OBS at … (is the WebSocket server enabled?)"; plugin: "couldn't reach OBS at …: connection refused. Is OBS open…" | Auto |

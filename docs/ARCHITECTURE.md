@@ -65,7 +65,7 @@ PerritoDeck has three kinds of parts:
 | `perritodeck-deck` | Runs profiles on the tablets: which profile each tablet shows, its current page and Back history, key presses to actions, toggle states shared by every tablet showing them, live values in titles, and reloading a profile when its file changes |
 | `perritodeck-render` | Draws key images (background, icon, title in the bundled Inter font) at each tablet's real pixel size with tiny-skia and ab_glyph, so every client shows exactly the same thing; GIF icons animate |
 | `perritodeck-actions` | What a key does: hotkeys and typed text (through `enigo`, patched in `host/vendor/enigo`), media keys, opening URLs and files, launching programs, commands, several actions in a row, a random one, slider levels. On Windows, plugin processes run in job objects so everything they start ends with them |
-| `perritodeck-integrations` | Built-in OBS Studio (obs-websocket 5) and Home Assistant, set up in `integrations.toml` |
+| `perritodeck-integrations` | Built-in OBS Studio (obs-websocket 5) and Home Assistant, set up in `integrations.toml`; also what Settings → Integrations needs: its view of the file, the checks on what's typed, the comment-keeping edit (`file`) and Test connection (`check`) |
 | `perritodeck-companion` | A Bitfocus Companion Satellite API client: a tablet showing a profile with `companion = true` appears in Companion as a surface |
 | `perritodeck-plugins` | Starts plugins, restarts them with a growing delay if they crash, sends them key presses and settings, and passes on the live values they publish ([plugins/PROTOCOL.md](../plugins/PROTOCOL.md)) |
 | `perritodeck-sdcompat` | Runs Stream Deck plugins (`.sdPlugin`): Node.js plugins (Node 20 or newer: the host checks no version itself, and a plugin names the one it needs in its manifest's `Nodejs.Version`, `"20"` in the tests' example; only the tests need 22, because their fixture plugin uses Node's built-in WebSocket) and native ones on Windows and macOS. They connect back over a WebSocket on 127.0.0.1, and their property inspectors are served to the app over HTTP on 127.0.0.1. Written from Elgato's public documentation; experimental |
@@ -197,8 +197,10 @@ config folder elsewhere (`perritodeck-host paths` prints it). In it:
 | `logs/` | `perritodeck.log`, redacted |
 
 The host writes its private files (the key, the device list, tokens, plugin settings, the
-logs) owner-only on Linux and macOS; an `integrations.toml` you create yourself keeps the
-permissions you give it. On Windows the per-user profile's permissions apply.
+logs) owner-only on Linux and macOS; on Windows the per-user profile's permissions apply.
+`integrations.toml` is the exception, owner-only on every system: Settings → Integrations
+writes it through `perritodeck_core::private` (mode 0600, or on Windows a protected DACL for
+this account, SYSTEM and Administrators), and a hand-made file others can read is reported.
 [SECURITY.md](SECURITY.md) has the details.
 
 ## The website

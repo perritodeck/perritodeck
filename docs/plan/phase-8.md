@@ -159,8 +159,8 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
   but not Fire tablets, which aren't Google-certified. It's an open item, not a decision
   yet, and another identity check, as in D1 and D8.
 - macOS entitlements and usage strings, Apple signing (D1-style identity question).
-- A form with **Test connection** for built-in OBS, Home Assistant and Companion instead of
-  hand-editing `integrations.toml`.
+- ✅ A form with **Test connection** for built-in OBS, Home Assistant and Companion instead of
+  hand-editing `integrations.toml` (done in M3, 2026-10-24; saves apply after a restart).
 - Warn when importing a profile with keys that run commands or programs.
 - Per-key image state, so page switches don't stall slow tablets (numbers in next-steps
   item 6).

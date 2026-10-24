@@ -52,7 +52,8 @@
           <li><a href="buttons.html">Buttons and profiles</a></li>
           <li><a href="integrations.html" aria-current="page">Integrations</a>
             <ul>
-              <li><a href="#integrations-file">The integrations file</a></li>
+              <li><a href="#setup">Setting them up</a></li>
+              <li><a href="#integrations-file">The integrations file (advanced)</a></li>
               <li><a href="#obs">OBS Studio</a></li>
               <li><a href="#home-assistant">Home Assistant</a></li>
               <li><a href="#companion">Bitfocus Companion</a></li>
@@ -68,15 +69,37 @@
 <h1>Integrations</h1>
 <p class="lede">PerritoDeck can talk directly to OBS Studio and Home Assistant, it can turn your tablet into a panel for Bitfocus Companion, and AI assistants can use it if you let them.</p>
 
-<h2 id="integrations-file">The integrations file</h2>
-<p>OBS, Home Assistant and Companion are set up in a small text file called <code>integrations.toml</code>. It's kept separate from your button layouts because it holds passwords, so you can share a profile without giving away your logins.</p>
+<h2 id="setup">Setting them up</h2>
+<p>OBS, Home Assistant and Companion are set up in the app, under <span class="ui">Settings</span> → <strong>Integrations</strong>. Each has its own box:</p>
 <ol>
-  <li>In PerritoDeck, go to <span class="ui">Settings</span> and, under <strong>Settings folder</strong>, click <span class="ui">Open folder</span>.</li>
-  <li>Open <code>integrations.toml</code> in a text editor such as Notepad or TextEdit. If it isn't there, create it (on Windows, make sure the name doesn't end in <code>.txt</code>).</li>
-  <li>Add the sections below for what you use, and save.</li>
-  <li>Restart PerritoDeck: choose <span class="ui">Quit PerritoDeck</span> in the tray menu, then open it again. It reads this file only when it starts.</li>
+  <li>Tick <span class="ui">Use OBS Studio</span>, <span class="ui">Use Home Assistant</span> or <span class="ui">Use Bitfocus Companion</span>, and fill in its address and password or token. The sections below say where to find them.</li>
+  <li>Click <span class="ui">Test connection</span>. It tries what you typed, before you save it, and says what it found, for example <strong>Connected to OBS 31.0.3</strong>, or what went wrong and what to check.</li>
+  <li>Click <span class="ui">Save</span>, then <span class="ui">Restart now</span>. PerritoDeck uses the new settings after it restarts.</li>
 </ol>
-<p>To check it worked, look at <span class="ui">Settings</span> → <strong>Integrations</strong>, which lists what's set up (for example "OBS, Home Assistant").</p>
+<p>Saved passwords and tokens are never shown again: the box says one is saved, and typing in it replaces it. To change only the address, leave the password box empty.</p>
+<p>To turn one off for a while, untick it and click <span class="ui">Save</span>: its settings are kept, so you can turn it back on without typing them again (handy for Home Assistant, which shows a token only once). <span class="ui">Remove saved settings…</span> deletes them.</p>
+<p>What <span class="ui">Test connection</span> can say, and what to do about it:</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>It says</th><th>What to do</th></tr></thead>
+  <tbody>
+    <tr><td>Nothing answered at …</td><td>The program isn't running there, or its server is off (in OBS: Tools → WebSocket Server Settings). Check the address and port.</td></tr>
+    <tr><td>Nothing answered … within 5 seconds</td><td>The computer didn't answer at all: check the address, and that a firewall isn't blocking the port.</td></tr>
+    <tr><td>Can't find a computer called …</td><td>The name doesn't work on your network. Use the computer's IP address instead.</td></tr>
+    <tr><td>OBS rejected the password</td><td>Copy the password again from OBS: Tools → WebSocket Server Settings → Show Connect Info.</td></tr>
+    <tr><td>Home Assistant rejected the token</td><td>Make a new long-lived access token and paste it.</td></tr>
+    <tr><td>Something answered at …, but it isn't …</td><td>Another program uses that port. OBS uses 4455, Home Assistant 8123 and Companion 16622 unless you changed them.</td></tr>
+    <tr><td>Home Assistant's certificate isn't from an authority PerritoDeck trusts</td><td>Home Assistant uses its own (self-signed) certificate. Use its <code>http://</code> address on your network.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="integrations-file">The integrations file (advanced)</h2>
+<p>What the form saves goes in a small text file called <code>integrations.toml</code>, in PerritoDeck's settings folder. It's kept separate from your button layouts because it holds passwords, so you can share a profile without giving away your logins. You can also edit it by hand: <span class="ui">Open the file</span> under the integrations opens it in your text editor (and makes it if it isn't there yet).</p>
+<ul>
+  <li>The file can be read only by your user account. On Windows that's you, SYSTEM and Administrators; on macOS and Linux its permissions are 600. If other accounts on the computer can read it, <span class="ui">Settings</span> says so and <span class="ui">Make it private</span> fixes it.</li>
+  <li>Saving from <span class="ui">Settings</span> keeps your notes and anything else in the file as you wrote it; it changes only the lines it needs.</li>
+  <li>PerritoDeck reads the file when it starts, so restart it after editing by hand.</li>
+  <li><code>enabled = false</code> in a section keeps its settings but leaves it off, as unticking it in <span class="ui">Settings</span> does.</li>
+</ul>
 <p>Here's a complete example. Lines starting with <code>#</code> are notes and are ignored.</p>
 <pre><code>[obs]
 url = "ws://127.0.0.1:4455"
@@ -93,7 +116,7 @@ port = 16622</code></pre>
   <p class="box-label">Keep it private</p>
   <p>This file contains passwords. Don't post it online or attach it to bug reports.</p>
 </div>
-<p>If the file has a mistake, such as a misspelt name or a missing quote, PerritoDeck ignores the whole file, so OBS, Home Assistant and Companion all stay off. <span class="ui">Settings</span> → <strong>Integrations</strong> then says <strong>integrations.toml has a mistake</strong> and which line it's on. Fix it and restart PerritoDeck.</p>
+<p>If the file has a mistake, such as a misspelt name or a missing quote, PerritoDeck ignores the whole file, so OBS, Home Assistant and Companion all stay off. <span class="ui">Settings</span> → <strong>Integrations</strong> then says <strong>integrations.toml has a mistake</strong> and which line it's on, and shows the file read-only until it's fixed. Fix it in your text editor, click <span class="ui">Check again</span>, then restart PerritoDeck. Or click <span class="ui">Start over…</span>: the file is renamed to <code>integrations.toml.old</code> (which keeps your passwords, so delete it once you're set up again) and you can fill in the form from scratch.</p>
 
 <h2 id="obs">OBS Studio</h2>
 <p>Switch scenes, start and stop recording or streaming, mute your mic, and see what OBS is doing, right on the tablet. It works with OBS 28 and newer, which have remote control built in.</p>
@@ -102,13 +125,9 @@ port = 16622</code></pre>
 <ol>
   <li>In OBS, open <strong>Tools → WebSocket Server Settings</strong> and tick <strong>Enable WebSocket server</strong>.</li>
   <li>Click <strong>Show Connect Info</strong> to see the port (usually 4455) and the password.</li>
-  <li>Add an <code>[obs]</code> section to <a href="#integrations-file">the integrations file</a> with that password, then restart PerritoDeck:
-<pre><code>[obs]
-url = "ws://127.0.0.1:4455"
-password = "the password from OBS"</code></pre>
-  </li>
+  <li>In PerritoDeck, go to <span class="ui">Settings</span> → <strong>Integrations</strong>, tick <span class="ui">Use OBS Studio</span>, paste the password, and click <span class="ui">Test connection</span>, then <span class="ui">Save</span> and <span class="ui">Restart now</span>. (By hand, it's an <code>[obs]</code> section in <a href="#integrations-file">the integrations file</a>.)</li>
 </ol>
-<p>The address starts with <code>ws://</code>, not <code>wss://</code> or <code>http://</code>: OBS's WebSocket server only speaks <code>ws://</code>. If it starts with anything else, OBS buttons say so, for example <strong>OBS: the address 127.0.0.1:4455 in integrations.toml must start with ws://, like ws://127.0.0.1:4455</strong>.</p>
+<p>The address starts with <code>ws://</code>, not <code>wss://</code> or <code>http://</code>: OBS's WebSocket server only speaks <code>ws://</code>. Type just <code>192.168.1.20</code> and the form fills in <code>ws://</code> and the port 4455. If a saved address starts with anything else, OBS buttons say so, for example <strong>OBS: the address 127.0.0.1:4455 in Settings → Integrations must start with ws://, like ws://127.0.0.1:4455</strong>.</p>
 <p>If OBS runs on a different computer, use that computer's address instead of <code>127.0.0.1</code>, for example <code>ws://192.168.1.20:4455</code>, and allow port 4455 through its firewall.</p>
 
 <h3 id="obs-buttons">OBS buttons</h3>
@@ -139,13 +158,9 @@ password = "the password from OBS"</code></pre>
 <ol>
   <li>In Home Assistant, click your user name at the bottom left to open your profile, then open the <strong>Security</strong> tab.</li>
   <li>Under <strong>Long-lived access tokens</strong>, click <strong>Create token</strong>, name it "PerritoDeck" and copy the token. Home Assistant shows it only once.</li>
-  <li>Add a <code>[home_assistant]</code> section to <a href="#integrations-file">the integrations file</a>, then restart PerritoDeck:
-<pre><code>[home_assistant]
-url = "http://homeassistant.local:8123"
-token = "the token you copied"</code></pre>
-  </li>
+  <li>In PerritoDeck, go to <span class="ui">Settings</span> → <strong>Integrations</strong>, tick <span class="ui">Use Home Assistant</span>, type its address and paste the token. Click <span class="ui">Test connection</span>, then <span class="ui">Save</span> and <span class="ui">Restart now</span>. (By hand, it's a <code>[home_assistant]</code> section in <a href="#integrations-file">the integrations file</a>.)</li>
 </ol>
-<p>Use the same address you use to open Home Assistant in your browser.</p>
+<p>Use the same address you use to open Home Assistant in your browser, such as <code>http://homeassistant.local:8123</code>. A saved token is sent over plain <code>http://</code> only to the address it was saved with or to one on your own network; for any other address, the form asks you to paste it again.</p>
 
 <h3 id="ha-buttons">Home Assistant buttons</h3>
 <p>Choose <strong>Home Assistant</strong> under <strong>When pressed</strong> and fill in:</p>
@@ -170,12 +185,7 @@ token = "the token you copied"</code></pre>
 
 <h3 id="companion-setup">Set it up</h3>
 <ol>
-  <li>Add a <code>[companion]</code> section to <a href="#integrations-file">the integrations file</a>. Use <code>127.0.0.1</code> if Companion runs on the same computer, or the address of the computer that runs it. 16622 is Companion's usual port for remote surfaces.
-<pre><code>[companion]
-host = "127.0.0.1"
-port = 16622</code></pre>
-  </li>
-  <li>Restart PerritoDeck.</li>
+  <li>In PerritoDeck, go to <span class="ui">Settings</span> → <strong>Integrations</strong> and tick <span class="ui">Use Bitfocus Companion</span>. Leave <strong>Computer</strong> at <code>127.0.0.1</code> if Companion runs on the same computer, or type the address of the computer that runs it. 16622 is Companion's usual Satellite port for remote surfaces. Click <span class="ui">Test connection</span>, then <span class="ui">Save</span> and <span class="ui">Restart now</span>. (By hand, it's a <code>[companion]</code> section in <a href="#integrations-file">the integrations file</a>.)</li>
   <li>On the <span class="ui">Buttons</span> page, click <span class="ui">+ Profile</span>, type a name such as "Companion", tick <span class="ui">Show Bitfocus Companion's buttons</span> and click <span class="ui">Create</span>.</li>
   <li>Show that profile on a tablet: on the <span class="ui">Tablets</span> page, pick it in the tablet's <strong>Shows</strong> menu. (A <a href="buttons.html#switching">switching rule</a> works too.)</li>
 </ol>

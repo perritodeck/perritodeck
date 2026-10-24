@@ -792,12 +792,31 @@ and the checks):
 
 ## 14. Desktop app and host
 
-- **Built-in OBS, Home Assistant and Companion are set up by hand-editing
-  `integrations.toml` and restarting** (`website/guide/integrations.html`, "The
-  integrations file"). There's no form and no "Test connection", and the file the user
-  makes isn't owner-only. Plugins already get generated settings forms with masked
-  passwords. This is the hardest setup
-  step for newcomers and the first thing the OBS pass hits.
+- ✅ **Built-in OBS, Home Assistant and Companion have a settings form** (2026-10-24,
+  DECISIONS): Settings → Integrations, with Test connection on the real clients, saved
+  secrets kept out of the window, comment-keeping saves, `enabled = false`, and an
+  owner-only `integrations.toml` (0600, or a protected DACL on Windows). A save is used after
+  Restart now; nothing is applied live. Still to do: a manual pass in the real app on
+  Windows (the form is tested against the mock only; check a saved file's ACL is `D:P` with
+  three entries, Test connection against the real OBS 31, and Restart now), and these
+  follow-ups:
+  - **The plugin settings form still sends saved secrets to the window**
+    (`host/app/src/views/Plugins.svelte`, `get_plugin_settings`): its password fields are
+    masked only on screen. Give it the keep/set/clear model the integrations form uses.
+  - **The other private files keep their old writers**: the host key and `devices.json`
+    (`core::identity::write_private`, under the pairing store's lock), plugin settings and
+    `mcp-token` (`plugins::write_private`), `sdplugins/settings.json` and the logs are 0600 on
+    Unix only. Move them to `perritodeck_core::private` with their own Windows test pass (a
+    protected DACL on the host key changes who can back it up).
+  - **Home Assistant with a self-signed certificate** can't be used over https: Test
+    connection says so and suggests the `http://` address. Trusting one certificate
+    (pinning it, as tablets pin the host's) would need a setting and a way to show it.
+  - **"Plugins isn't set up; add it to integrations.toml in the host's settings folder"**
+    (`ActionError::NotConfigured`, used for plugin actions when the plugin host is missing)
+    names the wrong file; reword it for what actually happened.
+  - **Live apply**, if restarting after a save turns out to annoy: swappable OBS/Home
+    Assistant clients, a Companion bridge that can be retired, and a watcher on the file
+    (designed in the integrations-form handoff, not built).
 - ✅ **Imports ask about keys that run things (2026-10-24).** Importing a
   `.perritoprofile` now lists every key that runs a program, opens a file, uses a plugin,
   or types something and confirms it (text or single-character hotkeys with Enter, Space,
