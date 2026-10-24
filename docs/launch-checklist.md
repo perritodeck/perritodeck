@@ -116,12 +116,12 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [x] RUSTSEC-2026-0192 (`ttf-parser`, behind `ab_glyph`, is unmaintained; not a
   vulnerability): accepted in `host/deny.toml` with a reason, and the library is replaced
   in a later release (D6, 2026-10-17).
-- [ ] The advisories published since 2026-10-13. `rustls` 0.23.45 and `zip` 2.4.2 are
-  fixed (0.23.46 and 9.0.5, 2026-10-18). The unmaintained `zvariant`, `zbus_names` and
-  `zvariant_derive`, which have no fixed version, still fail `cargo deny check
-  advisories` on both workspaces, and the app's workspace also flags the older
-  unmaintained `proc-macro-error` notice (RUSTSEC-2024-0370, through GTK on Linux).
-  `docs/next-steps.md` item 8 has the IDs.
+- [x] The advisories published since 2026-10-13 (2026-10-24). Every one with a fix is
+  updated: `rustls` 0.23.46, `zip` 9.0.5, `webpki-roots` 1.0.11, `rustls-webpki` 0.103.16
+  and `tokio` 1.53.3. The unmaintained `zvariant`, `zbus_names`, `zvariant_derive` and
+  `proc-macro-error`, all Linux only with no upgrade yet, are accepted in `host/deny.toml`
+  (D13). `cargo deny check` passes on both workspaces. `docs/next-steps.md` item 8 has the
+  IDs.
 - [ ] Add `cargo deny check licenses bans sources` and
   `python3 scripts/third-party-notices.py --check` to a push workflow. Today only the
   Release workflow runs the notices check (its licences job), so a release with stale

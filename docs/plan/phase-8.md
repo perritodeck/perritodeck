@@ -4,7 +4,7 @@ The plan for everything still open, in order. Each item was checked against the 
 2026-10-13, and again on 2026-10-15, when M1-1 to M1-4, M2-2, M3-1 to M3-5 and M3-12
 landed, the maintainer decided D1, D2, D4, D5, D9 and D10, D11 was settled by
 measurement, M1-7 and M1-8 were done, and so was most of M1-5. On 2026-10-17 the
-maintainer decided D3, D6, D7, D8 and D12 and confirmed the last two parts of M1-7. The
+maintainer decided D3, D6, D7, D8, D12 and D13 and confirmed the last two parts of M1-7. The
 details behind each one are in [next-steps](../next-steps.md) (items 8–18), the steps in
 order in the [launch checklist](../launch-checklist.md), and the release mechanics in
 [releasing](../releasing.md).
@@ -56,7 +56,7 @@ order in the [launch checklist](../launch-checklist.md), and the release mechani
   green once before the first tag (launch checklist §4).
 - **Decided on 2026-10-15:** D1, D2, D4, D5, D9 and D10, and D11 by measurement (the
   table below). The stale tag (M1-8) is done.
-- **Decided on 2026-10-17:** D3, D6, D7, D8 and D12 (the table below). There's no Google
+- **Decided on 2026-10-17:** D3, D6, D7, D8, D12 and D13 (the table below). There's no Google
   Play for now (D8): v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and
   F-Droid, so the Play closed test is off the launch path (M3-19). Account security
   (M1-7) is fully done: the maintainer confirmed passkey 2FA on the Azure account, and
@@ -64,7 +64,7 @@ order in the [launch checklist](../launch-checklist.md), and the release mechani
 
 ## Decisions only the maintainer can make
 
-None is open. D3, D6, D7, D8 and D12 were decided on 2026-10-17 and the rest on
+None is open. D3, D6, D7, D8, D12 and D13 were decided on 2026-10-17 and the rest on
 2026-10-15 (D11 by measurement), and each is in [DECISIONS](../DECISIONS.md).
 
 | # | Decision | Recommendation, or what was decided | Blocks |
@@ -81,6 +81,7 @@ None is open. D3, D6, D7, D8 and D12 were decided on 2026-10-17 and the rest on
 | ✅ D10 | **One name for the desktop app.** "PerritoDeck" is `tauri.conf.json`'s `productName` and so the window title, tray tooltip, installer, Start menu and uninstall entry, Windows version info, macOS bundle and Linux `.desktop` name (`tauri.conf.json:3,16`, `src-tauri/src/lib.rs:704,764-766`, `packaging/flatpak/dev.perritodeck.PerritoDeck.desktop:3` and `.metainfo.xml:5`, `packaging/aur/PKGBUILD:76`), and the website's "PerritoDeck desktop app" (`index.html:104`, `privacy.html:46`). "PerritoDeck Host" was what the tablet apps told people to start: Android `strings.xml:14,18,32`, `net/Pairing.kt:64`, `net/DeckConnection.kt:474`; iOS `ScanView.swift:44`, `HomeView.swift:22,69`, `Info.plist:50`, `PerritoKit/Pairing.swift:43`, `PerritoKit/PinnedWebSocket.swift:31`; the website's `download.html:7,13,53` and `privacy.html:55`. The command-line program stays `perritodeck-host` either way | **Decided 2026-10-15:** "PerritoDeck", the `productName`. "PerritoDeck Host" is retired everywhere people see it: the tablet strings, the website and the store text change in one commit (renamed in the tree on 2026-10-15, not yet committed). The tablet app stays "Perrito", and the command-line binary keeps its file name, `perritodeck-host` | The store listing (M3) |
 | ✅ D11 | **Reproducible Android builds and the startup profile.** `assets/dexopt/baseline.prof`, the ART startup profile R8 rewrites for the minified code, records the checksum of `classes.dex`, so it matches whenever the dex does. Measured on 2026-10-15 on one Windows PC (JDK 17, AGP 8.11.1): three clean release builds with the build cache off, in three folders on two drives, gave the same APK (2,179,425 bytes unsigned), while an incremental Kotlin compile changed the dex and so the profile (six classes when the compile came from the user-level build cache). With R8's profile rewriting off (only `android { experimentalProperties[...] }` does it; the `gradle.properties` flag has no effect on AGP 8.11.1) builds still match, but only 464 of the profile's 35,030 rules name a class in the obfuscated code (8,666 of 8,738 with it on), so the startup profile is effectively lost; turning off the ArtProfile tasks loses it outright on API 24+ | **Settled 2026-10-15 by measurement**, so no maintainer decision is needed: keep AGP's defaults and compare clean builds made with `--no-build-cache` ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide again only if CI's and F-Droid's builds differ; no comparison between machines has been run yet | The reproducible-build comparison and F-Droid's `Binaries` (M4) |
 | ✅ D12 | **Where the website is hosted.** The live site is a Cloudflare Worker with static assets, set up in the dashboard, while the 2026-10-13 decision chose Cloudflare Pages with Git integration. The Worker answers unknown addresses with an empty 404 instead of `404.html` and redirects `/privacy.html` with a 307; the repository has no Wrangler config for it. The maintainer's other project, evi-ai.dev, is on GitHub Pages | **Decided 2026-10-17:** GitHub Pages, set up as evi-ai.dev is. A separate public repository, `perritodeck/perritodeck.github.io`, is the organization's Pages site (Deploy from a branch, `main`, `/`, with a `CNAME` file and `.nojekyll`), and Cloudflare does DNS only, never proxied. `website/` stays the only source and the site repository holds generated output only, written by `scripts/publish_site.py`: by hand from WSL until the flip, then by the Site publish workflow with a token in a `site` environment. GitHub Pages can't send headers, so the CSP (without `frame-ancestors`), the referrer policy and noindex become `<meta>` tags; framing protection, `nosniff`, `Permissions-Policy`, COOP, long cache lifetimes and noindex on files that aren't pages are given up, and so is the HSTS header, moot on `.dev`. The site's source is public on github.com before launch. `website/_headers` stays until the Worker is deleted, a few stable days after the cutover. The Worker, its dashboard-only settings and the Cloudflare GitHub app go after the cutover ([website.md, Cutover runbook](../website.md#cutover-runbook)) | M1-5, M1-6 (the 404 page) |
+| ✅ D13 | **The unmaintained advisories with no upgrade:** `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, merged into zbus 6) and `proc-macro-error` (RUSTSEC-2024-0370). All Linux only, so not in v0.1.0; ashpd, Tauri's opener and single-instance plugins and Tauri's GTK stack haven't moved yet | **Decided 2026-10-17:** accepted for now, each with a reason in `host/deny.toml`, like D6. They go when ashpd and the two Tauri plugins move to zbus 6 and Tauri moves to gtk-rs 0.19; cargo-deny's `advisory-not-detected` warning flags a stale ignore. Every advisory with a fix was updated (rustls, zip, webpki-roots, rustls-webpki, tokio), so `cargo deny check` passes on both workspaces (2026-10-24) | CI running advisories |
 
 ## M1: public repo
 
@@ -194,6 +195,5 @@ runbook.
    test read the `<meta>` tag alone (M1-5).
 4. M3-6 after the Twitch pass. Right before the flip: M1-10 (delete every Actions run and
    its artifacts, with the maintainer's OK then) and M1-11.
-5. The advisories `cargo deny check advisories` flags besides D6's
-   ([next-steps](../next-steps.md) item 8): update the crates that have a fix, and take
-   the rest to the maintainer (ignoring one is a decision), before CI runs advisories.
+5. ✅ The advisories `cargo deny check advisories` flagged besides D6's: done 2026-10-24.
+   Every crate with a fix was updated, and the maintainer accepted the four with none (D13).
