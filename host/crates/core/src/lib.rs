@@ -9,6 +9,7 @@ pub mod demo;
 pub mod discovery;
 pub mod identity;
 pub mod pairing;
+pub mod private;
 mod server;
 
 pub use identity::{display_fingerprint, HostIdentity};
