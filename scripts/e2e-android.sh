@@ -27,7 +27,8 @@ if [ -n "${SCREEN_SIZE:-}" ]; then
   # to close the app's, so every test after the first fails. Close it once it's up.
   # (Back, if closing system dialogs doesn't do it, goes to the focused dialog.)
   # (Not `dumpsys | grep -q`: grep quitting early fails the pipe under pipefail.)
-  crash_dialog() { adb shell dumpsys window windows | grep -o "Application Error: [^ }]*" | head -1; }
+  # The focused window counts: a closed dialog's window can stay in the list for a while.
+  crash_dialog() { adb shell dumpsys window windows | grep "mCurrentFocus=" | grep -o "Application Error: [^ }]*" | head -1; }
   closed=""
   for _ in $(seq 1 10); do
     sleep 1
