@@ -20,6 +20,32 @@ if [ -n "${SCREEN_SIZE:-}" ]; then
   adb shell wm size "$SCREEN_SIZE"
   [ -n "${SCREEN_DENSITY:-}" ] && adb shell wm density "$SCREEN_DENSITY"
   echo "screen: $(adb shell wm size | tr -d '\r' | tail -1), $(adb shell wm density | tr -d '\r' | tail -1)" | tee "$out/screen.txt"
+
+  # The API 25 image's Launcher3 crashes when the screen changes size (an NPE as it
+  # relaunches), and its "Launcher3 has stopped" dialog then stays on top of everything:
+  # the tests' taps can't reach it, and the test runner can't bring up its own activity
+  # to close the app's, so every test after the first fails. Close it once it's up.
+  # (Back, if closing system dialogs doesn't do it, goes to the focused dialog.)
+  # (Not `dumpsys | grep -q`: grep quitting early fails the pipe under pipefail.)
+  crash_dialog() { adb shell dumpsys window windows | grep -o "Application Error: [^ }]*" | head -1; }
+  closed=""
+  for _ in $(seq 1 10); do
+    sleep 1
+    dialog="$(crash_dialog)"
+    if [ -n "$dialog" ]; then
+      echo "closing a crash dialog: $dialog"
+      if [ -z "$closed" ]; then
+        adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null
+        closed=1
+      else
+        adb shell input keyevent KEYCODE_BACK
+      fi
+    fi
+  done
+  dialog="$(crash_dialog)"
+  if [ -n "$dialog" ]; then
+    echo "::warning::a crash dialog is still on screen: $dialog"
+  fi
 fi
 
 # Keep the app installed after the run so the screenshots can be copied out with run-as.
