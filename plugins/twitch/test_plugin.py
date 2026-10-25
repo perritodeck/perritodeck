@@ -1624,11 +1624,13 @@ class EventSubTest(Base):
             self.watch("last_raid:me", "last_cheer:me")
             wait_for(lambda: {s["type"] for s in self.subs()} == {"channel.raid", "channel.cheer"}, timeout=4,
                      message="both subscriptions, with no key changed")
+            # The fake holds the subscription before its answer reaches the plugin, which
+            # only then says it works again.
+            wait_for(lambda: "event channel.raid: working again" in self.logs(), message="working again")
         posts = [r for r in Fake.state["requests"] if r[:2] == ("POST", "/eventsub/subscriptions")
                  and r[3]["type"] == "channel.raid"]
         self.assertEqual(len(posts), 3)
         self.assertIn("event channel.raid: Twitch said 503: Internal Server Error", self.logs())
-        self.assertIn("event channel.raid: working again", self.logs())
         self.assertEqual(len(self.ws.conns), 1)
 
     def test_subscription_retries_wait_longer_each_time(self):
