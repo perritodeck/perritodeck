@@ -189,17 +189,18 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
     before then; a deploy key doesn't expire)*
 - [ ] Settings → General → Features: Issues on; Discussions on (optional, for Q&A);
   Wiki off; Projects as preferred.
-- [ ] Description, website `https://perritodeck.dev`, topics (`stream-deck`, `macro-pad`,
-  `android`, `tauri`, `rust`, `obs`, `home-assistant`, `fdroid`), social preview image.
+- [x] Description, website `https://perritodeck.dev`, topics (`stream-deck`, `macro-pad`,
+  `android`, `tauri`, `rust`, `obs`, `home-assistant`, `fdroid`), social preview image. Done 2026-10-24 through the API, except the
+  social preview image: upload `website/img/og.png` in Settings → General → Social preview.
 
 ## 5. Protect the repository **(maintainer)**
 
 - [x] **Private vulnerability reporting:** Settings → Code security → Private
   vulnerability reporting → Enable (`SECURITY.md` links to it). Done 2026-10-24.
 - [x] Dependabot alerts on. Done 2026-10-24.
-- [ ] Dependabot security updates on; secret scanning and push protection on (free for
-  public repos).
-- [ ] **Branch protection / ruleset for `main`:** require a pull request (allow the
+- [x] Dependabot security updates on; secret scanning and push protection on (free for
+  public repos). Done 2026-10-24 through the API.
+- [x] **Branch protection / ruleset for `main`:** require a pull request (allow the
   maintainer to bypass while the team is one person), block force pushes and deletion,
   require linear history. **Require one status check, `CI gate`** (source: GitHub
   Actions), the last job of `.github/workflows/ci.yml` (`docs/next-steps.md` item 16), and
@@ -212,15 +213,19 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   `bootstrap-gradle-wrapper.yml` works under the ruleset: it pushes a
   `gradle-wrapper-<version>` branch, not `main`, and a person opens the pull request from
   the compare link in its run summary.
-- [ ] **Tag ruleset** for `v*`: only the maintainer can create, nobody can update or
-  delete.
+  Done 2026-10-24 through the API: ruleset `main` (default branch, active) with deletion
+  and force-push blocks, linear history, a pull request (no approval required) and the
+  `CI gate` check (GitHub Actions); Repository admin may bypass.
+- [x] **Tag ruleset** for `v*`: only the maintainer can create, nobody can update or
+  delete. Done 2026-10-24: ruleset `release tags` (`refs/tags/v*`)
+  restricts creation, update and deletion; Repository admin may bypass.
 - [ ] Recommended: a `release` environment for the three Android signing secrets, limited to
   `v*` tags with a required reviewer, and the `environment: release` line in `release.yml`
   turned on at the same time (`docs/releasing.md`, "Once the repository is public").
 - [x] Actions → General: "Require approval for first-time contributors" for fork PRs. Done
   2026-10-24.
-- [ ] Optional: Actions → General, require actions to be pinned to a full commit SHA. Every
-  `uses:` in the workflows already is.
+- [x] Optional: Actions → General, require actions to be pinned to a full commit SHA. Every
+  `uses:` in the workflows already is. Done 2026-10-24.
 - [x] Actions → General → "Workflow permissions" is already read-only, and "Allow GitHub
   Actions to create and approve pull requests" is off (checked through the API on
   2026-10-13 and 2026-10-15; the token is still read-only after the flip, 2026-10-24). Keep
