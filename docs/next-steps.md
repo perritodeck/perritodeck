@@ -515,7 +515,11 @@ Re-check each one there.
 recorded, OBS's real error wording is in `plugins/obs/README.md` and the guide, and anything
 found is fixed or listed here.
 
-## 10. Twitch: a real-world test pass 🖥 (maintainer for accounts and sign-in)
+## 10. Twitch: a real-world test pass 🖥 (maintainer for accounts and sign-in) — not for v0.1.0
+
+**Skipped for v0.1.0 (decided 2026-10-24)** to reach the launch sooner: the Twitch plugin ships
+marked Experimental (it stays in `plugins/catalogue_status.json`), and the pass waits for a later
+release.
 
 **Plan: [docs/testing/twitch.md](testing/twitch.md).** The plugin's 37 actions and 34
 values have only run against a fake Twitch. The plan orders the cases from harmless to
@@ -772,8 +776,8 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   downloads table, the Android certificate and the Android changelog. Check versions
   refuses a tag, or a run that publishes, whose file is missing, empty or says TODO
   ([releasing, step 3](releasing.md#3-write-the-changelog); DECISIONS, 2026-10-24). The
-  first is `docs/release-notes/v0.1.0.md`. Its four TODO comments, which block the tag
-  until they're gone, wait on the Twitch pass (item 10), CI and the release-APK checks
+  first is `docs/release-notes/v0.1.0.md`. Its three TODO comments, which block the tag
+  until they're gone, wait on CI and the release-APK checks
   (phase-8 M3-7 and M3-10), the soak test and the Windows manual steps (M3-16 and M3-17),
   and Windows signing (D1).
 - ✅ **Third-party notices in the APK (2026-10-15).** The APK carries

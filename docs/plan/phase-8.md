@@ -40,9 +40,8 @@ order in the [launch checklist](../launch-checklist.md), and the release mechani
   plugin is no longer Experimental: 13 plugins are listed in
   `plugins/catalogue_status.json`. The cases that couldn't run yet are in the results' §7
   ([next-steps](../next-steps.md) item 9).
-- **The Twitch real-world pass** waits for the maintainer's developer app and three test
-  accounts. It uses test accounts only; the Affiliate cases are deferred (DECISIONS,
-  2026-10-15).
+- **The Twitch real-world pass is skipped for v0.1.0** (decided 2026-10-24): the Twitch plugin
+  ships marked Experimental, and the pass waits for a later release.
 - **CI is blocked until the flip.** GitHub Actions has stopped every run since 2026-10-11
   at a billing block, and the maintainer is leaving it, because Actions are free once the
   repo is public (DECISIONS, 2026-10-15). Until then everything is checked locally
@@ -133,7 +132,7 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 | 12. ✅ MSI and macOS: dropped from v0.1.0 (D5), and so are the Linux packages and the command-line archives. Done 2026-10-15: `SHIP`, at the top of `release.yml`, lists what a release publishes (`windows-nsis` for v0.1.0), and a tag runs only those build jobs, so a platform that isn't listed can't fail the release. The publish job checks that the draft gets exactly the NSIS installer, the APK, the plugin catalogue zip and `third-party-licenses.txt` (the desktop app's licences link points at the release's copy), plus `SHA256SUMS`, and the notes have rows only for those. A manual run with **untested** ticked builds the rest as workflow artifacts ([releasing, What ships](../releasing.md#what-ships)). It hasn't run on GitHub yet (CI is blocked). Testing the MSI and macOS moves to the release that adds them | C | |
 | 13. NSIS installer findings: fix or accept each ([launch-checklist](../launch-checklist.md) §7) | C+M | |
 | 14. ✅ OBS real-world pass: finish, fix what it finds. Ran 2026-10-13; all 22 findings fixed and re-checked 2026-10-15 ([results](../testing/obs-results-2026-10-13.md)) | C | |
-| 15. Twitch real-world pass with test accounts: the tools are built ([plugins/tools](../../plugins/tools/README.md)). Test accounts only; sections I, J and K (Affiliate) wait for a later pass. L6 (subs, cheers, hype trains) is open: the Twitch CLI's mock server, a download that needs the maintainer's OK, or that later pass ([next-steps](../next-steps.md) item 10) | C+M | a Twitch developer app and three test accounts |
+| 15. **Not for v0.1.0 (decided 2026-10-24):** the Twitch plugin ships Experimental. Twitch real-world pass with test accounts: the tools are built ([plugins/tools](../../plugins/tools/README.md)). Test accounts only; sections I, J and K (Affiliate) wait for a later pass. L6 (subs, cheers, hype trains) is open: the Twitch CLI's mock server, a download that needs the maintainer's OK, or that later pass ([next-steps](../next-steps.md) item 10) | C+M | a Twitch developer app and three test accounts |
 | 16. Soak test (hours), sleep/resume, Wi-Fi drop | C+M | hardware time |
 | 17. Remaining Windows manual test-plan steps | M | PC + tablet time |
 | 18. ✅ `fdroid lint` and `fdroid build` on the recipe. Done 2026-10-24 in WSL (fdroidserver 2.4.5 and master): the recipe lints clean and a test copy builds. Fixed on the way: the recipe had comments, which fdroiddata's rewritemeta check rejects; F-Droid's scanner stopped at `plugins/sdk-node/package.json` without a lockfile; and the build server's JDK 21 can't satisfy `jvmToolchain(17)`, so the recipe installs OpenJDK 17 in `sudo:` ([fdroid/README.md](../fdroid/README.md#f-droid-main-repository)). It also showed that the baseline profile isn't deterministic, which reopens D11 before `Binaries:` | C+M | |
@@ -191,7 +190,7 @@ OS, `scripts/publish_site.py` with its tests, `site-publish.yml`, the drift chec
 3. M2-1, and the rest of M1-6: Look online installing from the live catalogue in the real
    app (the 404 page is checked). Until the flip, publish by hand after each change to
    `website/` or `plugins/` on `main`, and run `--check-live` now and then.
-4. M3-6 after the Twitch pass. Right before the flip: M1-10 (delete every Actions run and
+4. M3-6: the release notes are written; the Twitch pass is skipped (2026-10-24). Right before the flip: M1-10 (delete every Actions run and
    its artifacts, with the maintainer's OK then) and M1-11.
 5. ✅ The advisories `cargo deny check advisories` flagged besides D6's: done 2026-10-24.
    Every crate with a fix was updated, and the maintainer accepted the four with none (D13).

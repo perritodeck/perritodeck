@@ -82,7 +82,6 @@ Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a v
   `scripts/release-version.py` reminds you to write it after a bump. If the draft already exists, a re-run replaces its files but not its notes, so after changing the notes, edit or delete the draft by hand.
 
   `docs/release-notes/v0.1.0.md` is the first one. Its `TODO` comments each name the item that settles them:
-  - the Twitch pass;
   - CI and the release-APK checks (phase-8 M3-7 and M3-10);
   - the soak test and the Windows manual steps (M3-16 and M3-17);
   - Windows signing (D1).
