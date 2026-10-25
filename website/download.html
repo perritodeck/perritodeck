@@ -139,9 +139,9 @@
       <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums.</p>
 
       <h3 class="os-label" id="android-certificate">Android: the signing certificate</h3>
-      <p>The APK on this page and in GitHub Releases, which IzzyOnDroid and Obtainium use, is signed with the PerritoDeck release key. Copies from F-Droid are signed by F-Droid instead. The SHA-256 fingerprint of the release key's certificate is published here with the first signed release:</p>
-      <!-- Filled in before the first signed release, from keytool's SHA-256 (docs/releasing.md, step 1). The release notes show the same value. -->
-      <pre><code>Not published yet</code></pre>
+      <p>The APK on this page and in GitHub Releases, which IzzyOnDroid and Obtainium use, is signed with the PerritoDeck release key. Copies from F-Droid are signed by F-Droid instead. The SHA-256 fingerprint of the release key's certificate is:</p>
+      <!-- The release key's certificate, from keytool's SHA-256 (docs/releasing.md); the PERRITO_CERT_SHA256 variable and the release notes show the same value. -->
+      <pre><code>848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5</code></pre>
       <p>To check an APK from here or from GitHub Releases, run <code>apksigner</code> from the Android SDK's build tools:</p>
       <pre><code>apksigner verify --print-certs perrito-0.1.0.apk</code></pre>
       <p>The line with <code>certificate SHA-256 digest:</code> should end in the fingerprint above, and there should be no <code>ERROR</code> lines (warnings about files in <code>META-INF/</code> are normal). Some tools show the fingerprint in capitals with colons between the pairs; it's the same value. If it doesn't match, don't install the file. Android won't install an update signed with a different key over the app you have, so this check matters most the first time. For the same reason, a copy from F-Droid can't be updated with the APK from here, or the other way round.</p>
