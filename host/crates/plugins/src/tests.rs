@@ -772,7 +772,7 @@ async fn programs_a_plugin_started_end_with_it() {
 /// sign-in opens a browser. Only the plain child should end with the plugin.
 #[cfg(windows)]
 const OPENER_PLUGIN: &str = r#"
-import json, os, subprocess, sys, winreg
+import json, os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from perritodeck_plugin import open_for_user, start_for_user
 data = os.environ["PERRITODECK_PLUGIN_DATA"]
@@ -783,21 +783,36 @@ pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
 sleep = "import time; time.sleep(120)"
 note("child", subprocess.Popen([pythonw, "-c", sleep]).pid)
 note("started", start_for_user([pythonw, "-c", sleep]).pid)
-try:
-    winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, ".pyw")
-    pyw = True
-except OSError:
-    pyw = False
-if pyw:
-    script = os.path.join(data, "opened.pyw")
-    open(script, "w").write(
-        "import os, time\n"
-        "open(%r, 'w').write(str(os.getpid()))\n"
-        "os.replace(%r, %r)\n"
-        "time.sleep(120)\n" % ((os.path.join(data, "opened.tmp"),) * 2 + (os.path.join(data, "opened"),)))
+def shell_opens(extension):
+    # Whether ShellExecute opens this type with a program of its own, rather than
+    # asking which to use. GitHub's runners register .pyw but send it to OpenWith.exe.
+    import ctypes
+    from ctypes import wintypes
+    size = wintypes.DWORD(1024)
+    found = ctypes.create_unicode_buffer(size.value)
+    ok = ctypes.WinDLL("shlwapi").AssocQueryStringW(0, 2, extension, "open", found, ctypes.byref(size)) == 0
+    return ok and os.path.basename(found.value).lower() != "openwith.exe"
+script = os.path.join(data, "opened.pyw")
+open(script, "w").write(
+    "import os, time\n"
+    "open(%r, 'w').write(str(os.getpid()))\n"
+    "os.replace(%r, %r)\n"
+    "time.sleep(120)\n" % ((os.path.join(data, "opened.tmp"),) * 2 + (os.path.join(data, "opened"),)))
+if shell_opens(".pyw"):
     open_for_user(script)
 else:
-    note("opened", "none")  # nothing opens .pyw files here
+    # A batch file, which Windows always runs itself, runs the script instead (a
+    # console shows meanwhile). cmd reads it in the OEM code page.
+    try:
+        batch_text = ('@"%s" "%s"\r\n' % (pythonw, script)).encode("oem")
+    except UnicodeEncodeError:
+        batch_text = None
+    if batch_text is None:
+        note("opened", "none")  # its path doesn't fit the console's code page
+    else:
+        batch = os.path.join(data, "opened.cmd")
+        open(batch, "wb").write(batch_text)
+        open_for_user(batch)
 note("pid", os.getpid())
 for line in sys.stdin:
     m = json.loads(line)
@@ -868,7 +883,7 @@ async fn programs_opened_for_the_user_outlive_the_plugin() {
         "start_for_user's program outlived it"
     );
     if opened == "none" {
-        eprintln!("skipped open_for_user: nothing opens .pyw files here");
+        eprintln!("skipped open_for_user: the data folder doesn't fit the console's code page");
     } else {
         assert!(
             process_alive(&opened),
