@@ -48,11 +48,11 @@ public final class HostBrowser: ObservableObject {
         parameters.includePeerToPeer = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
-            Task { @MainActor in self?.update(results) }
+            Task { @MainActor [weak self] in self?.update(results) }
         }
         browser.stateUpdateHandler = { [weak self] state in
             if case .failed = state {
-                Task { @MainActor in self?.stop() }
+                Task { @MainActor [weak self] in self?.stop() }
             }
         }
         self.browser = browser
@@ -103,12 +103,12 @@ public final class HostBrowser: ObservableObject {
             case .ready:
                 let remote = connection?.currentPath?.remoteEndpoint
                 connection?.cancel()
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.resolved(serviceName: serviceName, name: name, hostId: hostId, remote: remote)
                 }
             case .failed, .waiting:
                 connection?.cancel()
-                Task { @MainActor in self?.resolving[serviceName] = nil }
+                Task { @MainActor [weak self] in self?.resolving[serviceName] = nil }
             case .cancelled:
                 connection?.stateUpdateHandler = nil
             default:
