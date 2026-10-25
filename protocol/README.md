@@ -53,7 +53,7 @@ client                                   host
 ```
 
 - The first client message **must** be `hello` or `pair`; anything else gets `error` `protocolViolation` and a close.
-- The host closes a connection that sends nothing for 3 × `heartbeatIntervalMs`.
+- The host closes a connection that sends nothing for 3 × `heartbeatIntervalMs`, however much the host is sending to it, so a client sends `heartbeat` every interval even while messages keep arriving.
 - A new `hello` with the same `deviceId` replaces the older connection.
 
 ## Messages

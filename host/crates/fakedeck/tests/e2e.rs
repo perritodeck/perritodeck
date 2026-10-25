@@ -341,6 +341,159 @@ async fn idle_client_is_dropped() {
         .unwrap_or(true));
 }
 
+/// Push a `setTitle` to `device` every `every` until the task is aborted, the way a clock
+/// key or a live value keeps the host sending.
+fn keep_sending(h: &Host, device: &'static str, every: Duration) -> tokio::task::JoinHandle<()> {
+    let handle = h.handle.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(every);
+        for n in 0u64.. {
+            tick.tick().await;
+            handle.send(
+                device,
+                Message::SetTitle(SetTitle {
+                    key_index: 0,
+                    title: format!("{n}"),
+                }),
+            );
+        }
+    })
+}
+
+/// Wait up to `limit` for `device` to be reported gone. Returns the reason and how long it took.
+async fn wait_for_disconnect(
+    h: &mut Host,
+    device: &str,
+    limit: Duration,
+) -> Option<(String, Duration)> {
+    let start = std::time::Instant::now();
+    timeout(limit, async {
+        loop {
+            match h.events.recv().await {
+                Some(ServerEvent::Disconnected { device_id, reason }) if device_id == device => {
+                    return (reason, start.elapsed())
+                }
+                Some(_) => continue,
+                None => panic!("event channel closed"),
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
+// A tablet that vanished (Wi-Fi off) leaves its connection open and silent. The host must
+// notice within the idle timeout even while it keeps sending to it: what the host sends
+// says nothing about whether the tablet is still there.
+#[tokio::test]
+async fn silent_client_is_dropped_while_the_host_keeps_sending() {
+    let heartbeat = Duration::from_millis(200);
+    let idle = heartbeat * 3;
+    let mut h = start(Security::Insecure, heartbeat).await;
+    // Held open, never read from or written to again.
+    let (_silent, _, _) = Client::handshake(&h.insecure_ep(), fake_hello("gone", None, None))
+        .await
+        .unwrap();
+    assert!(matches!(
+        next_event(&mut h).await,
+        ServerEvent::Connected { .. }
+    ));
+    let pusher = keep_sending(&h, "gone", heartbeat / 4);
+
+    let dropped = wait_for_disconnect(&mut h, "gone", idle + Duration::from_secs(3)).await;
+    pusher.abort();
+    let (reason, after) =
+        dropped.expect("the silent client should be dropped within the idle timeout");
+    assert!(reason.contains("no traffic"), "reason: {reason}");
+    assert!(
+        after >= idle - heartbeat,
+        "dropped too early, after {after:?}"
+    );
+    assert!(h.handle.devices().is_empty());
+}
+
+// The same, when the host has sent so much that the socket's buffers are full and its next
+// send can't complete: the idle timeout must still hold.
+#[tokio::test]
+async fn silent_client_is_dropped_while_a_send_is_stuck() {
+    let heartbeat = Duration::from_millis(200);
+    let idle = heartbeat * 3;
+    let mut h = start(Security::Insecure, heartbeat).await;
+    let (_silent, _, _) = Client::handshake(&h.insecure_ep(), fake_hello("stuck", None, None))
+        .await
+        .unwrap();
+    assert!(matches!(
+        next_event(&mut h).await,
+        ServerEvent::Connected { .. }
+    ));
+    // 64 MB, far more than the loopback socket buffers hold.
+    let big = "x".repeat(1 << 20);
+    for _ in 0..64 {
+        h.handle.send(
+            "stuck",
+            Message::SetTitle(SetTitle {
+                key_index: 0,
+                title: big.clone(),
+            }),
+        );
+    }
+
+    let dropped = wait_for_disconnect(&mut h, "stuck", idle + Duration::from_secs(3)).await;
+    let (reason, _) =
+        dropped.expect("a send stuck on a full socket must not outlast the idle timeout");
+    assert!(reason.contains("no traffic"), "reason: {reason}");
+}
+
+// A healthy tablet sends a heartbeat every interval, as the apps do. It stays connected
+// however busy the host is sending to it.
+#[tokio::test]
+async fn heartbeating_client_stays_while_the_host_keeps_sending() {
+    let heartbeat = Duration::from_millis(200);
+    let mut h = start(Security::Insecure, heartbeat).await;
+    let (mut c, welcome, _) = Client::handshake(&h.insecure_ep(), fake_hello("alive", None, None))
+        .await
+        .unwrap();
+    assert_eq!(welcome.heartbeat_interval_ms, 200);
+    assert!(matches!(
+        next_event(&mut h).await,
+        ServerEvent::Connected { .. }
+    ));
+    let pusher = keep_sending(&h, "alive", Duration::from_millis(50));
+
+    // Like the Android and iOS apps: wait an interval, then send a heartbeat.
+    let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + heartbeat, heartbeat);
+    let until = tokio::time::Instant::now() + heartbeat * 3 * 5;
+    let (mut seq, mut titles) = (0u32, 0u32);
+    loop {
+        tokio::select! {
+            () = tokio::time::sleep_until(until) => break,
+            _ = ticker.tick() => {
+                seq += 1;
+                c.send(Message::Heartbeat(Heartbeat { seq, sent_at_ms: now_ms() })).await.unwrap();
+            }
+            frame = c.recv() => match frame.unwrap() {
+                Some(Decoded::Message(env)) => {
+                    if matches!(env.msg, Message::SetTitle(_)) {
+                        titles += 1;
+                    }
+                }
+                Some(Decoded::UnknownType { .. }) => {}
+                None => panic!("the host closed a healthy connection"),
+            },
+        }
+    }
+    pusher.abort();
+    assert!(
+        titles > 20,
+        "the host should have kept sending ({titles} titles)"
+    );
+    assert!(
+        h.events.try_recv().is_err(),
+        "no event expected while the client is healthy"
+    );
+    assert_eq!(h.handle.devices(), vec!["alive".to_owned()]);
+}
+
 // ---------- pairing + TLS ----------
 
 #[tokio::test]

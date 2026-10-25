@@ -18,7 +18,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpListener, TcpStream},
     sync::mpsc,
-    time::timeout,
+    time::{sleep, timeout, timeout_at},
 };
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::{
@@ -42,6 +42,8 @@ pub type LayoutProvider = Arc<dyn Fn(&Hello) -> Layout + Send + Sync>;
 const MAX_CLIENT_MESSAGE: usize = 64 * 1024;
 const MAX_DEVICE_ID_LEN: usize = 128;
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a session that ended may take to send its close frame.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Why a device's older connection is closed when it connects again.
 const REPLACED: &str = "replaced by a newer connection from the same device";
 
@@ -395,7 +397,8 @@ impl Connection {
         // must not take the device away from the connection that replaced it.
         self.handle
             .unregister(&device_id, self.id, &self.events, reason);
-        let _ = ws.close(None).await;
+        // A tablet that vanished can't take a close frame either; don't wait for the OS.
+        let _ = timeout(CLOSE_TIMEOUT, ws.close(None)).await;
         result.map(|_| ())
     }
 
@@ -547,28 +550,50 @@ impl Connection {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let idle = self.config.idle_timeout();
+        let gone = || format!("no traffic for {}s", idle.as_secs());
+        // Only a frame from the tablet moves the deadline. What the host sends (a clock, live
+        // values, GIF frames) says nothing about whether the tablet is still there, and a
+        // tablet that vanished would otherwise stay connected until the OS gave up on the
+        // socket. Every await below is bounded by it, sends too: one to a tablet that stopped
+        // reading waits for room in the socket's buffers, which may never come.
+        let deadline = sleep(idle);
+        tokio::pin!(deadline);
         loop {
             tokio::select! {
-                frame = timeout(idle, ws.next()) => {
+                () = &mut deadline => return Ok(gone()),
+                frame = ws.next() => {
                     let received = Instant::now();
+                    deadline.as_mut().reset(tokio::time::Instant::now() + idle);
                     let text = match frame {
-                        Err(_) => return Ok(format!("no traffic for {}s", idle.as_secs())),
-                        Ok(None) => return Ok("socket closed".into()),
-                        Ok(Some(Err(e))) => return Err(e),
-                        Ok(Some(Ok(tungstenite::Message::Text(t)))) => t,
-                        Ok(Some(Ok(tungstenite::Message::Close(_)))) => return Ok("client closed".into()),
-                        Ok(Some(Ok(tungstenite::Message::Binary(_)))) => {
-                            send(ws, Envelope::new(Message::error(ErrorCode::BadMessage, "binary frames are not used in protocol v1"))).await?;
+                        None => return Ok("socket closed".into()),
+                        Some(Err(e)) => return Err(e),
+                        Some(Ok(tungstenite::Message::Text(t))) => t,
+                        Some(Ok(tungstenite::Message::Close(_))) => return Ok("client closed".into()),
+                        Some(Ok(tungstenite::Message::Binary(_))) => {
+                            let refusal = Envelope::new(Message::error(ErrorCode::BadMessage, "binary frames are not used in protocol v1"));
+                            match timeout_at(deadline.deadline(), send(ws, refusal)).await {
+                                Ok(sent) => sent?,
+                                Err(_) => return Ok(gone()),
+                            }
                             continue;
                         }
-                        Ok(Some(Ok(_))) => continue, // ping/pong handled by tungstenite
+                        Some(Ok(_)) => continue, // ping/pong handled by tungstenite
                     };
-                    if let Some(reason) = self.on_text(ws, device_id, grid, text.as_str(), received).await? {
-                        return Ok(reason);
+                    let handled = self.on_text(ws, device_id, grid, text.as_str(), received);
+                    match timeout_at(deadline.deadline(), handled).await {
+                        Ok(handled) => if let Some(reason) = handled? {
+                            return Ok(reason);
+                        },
+                        Err(_) => return Ok(gone()),
                     }
                 }
                 out = outbound.recv() => match out {
-                    Some(Outbound::Message(m)) => send(ws, Envelope::new(m)).await?,
+                    Some(Outbound::Message(m)) => {
+                        match timeout_at(deadline.deadline(), send(ws, Envelope::new(m))).await {
+                            Ok(sent) => sent?,
+                            Err(_) => return Ok(gone()),
+                        }
+                    }
                     Some(Outbound::Kick(reason)) => return Ok(reason.into()),
                     None => return Ok("server shutting down".into()),
                 },
