@@ -577,7 +577,11 @@ the store listings, and for Play Console's privacy policy field if Google Play i
 - [x] (2026-10-25, against v0.1.0's release notes) Check the "Tested" and "Not yet" lines
       on the home and download pages still say what's true.
 - [ ] In store listings, use `https://perritodeck.dev/privacy` for the privacy policy.
-- [ ] After the publish (Site publish runs on the push to `main`), run the checks below.
+- [x] After the publish (Site publish runs on the push to `main`), run the checks below.
+      Done 2026-10-25 after `site: publish from perritodeck@c9e422f`: every check below passed
+      (no robots tag but on the 404 page, `server: GitHub.com` only, the catalogue, `og.png`,
+      the three download links answer), and `/`, `/download` and `/plugins/` logged no console
+      errors.
 
 **Checks after the publish**, for a POSIX shell (on Windows, Git Bash runs them as they
 are). In PowerShell, type `curl.exe` (in Windows PowerShell `curl` is `Invoke-WebRequest`),
