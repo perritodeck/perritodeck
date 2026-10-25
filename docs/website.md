@@ -32,9 +32,9 @@ Every page shares the header and footer markup; copy them from an existing page 
 one, and mark the current section with `aria-current="page"`. `404.html` is the exception:
 it can be served at any depth, so its links start with `/`.
 
-Every page's `<head>` starts with `<meta charset>` and then three policy tags, before
+Every page's `<head>` starts with `<meta charset>` and then the policy tags, before
 anything else, since a policy covers only what comes after it: the Content-Security-Policy,
-the referrer policy and, until launch day, `robots` noindex ([Headers and
+the referrer policy and, on `404.html` only, `robots` noindex ([Headers and
 policies](#headers-and-policies)). It also has a canonical link and the tags link previews
 use (Open Graph and `twitter:card`): the page's own address on `https://perritodeck.dev`
 without `.html` (folders end in `/`), the same title and description as the page, and the
@@ -505,9 +505,10 @@ the store listings, and for Play Console's privacy policy field if Google Play i
 - So the policies are `<meta>` tags, right after `<meta charset>` in every page and in the
   catalogue template:
   `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">`,
-  `<meta name="referrer" content="no-referrer">` and, until launch day,
-  `<meta name="robots" content="noindex">`. Copy all three from an existing page when adding
-  one; `plugins/test_build_catalog.py` checks that they're first, and each there once.
+  and `<meta name="referrer" content="no-referrer">`, plus `<meta name="robots"
+  content="noindex">` on `404.html` only. Copy them from an existing page when adding one;
+  `plugins/test_build_catalog.py` checks that they're first, each there once, and that no
+  other page has a robots tag.
 - There's **one** CSP. Two would be two policies that must both pass. It has no
   `frame-ancestors`, which browsers ignore in a `<meta>` tag (and warn about). The test
   holds it as `POLICY`, so a change goes there, in every page and in the catalogue template
@@ -516,9 +517,9 @@ the store listings, and for Play Console's privacy policy field if Google Play i
   no inline code (see the top of this file), no other sites, no `fetch`. Anything from
   elsewhere, such as a web font service, an embed or analytics, is blocked until the policy
   says otherwise, and then `privacy.html` needs updating too.
-- `robots` noindex is **temporary**, to keep search engines out until launch, and it covers
-  only pages. `robots.txt` allows everything, because a `Disallow` would keep crawlers from
-  ever reading the noindex.
+- `robots` noindex kept search engines out until launch and came off every page but
+  `404.html` on launch day (2026-10-25). `robots.txt` allows everything, because a
+  `Disallow` would keep crawlers from ever reading a noindex.
 - Given up with the move (D12): framing protection (`frame-ancestors`, `X-Frame-Options`),
   so another site could show the pages in a frame; `X-Content-Type-Options: nosniff`; the
   `Permissions-Policy` that turned off the camera, microphone, location, payments and USB;
@@ -536,11 +537,11 @@ the store listings, and for Play Console's privacy policy field if Google Play i
 
 ### Launch day
 
-- [ ] Delete `<meta name="robots" content="noindex">` from the 12 pages and from the
+- [x] (2026-10-25) Delete `<meta name="robots" content="noindex">` from the 12 pages and from the
       catalogue template in `plugins/build_catalog.py` (`page()`). Keep `404.html`'s: its
       comment says so. Then set `LAUNCHED = True` in `plugins/test_build_catalog.py`, and
       the tests check that no other robots tag is left. `robots.txt` stays as it is.
-- [ ] Remove the not-released notices: "Not released yet" on `download.html`, and "Until
+- [x] (2026-10-25) Remove the not-released notices: "Not released yet" on `download.html`, and "Until
       the first release, this is the way to try PerritoDeck." at the start of its "Build it
       yourself" section (`#source`; the Linux sentence after it stays); on `index.html` the
       "Pre-release" pill and the "no published release yet" wording under "Where it
@@ -550,7 +551,8 @@ the store listings, and for Play Console's privacy policy field if Google Play i
       "Early days" box on `guide/index.html`; the "Coming" notes about downloads and
       stores on `guide/getting-started.html`; and "The online catalogue isn't published
       yet" on `guide/plugins.html`.
-- [ ] Signing and stores. v0.1.0 ships unsigned on Windows unless the certificate arrives
+- [x] (2026-10-25: Windows unsigned, `#unsigned` kept; F-Droid and IzzyOnDroid still to
+      come) Signing and stores. v0.1.0 ships unsigned on Windows unless the certificate arrives
       first (D1 in `docs/plan/phase-8.md`), and F-Droid and IzzyOnDroid are still
       "Coming" (Google Play says "Not for now", D8). The "Signed installers and store
       listings" lines (the last "Not yet" on `index.html` and the last line of "Not
@@ -561,18 +563,19 @@ the store listings, and for Play Console's privacy policy field if Google Play i
       place by the release, also update "First launch of an unsigned build" (`#unsigned`)
       on `download.html`: drop the SmartScreen line, and make the opening sentence say
       which apps are still unsigned.
-- [ ] The first release is Windows and Android only (D5 in `docs/plan/phase-8.md`), and
+- [x] (2026-10-25) The first release is Windows and Android only (D5 in `docs/plan/phase-8.md`), and
       the pages already say so: `download.html` links only the NSIS installer and the APK,
       and Linux and macOS say "build from source for now" and "not yet". Check no link to
       an MSI, a macOS, Linux or command-line file has come back. For a later release that
       adds them, see [When Linux or macOS joins a release](#when-linux-or-macos-joins-a-release).
-- [ ] Put the Android release certificate's SHA-256 fingerprint into `download.html` under
+- [x] (2026-10-25: already there, and the same as v0.1.0's release notes) Put the Android
+      release certificate's SHA-256 fingerprint into `download.html` under
       "Android: the signing certificate" (`#android-certificate`), replacing "Not published
       yet", if it isn't there already. Use the lowercase form without colons that
       `apksigner` prints, and check that it matches the release notes (`docs/releasing.md`,
       step 1).
-- [ ] Check the "Tested" and "Not yet" lines on the home and download pages still say what's
-      true.
+- [x] (2026-10-25, against v0.1.0's release notes) Check the "Tested" and "Not yet" lines
+      on the home and download pages still say what's true.
 - [ ] In store listings, use `https://perritodeck.dev/privacy` for the privacy policy.
 - [ ] After the publish (Site publish runs on the push to `main`), run the checks below.
 

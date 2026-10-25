@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <meta name="robots" content="noindex">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download — PerritoDeck</title>
   <meta name="description" content="Download PerritoDeck for Windows and Perrito for Android tablets and phones. On Linux, build it from source for now. Free and open source.">
@@ -25,8 +24,8 @@
   <!--
     Release links point at GitHub release assets for one version. scripts/release-version.py
     rewrites every "/download/vX.Y.Z/", "perritodeck-X.Y.Z-" and data-version="X.Y.Z" here when
-    the version is bumped. The repository is private until launch, so these links 404 until
-    it's public and the first release is published.
+    the version is bumped, so the links 404 from that push until the release is published.
+    The asset names carry the version, so /releases/latest/download/ can't stand in for them.
   -->
   <link rel="stylesheet" href="download.css">
 </head>
@@ -55,7 +54,6 @@
         <p class="updated">Version 0.1.0 · free and open source · no account needed</p>
         <p class="lede">You need two things: <strong>PerritoDeck</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The computer does what your buttons ask, and the tablet shows them.</p>
       </div>
-      <p class="notice"><strong>Not released yet.</strong> PerritoDeck is in early development, and the download links below start working on launch day. Until then, you can <a href="#source">build it from the source code</a>.</p>
 
       <h2 id="computer">1. Install PerritoDeck on your computer</h2>
       <p class="lead-in">The desktop app sits in your tray, pairs tablets, and lets you lay out your buttons. This release has an installer for Windows. On Linux, build it from source for now. The Mac version isn't ready yet.</p>
@@ -150,7 +148,7 @@
       <p>For servers, kiosks and scripting: the same host without a window, <code>perritodeck-host</code>, plus <code>perritodeck-fakedeck</code>, a test client that needs no tablet. They aren't downloads in this release: <a href="#source">build them from source</a> with Rust, then in <code>host/</code> run <code>cargo run -p perritodeck-host -- --pair</code> to pair a tablet.</p>
 
       <h2 id="source">Build it yourself</h2>
-      <p>Until the first release, this is the way to try PerritoDeck. On Linux, it's the way to run it for now. Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). You need:</p>
+      <p>On Linux, it's the way to run it for now. Everything is on <a href="https://github.com/perritodeck/perritodeck">GitHub</a> under the Apache-2.0 licence (plugins and SDKs under MIT). You need:</p>
       <ul>
         <li><strong>Rust</strong> (<a href="https://rustup.rs/">rustup</a>; the right version installs itself) and <strong>Node.js 22 or newer</strong>, for the desktop app.</li>
         <li><strong>JDK 17</strong> and the Android SDK, for Perrito. Android Studio brings both.</li>
@@ -161,7 +159,7 @@
         <li>Tablet app: <code>cd android</code>, then <code>./gradlew assembleDebug</code> (<code>.\gradlew.bat</code> on Windows), and install <code>android/app/build/outputs/apk/debug/app-debug.apk</code> on the tablet.</li>
         <li>No tablet handy? In <code>host/</code>, <code>cargo run -p perritodeck-fakedeck -- pair &lt;code&gt;</code> pairs a test client the way a tablet would, and <code>-- watch</code> shows its keys.</li>
       </ol>
-      <p><a href="https://github.com/perritodeck/perritodeck/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> has every build and test command, and how to send changes. Release notes will be on the <a href="https://github.com/perritodeck/perritodeck/releases">releases page</a>.</p>
+      <p><a href="https://github.com/perritodeck/perritodeck/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> has every build and test command, and how to send changes. Release notes are on the <a href="https://github.com/perritodeck/perritodeck/releases">releases page</a>.</p>
     </div>
   </main>
 

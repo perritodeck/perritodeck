@@ -430,7 +430,7 @@ class Head(HTMLParser):
 
 # Launch day (docs/website.md): the robots tag comes off every page but 404.html, and off the
 # catalogue page's template. Then set this to True, and the tests check that none is left.
-LAUNCHED = False
+LAUNCHED = True
 
 
 # The site's one Content-Security-Policy, in a <meta> tag on every page and in the catalogue

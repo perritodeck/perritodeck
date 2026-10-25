@@ -6,7 +6,8 @@ landed, the maintainer decided D1, D2, D4, D5, D9 and D10, D11 was settled by
 measurement, M1-7 and M1-8 were done, and so was most of M1-5. On 2026-10-17 the
 maintainer decided D3, D6, D7, D8, D12 and D13 and confirmed the last two parts of M1-7. On
 2026-10-24 the repository went public (M1-10 to M1-12), and CI ran again and went green
-(M1-14, M3-7). The details behind each one are in [next-steps](../next-steps.md) (items
+(M1-14, M3-7). On 2026-10-25 v0.1.0 was published (M3-20) and the launch-day site edits
+made (M2-1, M2-3, M3-21). The details behind each one are in [next-steps](../next-steps.md) (items
 8–18), the steps in order in the [launch checklist](../launch-checklist.md), and the
 release mechanics in [releasing](../releasing.md).
 
@@ -122,9 +123,9 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 
 | Item | Who | Needs / depends on |
 |---|---|---|
-| 1. Drop "the online catalogue isn't published yet" from the guide (`website/guide/plugins.html`). Unblocked: the live catalogue answers (2026-10-15) | C | M1-5 |
+| 1. ✅ Drop "the online catalogue isn't published yet" from the guide (`website/guide/plugins.html`). Done 2026-10-25 with the launch-day edits (M3-21) | C | M1-5 |
 | 2. ✅ Open Graph and canonical tags, a social preview image. Done 2026-10-15: every page, the catalogue page's template in `plugins/build_catalog.py` included, has a canonical link, Open Graph and `twitter:card` tags matching `sitemap.xml`, and `website/img/og.png` (1200 × 630, made by `scripts/og-image.py`); `plugins/test_build_catalog.py` checks them. Live on the site since 2026-10-15. The repository's own social preview is a GitHub setting (launch checklist §4) | C | |
-| 3. Remove the temporary noindex: the `robots` `<meta>` tag on every page but `404.html` and in the catalogue template, then `LAUNCHED = True` in `plugins/test_build_catalog.py` ([website.md, Launch day](../website.md#launch-day)) | C | M1-12; with the release if it follows within days, otherwise right after the flip |
+| 3. ✅ Remove the temporary noindex: the `robots` `<meta>` tag on every page but `404.html` and in the catalogue template, then `LAUNCHED = True` in `plugins/test_build_catalog.py` ([website.md, Launch day](../website.md#launch-day)). Done 2026-10-25, with the release; live once Site publish runs on the push | C | M1-12 |
 
 ## M3: first release
 
@@ -153,8 +154,8 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 | 17. Remaining Windows manual test-plan steps | M | PC + tablet time |
 | 18. ✅ `fdroid lint` and `fdroid build` on the recipe. Done 2026-10-24 in WSL (fdroidserver 2.4.5 and master): the recipe lints clean and a test copy builds. Fixed on the way: the recipe had comments, which fdroiddata's rewritemeta check rejects; F-Droid's scanner stopped at `plugins/sdk-node/package.json` without a lockfile; and the build server's JDK 21 can't satisfy `jvmToolchain(17)`, so the recipe installs OpenJDK 17 in `sudo:` ([fdroid/README.md](../fdroid/README.md#f-droid-main-repository)). It also showed that the baseline profile isn't deterministic, which reopens D11 before `Binaries:` | C+M | |
 | 19. **Not for now (D8):** the Play closed test (12 testers, 14 days), the Play upload key (settled by D7 if Play happens) and the Play listing with its data safety form. Off the launch path; the notes for later are in [distribution, Google Play](../distribution.md#google-play) | — | D8, if it's revisited |
-| 20. **Tag, check the draft, test the NSIS installer and the APK, publish** | M | all of the above but 19 |
-| 21. Launch-day site edits (the pre-release text, download links, the fingerprint) and post-launch checks | C | 20 |
+| 20. ✅ **Tag, check the draft, test the NSIS installer and the APK, publish.** Done 2026-10-25: [v0.1.0](https://github.com/perritodeck/perritodeck/releases/tag/v0.1.0) is published as a GitHub pre-release, with the unsigned NSIS installer, the signed APK, the plugin catalogue zip, `third-party-licenses.txt` and `SHA256SUMS` | M | all of the above but 19 |
+| 21. Launch-day site edits (the pre-release text, download links, the fingerprint) and post-launch checks. The edits are done (2026-10-25): noindex off (M2-3), the not-released notices gone, the signing and stores lines say what's still missing (the Windows signature, F-Droid and IzzyOnDroid), the download links and fingerprint checked against v0.1.0. Left: the checks after the publish ([website.md, Launch day](../website.md#launch-day)) | C | 20 ✅ |
 
 ## M4: after the release
 
@@ -205,9 +206,8 @@ real-app pass's bug (`13ae37a`).
    (M1-5): done 2026-10-24, with the first publish by hand, the read-only checks after each
    step, and then `website/_headers` deleted and the CSP test made to read the `<meta>` tag
    alone.
-3. M2-1 (M1-6 is done: Look online passed in the real app on 2026-10-24). Until
-   `SITE_PUBLISH_TOKEN` exists, publish by hand after each change to `website/` or
-   `plugins/` on `main`, and run `--check-live` now and then.
+3. ✅ M2-1 and M2-3, with the rest of the launch-day edits (M3-21, 2026-10-25). Left: the
+   checks after the publish.
 4. ✅ M3-6: the release notes are written; the Twitch pass is skipped (2026-10-24). M1-10
    and M1-11 were done right before the flip (2026-10-24).
 5. ✅ The advisories `cargo deny check advisories` flagged besides D6's: done 2026-10-24.

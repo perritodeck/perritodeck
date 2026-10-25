@@ -2,12 +2,6 @@
 
 .page-head { max-width: 46em; }
 .page-head .lede { margin-bottom: 20px; }
-.notice {
-  max-width: 46em; margin: 0 0 8px; padding: 14px 18px;
-  background: var(--paper); border: 1px solid var(--line); border-left: 6px solid var(--apricot);
-  border-radius: 10px; color: var(--ink-soft);
-}
-.notice strong { color: var(--ink); }
 .prose h2 { max-width: none; }
 .lead-in { color: var(--ink-soft); }
 

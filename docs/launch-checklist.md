@@ -289,6 +289,8 @@ the day the release goes out. `docs/next-steps.md` item 12 has what's left.
   notice and other pre-release lines, checks the status lines, and lists the checks after
   the publish. The home page's Download links already point at `download.html`. Then
   give the site repository its website link, `https://perritodeck.dev` (maintainer).
+  The edits are done (2026-10-25); left are the checks after the publish and the site
+  repository's website link.
 - [x] Self-host the two web fonts instead of loading them from Google Fonts, in keeping
   with "nothing leaves your desk": done (`website/fonts/`); no page, the plugin catalogue
   included, makes a third-party request.
@@ -348,9 +350,12 @@ on real hardware.
   - Uninstall leaves `HKCU\Software\PerritoDeck` (install path and language) behind, unless
     "Delete the application data" is ticked.
   - The login entry's path isn't quoted (upstream `auto-launch`); it still works.
-- [ ] Tag, let the Release workflow build the draft, check it has the NSIS installer and
+- [x] Tag, let the Release workflow build the draft, check it has the NSIS installer and
   the APK and none of the MSI, macOS, Linux or command-line files, test the installer on
-  Windows and the APK on the Fire 7, publish.
+  Windows and the APK on the Fire 7, publish. Done 2026-10-25:
+  [v0.1.0](https://github.com/perritodeck/perritodeck/releases/tag/v0.1.0), a GitHub
+  pre-release, with the unsigned NSIS installer, the signed APK, the plugin catalogue zip,
+  `third-party-licenses.txt` and `SHA256SUMS`.
 
 ## 8. Stores and package managers
 

@@ -1,4 +1,4 @@
-# Next steps (2026-10-24)
+# Next steps (2026-10-25)
 
 Where the work stands, and the open work in priority order. Read `CLAUDE.md` first;
 `docs/HANDOFF.md` has the Windows notes and how to test without a person at the keyboard.
@@ -9,7 +9,9 @@ small pieces, push in batches, and tick items off here as they land.
 
 Items 1–7 are done, and the OBS pass (item 9) has run with its fixes in. The repo went
 public on 2026-10-24 and CI runs again (item 8); what's left of item 8 is repository
-settings. Items 10–12 (the Twitch pass, signed APKs, the rest of the website) come next;
+settings. **v0.1.0 was published on 2026-10-25** as a GitHub pre-release (the unsigned
+Windows installer and the signed APK), and the website's launch-day edits followed the same
+day (item 12). Items 10–12 (the Twitch pass, signed APKs, the rest of the website) come next;
 items 13–18 collect the rest of the open work by area,
 and the list ends with nice-to-haves. **The order to do it in, who does what, and the
 decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
@@ -429,8 +431,8 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
    once it has a green CI run of its own. There are no issues.
 3. **Website and visibility together:** the site is live (with noindex) and links to the
    GitHub repo throughout, which visitors can reach since the flip (2026-10-24), and the
-   repo links to the site. The noindex comes off with the release if it follows within
-   days, otherwise soon after the flip (phase-8 M2-3).
+   repo links to the site. The noindex came off with the release on 2026-10-25 (phase-8
+   M2-3).
    With D12 (2026-10-17) the site repository, `perritodeck/perritodeck.github.io`, is
    public from the cutover on, so the site's source can be read on github.com before
    launch, where the noindex tags don't reach (accepted in D12): keep its description
@@ -686,7 +688,8 @@ CI's included, are unsigned, which is what F-Droid wants.
 ## 12. The website goes live (maintainer) — live (2026-10-15), on GitHub Pages since 2026-10-24 (D12)
 
 **Where it stands** (checked 2026-10-24; [docs/website.md](website.md) has the details).
-`https://perritodeck.dev` is live with the temporary `robots` noindex tag, served by GitHub
+`https://perritodeck.dev` is live (the temporary `robots` noindex tag came off on launch
+day, 2026-10-25, everywhere but the 404 page), served by GitHub
 Pages from the public repository `perritodeck/perritodeck.github.io` (D12, decided
 2026-10-17, the way evi-ai.dev works). Cloudflare does DNS only: GitHub's four `A` and
 four `AAAA` records and `www` as a `CNAME` to `perritodeck.github.io`, never proxied, plus
@@ -728,7 +731,8 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
 - **At the flip:** the `site` environment and `SITE_PUBLISH_TOKEN`, and first manual runs
   of Site publish and Site check.
 - **Launch day:** [docs/website.md, Launch day](website.md#launch-day) removes the noindex
-  tags and the "Not released yet" lines, and lists the checks after the publish.
+  tags and the "Not released yet" lines, and lists the checks after the publish. The edits
+  are done (2026-10-25, phase-8 M3-21); the checks after the publish are left.
 
 ## 13. Before the first release: what else blocks it
 
