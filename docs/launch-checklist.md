@@ -4,8 +4,8 @@ Everything to do, in order, to take `perritodeck/perritodeck` from private to pu
 ship the first release. Steps marked **(maintainer)** change repository settings, secrets,
 tags or anything visible to the world; only the maintainer does those.
 
-Status as of 2026-10-17: steps 1–2 re-checked by a sweep of the whole history on
-2026-10-13 (results below), and the ticked boxes are done. Everything else is open;
+Status as of 2026-10-24: the repository is public. Steps 1–2 were re-checked right before
+the flip (results below), and the ticked boxes are done. Everything else is open;
 `docs/next-steps.md` item 8 has the current state, and `docs/plan/phase-8.md` the
 decisions (D1, D2, D4, D5, D9, D10 and D11 were made on 2026-10-15, and D3, D6, D7, D8
 and D12 on 2026-10-17).
@@ -38,7 +38,11 @@ Decision (maintainer, 2026-10-13): **no history rewrite.** Nothing personal need
 the history is kept as it is, trailers and time zones included. The session, machine and
 billing details in the docs were trimmed in place instead (`docs/next-steps.md` item 8).
 
-- [ ] Re-run the scan right before flipping visibility, since commits keep landing:
+- [x] Re-run the scan right before flipping visibility, since commits keep landing. Done
+  2026-10-24: every commit on every ref is by dmang-dev or a bot, and no ref's history has
+  personal data (the upstream enigo author list is allowed). GitHub still serves 8 deleted
+  commits by SHA (old E2E artifacts and Dependabot heads, nothing personal): accepted. The
+  home-path search below didn't find Windows paths until `1b69e47` fixed it:
   ```sh
   git log --all --format='%an <%ae> | %cn <%ce>' | sort -u
   git log -p --all | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | sort | uniq -c | sort -rn
@@ -74,7 +78,8 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   Three new false positives, all in `.gitleaksignore` with a note: the made-up
   `deviceSecret` in `hello-network-failed.json` and the iOS test that checks a fixture's,
   and a hotkey example in `host/README.md`.
-- [ ] Re-run once more right before flipping visibility:
+- [x] Re-run once more right before flipping visibility. Done 2026-10-24: clean over every
+  ref (the 8 fixture fingerprints are in `.gitleaksignore`).
   `gitleaks git --log-opts="--all" .` (gitleaks is installed with winget,
   `Gitleaks.Gitleaks`). A pattern sweep on 2026-10-13 (`ghp_`,
   `github_pat_`, `AKIA`, `-----BEGIN`, `xoxb-`, `AIza`, `sk-`, `glpat-` over every added
@@ -83,11 +88,13 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [ ] Check that no signing material is in the tree (`*.jks`, `*.keystore`, `*.p12`, `*.p8`,
   `*.pfx`, `.env` and `keystore.properties` are all in `.gitignore` now, and none is
   tracked) and that the new Android release key is backed up twice, offline
-  (`docs/next-steps.md` item 11).
+  (`docs/next-steps.md` item 11). The first half was checked on 2026-10-24: no signing
+  material or `.env` was ever committed. The release key doesn't exist yet.
 - [ ] Review repository and organisation secrets and variables: only what `docs/releasing.md`
   lists, plus `SITE_PUBLISH_TOKEN` in the `site` environment once it exists (§4, D12).
   Secrets are not exposed to workflows triggered from forks, but check that no workflow
   uses `pull_request_target` with a checkout of the PR head (none does today).
+  Organisation-level secrets weren't checked on 2026-10-24: the token lacked `admin:org`.
 
 ## 3. Files in the repository
 
@@ -153,27 +160,31 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   prohibited", checked 2026-10-17).
 - [x] No stale tag can be pushed (2026-10-15): no other clone exists, and there are no
   tags in this repository or on GitHub.
-- [ ] Right before the flip, delete all GitHub Actions runs and their artifacts (E2E logs,
+- [x] Right before the flip, delete all GitHub Actions runs and their artifacts (E2E logs,
   logcat, the 2026-10-11 desktop bundles): Claude does it, with the maintainer's OK at
-  that moment (D9 in `docs/plan/phase-8.md`). Not done yet.
-- [ ] Review Dependabot's open pull request #1. There are no issues.
-- [ ] Settings → General → Danger Zone → **Change visibility → Public**.
-- [ ] CI runs again from here: it was blocked by billing from 2026-10-11 until the flip, by
-  the maintainer's choice, because public repositories run Actions free. Run every
-  workflow once by hand (Actions → workflow → Run workflow), the weekly ones included
-  (Linux and macOS host tests, desktop bundles, the real-app test, every emulator, iOS), and
-  get them all green before §7's tag. Actions → CI → Run workflow starts all of them but
-  iOS at once, with Windows bundles only: run Desktop app with platforms = all, and iOS,
-  on their own (they can run alongside it: a workflow's own Run workflow button and the CI
-  run don't cancel each other). They're the first runs since 2026-10-11 and the first
-  on Ubuntu 26 (`ubuntu-latest` moves from 2026-10-19), so a failure may be the new image,
-  not the code.
+  that moment (D9 in `docs/plan/phase-8.md`). Done 2026-10-24: all 257 runs and their
+  artifacts.
+- [x] Review Dependabot's open pull request #1. There are no issues. Reviewed 2026-10-24:
+  it stays open, and is merged once it has a green CI run of its own.
+- [x] Settings → General → Danger Zone → **Change visibility → Public**. Done 2026-10-24.
+- [x] CI runs again from here (it was blocked by billing from 2026-10-11 until the flip, by
+  the maintainer's choice). Run every workflow once by hand and get them all green before
+  §7's tag. Done 2026-10-24: the first run, CI by hand on `main`, failed host and plugin
+  tests on Windows and macOS, three emulators and iOS, and all of it was fixed. Then CI run
+  40157961726 on `01673dd` was green in every job (host and plugins on Windows, Linux and
+  macOS, the desktop app, all four emulators, Android, protocol, licences and advisories,
+  CI gate), and so were iOS run 40157963719 (the first iOS build ever) and the push's own CI
+  run.
+- [ ] Desktop app with platforms = all (Actions → Desktop app → Run workflow): the Linux and
+  macOS bundles and app crate, which CI's Run workflow leaves out. The weekly run (Mondays)
+  covers them too.
 - [ ] The website's publishing (D12; "At the flip" in the cutover runbook in
   `docs/website.md`): Settings → Environments → `site`, with deployment branches limited to
   `main`, and `SITE_PUBLISH_TOKEN` in it (a fine-grained token, the perritodeck
   organization as resource owner, `perritodeck.github.io` only, Contents read and write;
   or a write deploy key). Run **Site publish** by hand and expect "site: no change", and
-  **Site check**, which passes.
+  **Site check**, which passes. So far (2026-10-24) Site publish built and checked the site
+  on GitHub, and with no token yet it pushed nothing.
   - `SITE_PUBLISH_TOKEN` expires on: *(write the date here when it's made, and renew it
     before then; a deploy key doesn't expire)*
 - [ ] Settings → General → Features: Issues on; Discussions on (optional, for Q&A);
@@ -183,10 +194,11 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 
 ## 5. Protect the repository **(maintainer)**
 
-- [ ] **Private vulnerability reporting:** Settings → Code security → Private
-  vulnerability reporting → Enable (`SECURITY.md` links to it).
-- [ ] Dependabot alerts and security updates on; secret scanning and push protection on
-  (free for public repos).
+- [x] **Private vulnerability reporting:** Settings → Code security → Private
+  vulnerability reporting → Enable (`SECURITY.md` links to it). Done 2026-10-24.
+- [x] Dependabot alerts on. Done 2026-10-24.
+- [ ] Dependabot security updates on; secret scanning and push protection on (free for
+  public repos).
 - [ ] **Branch protection / ruleset for `main`:** require a pull request (allow the
   maintainer to bypass while the team is one person), block force pushes and deletion,
   require linear history. **Require one status check, `CI gate`** (source: GitHub
@@ -194,9 +206,9 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   none of the individual checks: those run only when a change touches what they read, so a
   required one that didn't run would stay pending and block the PR. CI gate reports on
   every pull request, docs-only ones included, and fails if any check the change needed
-  failed or was cancelled. Add it once CI gate has run on GitHub after the flip, so the
-  ruleset offers it by name. Don't turn on a merge queue: `ci.yml` has no `merge_group`
-  trigger, so CI gate would never report for a queued change and every merge would stall.
+  failed or was cancelled. CI gate has run on GitHub since 2026-10-24, so the ruleset
+  offers it by name and it can be added now. Don't turn on a merge queue: `ci.yml` has no
+  `merge_group` trigger, so CI gate would never report for a queued change and every merge would stall.
   `bootstrap-gradle-wrapper.yml` works under the ruleset: it pushes a
   `gradle-wrapper-<version>` branch, not `main`, and a person opens the pull request from
   the compare link in its run summary.
@@ -205,18 +217,23 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [ ] Recommended: a `release` environment for the three Android signing secrets, limited to
   `v*` tags with a required reviewer, and the `environment: release` line in `release.yml`
   turned on at the same time (`docs/releasing.md`, "Once the repository is public").
-- [ ] Actions → General: "Require approval for first-time contributors" for fork PRs.
+- [x] Actions → General: "Require approval for first-time contributors" for fork PRs. Done
+  2026-10-24.
+- [ ] Optional: Actions → General, require actions to be pinned to a full commit SHA. Every
+  `uses:` in the workflows already is.
 - [x] Actions → General → "Workflow permissions" is already read-only, and "Allow GitHub
   Actions to create and approve pull requests" is off (checked through the API on
-  2026-10-13 and 2026-10-15). Keep it off: `bootstrap-gradle-wrapper.yml` doesn't open
+  2026-10-13 and 2026-10-15; the token is still read-only after the flip, 2026-10-24). Keep
+  it off: `bootstrap-gradle-wrapper.yml` doesn't open
   pull requests itself (DECISIONS, 2026-10-15). Every workflow file also asks for read-only
   `permissions` at the top; only the jobs of `bootstrap-gradle-wrapper.yml` (`contents:
   write`, to push its branch) and the Release workflow's publish job ask for write.
 - [ ] Optional: [DCO app](https://github.com/apps/dco) to enforce sign-offs (required
   from 2026-10-13; the app checks the commits of pull requests, not older history).
 - [ ] Public repos get free standard GitHub-hosted runners, macOS included. Revisit the
-  CI cost rules in `CLAUDE.md` (weekly-only Linux/macOS jobs, two emulators per push)
-  and consider running more on every push.
+  CI cost rules (weekly-only Linux/macOS jobs, two emulators per push) and consider running
+  more on every push. `CLAUDE.md`'s CI section describes the public repo since 2026-10-24,
+  but the matrices haven't changed.
 
 ## 6. Website and plugin catalogue (perritodeck.dev)
 

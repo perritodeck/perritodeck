@@ -1,4 +1,4 @@
-# Next steps (2026-10-15)
+# Next steps (2026-10-24)
 
 Where the work stands, and the open work in priority order. Read `CLAUDE.md` first;
 `docs/HANDOFF.md` has the Windows notes and how to test without a person at the keyboard.
@@ -7,8 +7,9 @@ commit (`git commit -s`, item 8), no personal names anywhere, no GPL code, and a
 tagging, pushing tags, force-pushing, setting secrets or changing repo settings. Commit in
 small pieces, push in batches, and tick items off here as they land.
 
-Items 1–7 are done, and the OBS pass (item 9) has run with its fixes in. Item 8 (going
-public) and items 10–12 (the Twitch pass, signed APKs, the rest of the website) come next;
+Items 1–7 are done, and the OBS pass (item 9) has run with its fixes in. The repo went
+public on 2026-10-24 and CI runs again (item 8); what's left of item 8 is repository
+settings. Items 10–12 (the Twitch pass, signed APKs, the rest of the website) come next;
 items 13–18 collect the rest of the open work by area,
 and the list ends with nice-to-haves. **The order to do it in, who does what, and the
 decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
@@ -18,11 +19,11 @@ decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 | Platform | Status |
 |---|---|
 | Windows 11 + Fire 7 (KFMUWI, Fire OS 7.3.1.7) | Builds, tests and the manual test plan pass on real hardware (2026-10-12); a few manual steps are still to run (item 14) |
-| Linux | Checked on a headless Linux machine on 2026-10-12, after the 109 commits of the Windows bring-up: host fmt, clippy and 34 test suites; app check and 51 Playwright tests; plugins and protocol; the real-app e2e. Not compiled since the 2026-10-13 commits, and never run on a real Linux desktop with a tablet. Not in v0.1.0 (D5): it builds from source and in CI, and joins a later release once tested on real hardware |
-| macOS | Host tests passed and a universal `.dmg` was built in CI once (2026-10-11). Stale since then (over 100 host commits later), and never run on a real Mac. Not in v0.1.0 (D5) |
-| iOS | Never compiled (its one scheduled CI run never started) |
+| Linux | Host, plugin and real-app tests pass in CI (2026-10-24). Never run on a real Linux desktop with a tablet. Not in v0.1.0 (D5): it builds from source and in CI, and joins a later release once tested on real hardware |
+| macOS | Host and plugin tests pass in CI (2026-10-24). A universal `.dmg` was built in CI once (2026-10-11) and not since. Never run on a real Mac. Not in v0.1.0 (D5) |
+| iOS | Built in CI for the first time on 2026-10-24 (iOS run 40157963719). Never run on a device |
 | Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13); v0.1.0 ships it and no MSI (D5). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
-| CI | Every run of the repository's workflows since 2026-10-11 has stopped within seconds, before any job started: a billing block the maintainer is leaving until the repo goes public, where Actions are free. Nothing since then has been through CI on any OS, and the Release workflow has never run. Until the flip, checks run locally (Linux in WSL); right after it, every workflow runs once by hand and goes green before the first tag (launch checklist §4) |
+| CI | Runs again since the flip (2026-10-24), free now the repo is public. CI run 40157961726 on `01673dd` was green in every job: host and plugins on Windows, Linux and macOS, the desktop app, all four emulators, Android, protocol, licences and advisories, CI gate. The Release workflow has never run, and Desktop app with platforms = all hasn't run since 2026-10-11 (item 16) |
 
 Items marked 🖥 need a Windows PC and the test tablet. The rest can be done on any machine.
 **(maintainer)** marks a decision or an action only the maintainer can take.
@@ -355,14 +356,23 @@ and moved to GitHub Pages on 2026-10-24 (item 12; the runbook is in
   needed except the demo deck, every page under ~200 KB before images. Check every page in a
   browser at 375 px and 1440 px, and fix what looks off.
 
-## 8. Going public (maintainer decides when) — then turn CI back on
+## 8. Going public — ✅ public (2026-10-24), and CI runs again
 
 Making the repo public makes GitHub Actions free on **standard GitHub-hosted runners**:
 Linux, Windows, and the standard macOS runners like `macos-latest`. **Larger runners** are
-always billed, so don't use them. Actions hasn't run since 2026-10-11; check that workflows
-run again after the switch (decision 5 below).
+always billed, so don't use them.
 
-Before flipping visibility, work through `docs/launch-checklist.md`.
+**Status (2026-10-24).** The maintainer flipped the repo to public. Right before, all 257
+old Actions runs and their artifacts were deleted (D9), and the final scans passed: every
+commit on every ref is by dmang-dev or a bot, no ref's history has personal data (the
+upstream enigo author list is allowed), gitleaks is clean over every ref (the 8 fixture
+fingerprints are in `.gitleaksignore`), and no signing material or `.env` was ever
+committed. GitHub still serves 8 deleted commits by SHA (old E2E artifacts and Dependabot
+heads, nothing personal): accepted. Organisation-level secrets weren't checked (the token
+lacked `admin:org`). The launch checklist's home-path search now finds Windows paths
+(`1b69e47`). Then CI ran: the first run failed in places, all fixed, and CI run
+40157961726 on `01673dd` was green in every job (item 16). What's left is repository
+settings, below.
 
 **Status (2026-10-13).** A sweep of every commit on every ref found no secrets, personal
 data or local paths, so nothing in the history stops the repo going public. The 224 commits
@@ -375,9 +385,9 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 |---|---|
 | Old `v0.1.0` tag | Done (2026-10-15): no other clone exists, and there are no tags in this repository or on GitHub. Every version field is still 0.1.0 / versionCode 1, and the first release is v0.1.0 from current `main` (D5, item 13) |
 | `ci/e2e-*` branches | Done (2026-10-13): E2E no longer pushes them (its screenshots and logs are workflow artifacts), and the four branches were deleted on GitHub with the maintainer's OK |
-| gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run once more right before the flip |
+| gitleaks | Re-run 2026-10-13 with gitleaks 8.30.1 over every ref (236 commits): no leaks; three new false positives (made-up fixture secrets, a hotkey example) are in `.gitleaksignore`. Re-run right before the flip (2026-10-24): clean over every ref |
 | `publish = false` | Done (2026-10-13): every `perritodeck-*` crate has it. `wildcards = "deny"` is set in `host/deny.toml`: cargo-deny 0.20.2 passes licences, bans and sources on both workspaces (2026-10-13). RUSTSEC-2026-0192 is accepted with a reason in `deny.toml` (D6, 2026-10-17): `ttf-parser` (used by `ab_glyph` in `perritodeck-render` to draw key titles) is unmaintained, not a vulnerability, and the library is replaced in a later release (its author suggests `skrifa`). Of the advisories published since 2026-10-13, the four in `rustls` 0.23.45 (RUSTSEC-2026-0346 to 0349) and the three in `zip` 2.4.2 (RUSTSEC-2026-0367 to 0369) are fixed (2026-10-18): both lockfiles have `rustls` 0.23.46 and `zip` 9.0.5. The unmaintained `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, through `enigo`'s `ashpd`, and in the app also Tauri's opener and single-instance plugins) and the app's `proc-macro-error` (RUSTSEC-2024-0370, through GTK on Linux) have no fixed version and are Linux only: accepted with reasons in `deny.toml` (D13, 2026-10-17) until those move to zbus 6 and gtk-rs 0.19. Three advisories published after that were fixed by updating (2026-10-24): `webpki-roots` 1.0.11 and `rustls-webpki` 0.103.16 (RUSTSEC-2026-0381 and 0382, a distrusted root ureq trusted) and `tokio` 1.53.3 (RUSTSEC-2026-0386). `cargo deny check advisories licenses bans sources` passes on both workspaces |
-| `cargo deny` and `third-party-notices.py --check` in CI | Done (2026-10-24; not run on GitHub yet): the Licences workflow runs both, on both workspaces, on pushes and pull requests that change the dependencies, and weekly, with advisories as a job of their own (item 16). The Release workflow's licences job still runs the notices check too. Licences, bans, sources and the notices pass locally (2026-10-24); so do advisories, since the updates and D13 in the row above |
+| `cargo deny` and `third-party-notices.py --check` in CI | Done (2026-10-24; green on GitHub the same day): the Licences workflow runs both, on both workspaces, on pushes and pull requests that change the dependencies, and weekly, with advisories as a job of their own (item 16). The Release workflow's licences job still runs the notices check too. Licences, bans, sources and the notices pass locally (2026-10-24); so do advisories, since the updates and D13 in the row above |
 | `third-party-licenses.txt` in releases | `release.yml` generates it (2026-10-13), attaches it to the release and puts it in the command-line archives and the desktop installers (in the app's resource folder, merged in with `tauri build --config`). The APK carries its own list, generated at build time (next row) |
 | Licences screen in the apps | Done (2026-10-15). **Android:** a Gradle task writes `assets/third-party-licenses.txt` from the release runtime classpath (86 libraries; licences from each POM and its parents, resolved through Gradle, not Play Services' oss-licenses, which F-Droid forbids), and Open-source licences on Perrito's home screen shows it, so the APK carries every licence text (launch checklist §3). **Desktop:** Settings → Version → Open-source licences opens the installers' `third-party-licenses.txt`, or the notices on `main` in a build without it. iOS: none yet (not part of the first release). Neither screen has been looked at on a device yet (item 15) |
 | Plugin licence | Done (2026-10-13): every catalogue zip carries `plugins/LICENSE` (unless the plugin has its own), and the desktop app bundles it next to the plugins |
@@ -411,14 +421,16 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
    message. The upgrade is ImprovMX Premium (its SMTP; the DKIM records are already in
    DNS) or a free SMTP relay, either of which allows `p=reject`. Google removes "Send mail
    as" for custom domains in January 2027, so replies need another route before then.
-2. **Old runs and PR #1:** Actions logs and artifacts become public with the repo (E2E
-   host logs, logcat, the 2026-10-11 desktop bundles). Decided (D9, 2026-10-15): right
-   before the flip, every run and its artifacts are deleted, by Claude with the
-   maintainer's OK at that moment; not done yet. Dependabot's pull request #1 (eight
-   GitHub Actions updates, opened 2026-10-13) is still open. There are no issues.
+2. ✅ **Old runs and PR #1:** Actions logs and artifacts would have become public with the
+   repo (E2E host logs, logcat, the 2026-10-11 desktop bundles). Decided (D9, 2026-10-15)
+   and done right before the flip (2026-10-24): all 257 runs and their artifacts deleted, by
+   Claude with the maintainer's OK. Dependabot's pull request #1 (eight GitHub Actions
+   updates, major bumps such as checkout v4 to v7, opened 2026-10-13) stays open: merge it
+   once it has a green CI run of its own. There are no issues.
 3. **Website and visibility together:** the site is live (with noindex) and links to the
-   GitHub repo throughout, where visitors get a 404 until the flip, and the repo links to
-   the site. Keep the noindex until the flip, and flip soon after the site is complete.
+   GitHub repo throughout, which visitors can reach since the flip (2026-10-24), and the
+   repo links to the site. The noindex comes off with the release if it follows within
+   days, otherwise soon after the flip (phase-8 M2-3).
    With D12 (2026-10-17) the site repository, `perritodeck/perritodeck.github.io`, is
    public from the cutover on, so the site's source can be read on github.com before
    launch, where the noindex tags don't reach (accepted in D12): keep its description
@@ -426,7 +438,7 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 4. ✅ **Trademark sign-off (D4, 2026-10-15):** the nominative naming of Stream Deck,
    Elgato and Companion on the website's compatibility page, in the Key Light plugin, the
    README and the store text (with the not-affiliated line) is signed off as written.
-5. **Actions:** confirm that workflows run again once the repo is public.
+5. ✅ **Actions:** workflows run again since the flip (2026-10-24; item 16).
 6. ✅ **Account security (done 2026-10-15, finished 2026-10-17):** the app trusts
    perritodeck.dev for plugin code and github.com/perritodeck for releases. 2FA is on for
    the maintainer's GitHub, Namecheap, Cloudflare and ImprovMX accounts; the perritodeck
@@ -440,10 +452,14 @@ or EXIF metadata. Most of what's left is GitHub settings and a few decisions.
 and the issue template already link to it); Dependabot alerts and security updates; secret
 scanning with push protection; a ruleset for `main` and one for `v*` tags; approval for
 first-time contributors' workflows; description, topics, website and social preview; the
-`triage` and `plugin` labels the issue forms use. The ruleset requires one status check,
-`CI gate` (item 16), which reports on every pull request; the individual checks run only
-when a change touches what they read, so requiring one of them would leave docs-only pull
-requests waiting forever. Every workflow file sets read-only `permissions`
+`triage` and `plugin` labels the issue forms use; optionally, requiring actions pinned to a
+full SHA; the `site` environment's branch limit and `SITE_PUBLISH_TOKEN` (item 12). Done on
+2026-10-24: private vulnerability reporting, Dependabot alerts, first-time contributor
+approval, and the workflow token read-only. The rest is open (launch checklist §4 and §5).
+The ruleset requires one status check, `CI gate` (item 16), which has run since 2026-10-24,
+so the ruleset can offer it now. It reports on every pull request; the individual checks
+run only when a change touches what they read, so requiring one of them would leave
+docs-only pull requests waiting forever. Every workflow file sets read-only `permissions`
 at the top; only the jobs of `bootstrap-gradle-wrapper.yml` (`contents: write`, to push
 its branch) and the Release workflow's publish job ask for write. The repository's default
 under Settings → Actions → General is read-only, with Actions not allowed to create or
@@ -457,13 +473,14 @@ After it's public:
   or manual today because of cost: widen the matrices in `host.yml`, `desktop-app.yml`,
   `e2e.yml` and `plugins.yml`. Pushes and pull requests reach those through `ci.yml`, so
   don't add push or pull_request triggers back to them.
-- Run the iOS workflow on `macos-latest` (it's on `macos-14`). That's the first iOS build,
-  with no rented Mac needed.
-- Update CLAUDE.md's CI section to match.
+- Run the iOS workflow on `macos-latest` (it's on `macos-14`, where the first iOS build
+  went green on 2026-10-24, with no rented Mac needed).
+- ✅ CLAUDE.md's CI section describes the public repo (2026-10-24). Change it again if the
+  matrices widen.
 - Set the Android signing secrets and variables (item 11); they're needed for the first
   release, not for going public. A `release` environment, recommended for the three
-  secrets, can only be created once the repo is public (a private repo on the Free plan
-  can't have one), so create it first if you want one (`docs/releasing.md`).
+  secrets, can be created now the repo is public (a private repo on the Free plan couldn't
+  have one), so create it first if you want one (`docs/releasing.md`).
 
 ## 9. OBS: a real-world test pass, both paths 🖥 (maintainer for the setup) — ✅ ran (2026-10-13), fixes re-checked (2026-10-15)
 
@@ -714,11 +731,14 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
 
 ## 13. Before the first release: what else blocks it
 
-- **CI hasn't run since 2026-10-11 (maintainer).** Nothing after 16:19 UTC that day has
-  been through CI: 182 commits (117 touching `host/`) on no OS. Once it runs, start Host
-  and Desktop app (platforms = all) by hand. (`gh run list`;
-  `docs/windows-review-2026-10.md`)
-- **The minified release APK has run on one tablet only.** On 2026-10-13 `assembleRelease`
+- ✅ **CI runs again (2026-10-24).** The first run since 2026-10-11, CI by hand on `main`,
+  failed host and plugin tests on Windows and macOS, three emulators and iOS; all fixed
+  (`git log 13ae37a..01673dd`). CI run 40157961726 on `01673dd` was then green in every job,
+  and iOS run 40157963719 too (item 16). Still to run once: Desktop app with platforms =
+  all (the Linux and macOS bundles), by hand or in the weekly run.
+- **The minified release APK: checked on the Fire 7 and two emulators, two checks left.**
+  The 2026-10-24 checks are in item 15; what's left is QR decoding and the discovery
+  recheck on the Fire 7. Before that: on 2026-10-13 `assembleRelease`
   was built with a throwaway key and run on the Fire 7: code pairing worked, a key press
   was acked, and the scan screen opens. `apksigner` verified the v1 and v2 signatures; that
   signed APK was 2,164,101 bytes (unsigned 2,124,736). With the licence list and the new
@@ -727,9 +747,7 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   `android.yml` now builds the unsigned minified APK, `lintVitalRelease` included,
   in every Android CI run (item 11). E2E still builds debug only
   (`scripts/e2e-android.sh`), and the keep rules cover only kotlinx.serialization and
-  OkHttp (`android/app/proguard-rules.pro`). Still to do by hand: an API 22 emulator, QR
-  decoding, USB, the deck and sliders, and now the licences screen and the launcher icons
-  (item 15).
+  OkHttp (`android/app/proguard-rules.pro`).
 - ✅ **0.x releases reach the update check (2026-10-15).** `release.yml:59` marks every
   0.x version a pre-release, which `/releases/latest` skips. The app now lists
   `/releases?per_page=10` and picks the highest release meant for the running version:
@@ -754,17 +772,16 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   `docs/assets/icon-master-rounded.svg`, and the Flatpak and AUR drafts take theirs from
   there; the desktop window's brand mark and the iOS AppIcon match. Not yet seen on a
   device (item 15).
-- **macOS: not in v0.1.0 (D5).** Built in CI once on 2026-10-11 and never run on a Mac.
-  Since then 117 host commits (the second binary in the app bundle, the plugin `open`
-  message, the firewall code) haven't been compiled for macOS. It keeps building and
-  testing in CI once CI runs, and joins a later release after a test on a real Mac
+- **macOS: not in v0.1.0 (D5).** Never run on a Mac. Host and plugin tests pass on macOS in
+  CI again (2026-10-24), but the app bundle hasn't been built since 2026-10-11 (Desktop app
+  with platforms = all, or the weekly run, builds it). It keeps building and testing in
+  CI, and joins a later release after a test on a real Mac
   (`website/download.html` says it's not in this release). A tag doesn't build it, so it
   can't fail the release; a manual Release run with **untested** ticked builds the `.dmg`
   to test.
-- **Linux on a real desktop, before Linux joins a release (not in v0.1.0, D5).** 7 of the
-  17 commits from 2026-10-13 touch `host/` or `android/` and haven't been compiled on
-  Linux. Never done: a physical X11 or Wayland desktop with a tablet on adb USB, the libei
-  portal prompt, the tray on GNOME and KDE, installing the `.deb`, `.rpm` or AppImage.
+- **Linux on a real desktop, before Linux joins a release (not in v0.1.0, D5).** Host,
+  plugin and real-app tests pass on Linux in CI (2026-10-24). Never done: a physical X11
+  or Wayland desktop with a tablet on adb USB, the libei portal prompt, the tray on GNOME and KDE, installing the `.deb`, `.rpm` or AppImage.
   (`docs/HANDOFF.md`, "Still open")
 - **The MSI: not in v0.1.0 (D5).** Built once in CI (`tauri.conf.json` bundle targets
   "all") but never installed. Installing both it (per machine) and the NSIS installer (per
@@ -777,9 +794,9 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   refuses a tag, or a run that publishes, whose file is missing, empty or says TODO
   ([releasing, step 3](releasing.md#3-write-the-changelog); DECISIONS, 2026-10-24). The
   first is `docs/release-notes/v0.1.0.md`. Its three TODO comments, which block the tag
-  until they're gone, wait on CI and the release-APK checks
-  (phase-8 M3-7 and M3-10), the soak test and the Windows manual steps (M3-16 and M3-17),
-  and Windows signing (D1).
+  until they're gone, wait on the last release-APK checks (QR decoding, the discovery
+  recheck) and CI on the commit that gets tagged (phase-8 M3-10), the soak test and the
+  Windows manual steps (M3-16 and M3-17), and Windows signing (D1).
 - ✅ **Third-party notices in the APK (2026-10-15).** The APK carries
   `assets/third-party-licenses.txt`, generated at build time, and Perrito shows it under
   Open-source licences (item 8, launch checklist §3).
@@ -790,10 +807,8 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   DECISIONS): Settings → Integrations, with Test connection on the real clients, saved
   secrets kept out of the window, comment-keeping saves, `enabled = false`, and an
   owner-only `integrations.toml` (0600, or a protected DACL on Windows). A save is used after
-  Restart now; nothing is applied live. Still to do: a manual pass in the real app on
-  Windows (the form is tested against the mock only; check a saved file's ACL is `D:P` with
-  three entries, Test connection against the real OBS 31, and Restart now), and these
-  follow-ups:
+  Restart now; nothing is applied live. It passed the real-app pass on Windows on
+  2026-10-24 (below). Still to do, these follow-ups:
   - **The plugin settings form still sends saved secrets to the window**
     (`host/app/src/views/Plugins.svelte`, `get_plugin_settings`): its password fields are
     masked only on screen. Give it the keep/set/clear model the integrations form uses.
@@ -822,9 +837,15 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   most). MCP's `set_key` uses the same rules, so such typing now needs the "run"
   permission too; "edit" with "press" still adds up to it across two keys, which the app
   and `docs/SECURITY.md` say (the maintainer decides whether to go further). Live-value
-  arguments (`{plugin:…:…:argument}`) aren't listed yet (`docs/SECURITY.md`). Not yet tried in the real app: one manual pass with a starter
-  export (the dialog lists Run a command, Narrator reads the heading and intro, Escape
-  cancels, and Import with this key off leaves the key as a label).
+  arguments (`{plugin:…:…:argument}`) aren't listed yet (`docs/SECURITY.md`). The dialog
+  passed the real-app pass on 2026-10-24 (below).
+- **The real-app pass (2026-10-24)** went through the import dialog, Settings →
+  Integrations and Look online in the real app on Windows, and passed. It found one bug,
+  fixed in `13ae37a`: a removed plugin showed as Added in Look online until the page was
+  reloaded. Small things it noticed, still to do:
+  - Importing the same profile twice gives two profiles with the same name.
+  - The integrations form's Test connection button wraps when the message is long.
+  - Installing or removing a plugin writes no log line.
 - **macOS bundle:** no entitlements or usage strings (the `macOS` block of
   `tauri.conf.json`), though the host and five plugins drive other apps through
   `osascript`, and ad-hoc signing likely makes users grant Accessibility again after every
@@ -870,19 +891,30 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   edge-to-edge (15) and predictive back (16) are never exercised; add an API 35/36 run.
   The Home, Licences, Pair and Scan screens now pad for the system bars (`safeDrawing`),
   and `SystemBarsTest` checks Home, Licences and Pair with edge to edge forced on any API
-  level; it compiles and runs in e2e's instrumented tests, but hasn't run yet. Two things
+  level; it runs in e2e's instrumented tests. Two things
   left for a separate look: the deck screen can draw into a display cutout while the bars
   are hidden (phones held sideways), and whether MainActivity should call
   `enableEdgeToEdge()`, which would change how older Android, Fire OS 5–9 included, looks
-  too.
+  too. (`SystemBarsTest` is part of the E2E run that went green on all four emulators on
+  2026-10-24, API 34 at most.)
   (`compileSdk` and `targetSdk` in `android/app/build.gradle.kts`, `.github/workflows/e2e.yml`)
 - ✅ **The release APK on a device and emulators (2026-10-24):** on the Fire 7 (API 28) and
   API 22 and 34 emulators, the minified build showed no R8 breakage: launcher icons
   (adaptive, themed on 34, the API 22 fallback), the licences screen, pairing by code, keys,
   sliders, USB reconnect and edge to edge on 34. It found the host's dead deck after a
   cable takeover, a too-small icon on Android 5, the pair form's Next key on API 22 and a
-  stale "On this network", all fixed. Still by hand: QR decoding, and the host and
-  discovery fixes on the Fire 7.
+  stale "On this network", all fixed. Then on the Fire 7 with the release APK: the
+  cable-takeover host fix is verified (twice, keys, the slider and the clock kept working
+  on the cable after Wi-Fi went off), and pairing and the deck work over Wi-Fi. The PC's
+  network had been Public, which blocked inbound Wi-Fi; it's Private now.
+- **The "On this network" fix isn't verified on the Fire 7 yet.** Android's NSD on the
+  tablet never reported the host, even with Wi-Fi on, though the host's mDNS packets reach
+  the tablet (Amazon's own JmDNS logs them). Likely a stale mdnsd, running for 11 days.
+  Next: reboot the tablet and rerun. Also still by hand: QR decoding with the release APK.
+- **Possible improvements the Fire 7 showed** (not regressions):
+  - Perrito doesn't reconnect by itself when Wi-Fi comes back.
+  - A connection on the cable stays on the cable, even once Wi-Fi is back.
+  - With `adb reverse` in place, Connect prefers the cable.
 - **Hardware matrix, then minSdk (maintainer).** The only real tablet so far is the Fire 7
   (Fire OS 7). minSdk 22, with AndroidX and Compose pinned for it, is justified only by
   Fire OS 5, seen only in emulators; raising it after the first release would strand
@@ -901,7 +933,17 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
 
 ## 16. CI
 
-Done (2026-10-24; not run on GitHub yet, since Actions are blocked until the flip):
+Done (2026-10-24), and running on GitHub since the flip:
+- **The first runs since 2026-10-11.** CI by hand on `main` failed host and plugin tests on
+  Windows and macOS, three emulators and iOS. The fixes: `0073073`..`32f5f12` (E2E: the host
+  runs with `--no-usb`, so the network drop reaches the app instead of an adb tunnel; Wi-Fi
+  is switched as root through `adb root`, since Android 7's shell user can't; a Launcher3
+  crash dialog on fire7 is closed), `6a78156`..`2bc1e22` (iOS) and `9e04600`..`01673dd`
+  (host and plugins). Then CI run 40157961726 on `01673dd` was green in every job (host and
+  plugins on Windows, Linux and macOS, the desktop app, all four emulators, Android,
+  protocol, licences and advisories, CI gate), iOS run 40157963719 was green (the first iOS
+  build ever), and so was the push's own CI run. Site publish built and checked the site,
+  and with no token yet pushed nothing.
 - **The gate:** `.github/workflows/ci.yml` runs the checks for pushes to `main` and pull
   requests. Its first job lists the changed files with git (no third-party action)
   and calls the workflows whose checks read any of them, which are now reusable
@@ -930,6 +972,11 @@ Done (2026-10-24; not run on GitHub yet, since Actions are blocked until the fli
   weekly. Advisories are a job of their own; they pass since 2026-10-24 (item 8).
 
 Still open:
+- **Desktop app with platforms = all** hasn't run since 2026-10-11 (the Linux and macOS
+  bundles and app crate): run it by hand, or let the weekly run do it.
+- **Dependabot PR #1** (the actions' major bumps, checkout v4 to v7 and others): merge it
+  once it has a green CI run of its own.
+- **More on every push**, now that Actions are free: item 8, "After it's public".
 - **Untested MSRV:** `host/Cargo.toml` declares `rust-version = "1.80"`, but only the pinned
   1.97 is ever built. Test it, or raise it to what's verified.
 - **The Android section of the notices** is a hand-kept table, so the notices check can't

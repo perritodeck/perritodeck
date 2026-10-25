@@ -2,8 +2,8 @@
 
 An open-source Stream Deck alternative. **Perrito** is the Android tablet app (`android/`).
 The host runs on Windows, macOS and Linux (`host/`). The domain is perritodeck.dev, and the
-GitHub repo is `perritodeck/perritodeck`, which is private until launch
-(`docs/launch-checklist.md`).
+GitHub repo is `perritodeck/perritodeck`, public since 2026-10-24 (`docs/launch-checklist.md`
+has what's left before the first release).
 
 Read first: `SPEC.md` (the original brief), `docs/plan/README.md` (phases and status),
 `docs/DECISIONS.md` (append to it whenever a decision is made), `docs/next-steps.md`
@@ -46,7 +46,7 @@ the keyboard), and `plugins/PROTOCOL.md` for plugins.
 | Stream Deck plugin host (`.sdPlugin`) | `host/crates/sdcompat` | `cargo test -p perritodeck-sdcompat` (needs Node 22+) |
 | Plugin SDKs and first-party plugins (Python, Node) | `plugins/` | `python3 plugins/test_all.py`; `python3 plugins/build_catalog.py` builds the online catalogue |
 | iOS/iPadOS app (SwiftUI + `PerritoKit` package, needs a Mac) | `ios/` | `cd ios/PerritoKit && swift test`; `cd ios && xcodegen` then Xcode |
-| Website | `website/` | static; open `index.html`; notes, deploy steps and the cutover runbook in `docs/website.md`. Published to `perritodeck/perritodeck.github.io` by `scripts/publish_site.py` (docs/website.md), by hand from WSL until the flip. `py -3 -m unittest test_build_catalog` in `plugins/` checks the pages and stylesheets for anything the CSP would block, and the policy `<meta>` tags at the top of every page; `py -3 -m unittest test_publish_site` in `scripts/` tests the publish script. Both run git: on Windows, check that `git` is Git for Windows (`(Get-Command git).Source`) |
+| Website | `website/` | static; open `index.html`; notes, deploy steps and the cutover runbook in `docs/website.md`. Published to `perritodeck/perritodeck.github.io` by `scripts/publish_site.py` (docs/website.md), by hand from WSL until the Site publish workflow has its token. `py -3 -m unittest test_build_catalog` in `plugins/` checks the pages and stylesheets for anything the CSP would block, and the policy `<meta>` tags at the top of every page; `py -3 -m unittest test_publish_site` in `scripts/` tests the publish script. Both run git: on Windows, check that `git` is Git for Windows (`(Get-Command git).Source`) |
 | Licences | repo root | `py -3 scripts/third-party-notices.py --check` (rerun without `--check` after a dependency change); `cargo deny check licenses bans sources` in `host/` |
 
 The host keeps its data in the per-user config folder: `%APPDATA%\perritodeck\PerritoDeck\config`
@@ -55,32 +55,31 @@ time, because both the CLI and the app listen on port 46710.
 
 ## CI
 
-Pushes to `main` and pull requests start one workflow, CI (`.github/workflows/ci.yml`). Its
-first job lists the changed files with git and calls the workflows whose checks read any of
-them (reusable: `on: workflow_call`); its last job, **CI gate**, always runs and fails if any
-of those failed or was cancelled, or was skipped though the first job asked for it. It's the
-only check the `main` ruleset should require (`docs/launch-checklist.md` §5). Those lists are
-`NEEDS` in `ci.yml`: when a check starts reading a file outside its list, add the path there.
-A push run checks only what that push changed, so nothing cancels it: each push to `main`
-runs in full (a newer commit on a pull request does cancel the older run). The called
-workflows keep their own weekly schedules and Run workflow buttons; Actions → CI → Run
-workflow runs all of them. On push and pull request their jobs and artifacts (the debug APK,
-the E2E screenshots) belong to the CI run, not to a run of their own.
+Every push to `main` and every pull request starts one workflow, CI
+(`.github/workflows/ci.yml`). Its first job lists the changed files with git and calls the
+workflows whose checks read any of them (reusable: `on: workflow_call`); its last job,
+**CI gate**, always runs and fails if any of those failed or was cancelled, or was skipped
+though the first job asked for it. It's the one check the `main` ruleset should require
+(`docs/launch-checklist.md` §5). Those lists are `NEEDS` in `ci.yml`: when a check starts
+reading a file outside its list, add the path there.
+A push run checks only what that push changed, so nothing cancels it (a newer commit on a
+pull request does cancel the older run). On push and pull request the called workflows' jobs
+and artifacts (the debug APK, the E2E screenshots) belong to the CI run.
 
-While the repo is private, Actions minutes are billed (macOS at ten times Linux), so pushes
-run only Host tests on Windows, the desktop UI tests, the app crate (`host/app/src-tauri`:
-fmt, clippy, tests) on Windows, Android, Protocol, Plugins on Linux and Windows, Licences and
-two emulators (API 22, Fire 7). Linux/macOS host tests and app crate, desktop bundles, the
-real-app test, Plugins on macOS and the other emulators run weekly (Mondays) or by hand
-(Actions → workflow → Run workflow). Licences (`licences.yml`) runs `cargo deny check
-licenses bans sources` on both workspaces and `third-party-notices.py --check`, and
-`cargo deny check advisories` as a job of its own, also weekly, since advisories appear
-without any change here. Host CI sets `PERRITODECK_REQUIRE_NODE=1`, so the Stream Deck
-plugin tests fail instead of skipping when Node 22 is missing. Test Linux locally before
-pushing, and batch pushes. Since 2026-10-11 no run starts at all (a billing block the
-maintainer is leaving until the repo goes public, when Actions are free), so until the flip
-every check runs locally: Linux in WSL (`wsl -d Ubuntu`), where `scripts/linux-check.sh`
-runs the host and app checks on a commit in about a minute, and the emulator tests not at
-all. E2E screenshots and logs are workflow artifacts (`e2e-<run name>`: `api22`, `api34`,
-`fire7`, `firehd10`), kept for 30 days: on the CI run's summary page for a push or pull
-request, on the E2E run's for a weekly or manual one.
+The repo is public, so Actions are free on standard runners, macOS included; never use larger
+runners, which are always billed. The matrices still date from the billed days. A push or pull
+request runs Host tests and the app crate (`host/app/src-tauri`: fmt, clippy, tests) on
+Windows, the desktop UI tests, Android, Protocol, Plugins on Linux and Windows, Licences, and
+the emulators: API 22 and Fire 7 on a push, all four on a pull request. Weekly (Mondays) or by
+hand (Actions → workflow → Run workflow): Host and Plugins on all three OSes, the app crate
+and desktop bundles on all three, the real-app test, all four emulators, Licences (advisories
+appear without any change here, and `cargo deny check advisories` is a job of its own), iOS
+(`ios.yml`, never on push) and Site check. Actions → CI → Run workflow runs every called
+workflow as its own button would, but the app crate and bundles on Windows only. Site publish
+builds `website/` when a push or pull request touches it or `plugins/`, and publishes from
+`main` once `SITE_PUBLISH_TOKEN` exists. Host CI sets `PERRITODECK_REQUIRE_NODE=1`, so the
+Stream Deck plugin tests fail instead of skipping when Node 22 is missing. Linux can also be
+checked locally in WSL (`wsl -d Ubuntu`): `scripts/linux-check.sh` runs the host and app
+checks on a commit in about a minute. E2E screenshots and logs are workflow artifacts
+(`e2e-<run name>`: `api22`, `api34`, `fire7`, `firehd10`), kept for 30 days: on the CI run's
+summary page for a push or pull request, on the E2E run's for a weekly or manual one.
