@@ -461,23 +461,48 @@ class ProgramsForTheUserTest(unittest.TestCase):
     def test_open_on_windows(self):
         with self.assertRaisesRegex(OSError, "WinError 2"):
             self.sdk.open_for_user(os.path.join(self.folder, "missing.exe"))
-        import winreg
-
-        try:
-            winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, ".pyw")
-        except OSError:
-            self.skipTest("no program opens .pyw files")
-        # A windowless script that says which folder it was started in.
+        # A script that says which folder it was started in: a windowless .pyw where the
+        # shell really runs one, else a batch file (a console flashes up), which Windows
+        # always opens itself. A .pyw can be registered and still open nothing: GitHub's
+        # Windows runners have Python.NoConFile, but the shell sends .pyw to the "How do
+        # you want to open this file?" dialog, which nobody answers there.
         said = os.path.join(self.folder, "cwd.txt")
-        script = os.path.join(self.folder, "where.pyw")
-        with open(script, "w") as f:
-            f.write("import os\nopen(%r, 'w').write(os.getcwd())\nos.replace(%r, %r)\n" % (said + ".tmp", said + ".tmp", said))
+        encoding = "utf-8"
+        if shell_opens(".pyw"):
+            script = os.path.join(self.folder, "where.pyw")
+            text = "import os\nopen(%r, 'w', encoding='utf-8').write(os.getcwd())\nos.replace(%r, %r)\n" % (
+                said + ".tmp", said + ".tmp", said)
+        else:
+            # cmd reads the script, and writes what cd prints, in the OEM code page.
+            encoding = "oem"
+            script = os.path.join(self.folder, "where.cmd")
+            text = '@cd > "%s.tmp"\r\n@move /y "%s.tmp" "%s" > nul\r\n' % (said, said, said)
+        try:
+            data = text.encode(encoding)
+        except UnicodeEncodeError:
+            self.skipTest("the temporary folder's name doesn't fit the console's code page")
+        with open(script, "wb") as f:
+            f.write(data)
         self.sdk.open_for_user(script)
         deadline = time.monotonic() + 15
         while not os.path.exists(said) and time.monotonic() < deadline:
             time.sleep(0.1)
-        with open(said) as f:
-            self.assertEqual(os.path.normcase(f.read()), os.path.normcase(self.folder))
+        with open(said, encoding=encoding) as f:
+            self.assertEqual(os.path.normcase(f.read().strip()), os.path.normcase(self.folder))
+
+
+def shell_opens(extension):
+    """Whether the Windows shell opens files of this type with a program of their own,
+    as ShellExecute decides it, rather than asking which program to use."""
+    import ctypes
+    from ctypes import wintypes
+
+    assocstr_executable = 2
+    size = wintypes.DWORD(1024)
+    found = ctypes.create_unicode_buffer(size.value)
+    result = ctypes.WinDLL("shlwapi").AssocQueryStringW(0, assocstr_executable, extension, "open", found,
+                                                        ctypes.byref(size))
+    return result == 0 and os.path.basename(found.value).lower() != "openwith.exe"
 
 
 if __name__ == "__main__":
