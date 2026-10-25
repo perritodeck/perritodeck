@@ -9,6 +9,12 @@ mkdir -p "$out"
 
 adb logcat -c || true
 
+# The test's shell commands run as whoever adbd runs as, and on Android 7 the shell user
+# can't switch Wi-Fi off (svc wifi: no CHANGE_WIFI_STATE). The emulator images allow root.
+adb root || true
+adb wait-for-device
+echo "adb shell uid: $(adb shell id -u | tr -d '\r')" | tee "$out/adb-uid.txt"
+
 # Pretend to be a different screen (e.g. a Fire tablet) when the matrix asks for one.
 if [ -n "${SCREEN_SIZE:-}" ]; then
   adb shell wm size "$SCREEN_SIZE"

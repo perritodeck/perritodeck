@@ -136,21 +136,22 @@ class HostEndToEndTest {
     }
 
     /**
-     * Wi-Fi and mobile data off or on, checked through the Wi-Fi setting. The shell user
-     * can't switch Wi-Fi on Android 7 (`svc wifi` dies with a SecurityException: no
-     * CHANGE_WIFI_STATE), so there it runs as root, which the emulator's images allow.
+     * Wi-Fi and mobile data off or on, checked through the Wi-Fi setting: `svc` says
+     * nothing when it fails. The shell user can't switch Wi-Fi on Android 7 (`svc wifi`
+     * dies with a SecurityException: no CHANGE_WIFI_STATE), so scripts/e2e-android.sh
+     * runs `adb root` first, and these commands run as root.
      */
     private fun setNetwork(on: Boolean) {
         val verb = if (on) "enable" else "disable"
-        fun switched() = waitUntil(5_000) {
-            shell("settings get global wifi_on").trim().let { if (on) it != "0" else it == "0" }
-        }
         shell("svc wifi $verb")
         shell("svc data $verb")
-        if (switched()) return
-        shell("su 0 svc wifi $verb")
-        shell("su 0 svc data $verb")
-        if (!switched()) throw AssertionError("couldn't switch Wi-Fi ${if (on) "on" else "off"}")
+        val switched = waitUntil(5_000) {
+            shell("settings get global wifi_on").trim().let { if (on) it != "0" else it == "0" }
+        }
+        if (!switched) {
+            val uid = shell("id -u").trim()
+            throw AssertionError("`svc wifi $verb` didn't switch Wi-Fi (shell uid $uid; Android 7 needs adb root)")
+        }
     }
 
     private fun waitUntil(ms: Long, ok: () -> Boolean): Boolean {
