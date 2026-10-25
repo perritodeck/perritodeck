@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Perrito</string>
+    <!-- The name under the launcher icon. Debug builds override it (src/debug), so the two
+         installs can be told apart; app_name stays the same in both. -->
+    <string name="launcher_name">Perrito</string>
     <string name="host_label">Computer\'s address</string>
     <string name="preset_emulator">Emulator</string>
     <string name="preset_usb">USB (adb reverse)</string>

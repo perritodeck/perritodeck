@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug builds install next to the release build (applicationIdSuffix ".debug") with the
+         same icon, so the launcher names them apart. -->
+    <string name="launcher_name">Perrito dbg</string>
+</resources>
