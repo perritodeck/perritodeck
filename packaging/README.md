@@ -1,9 +1,15 @@
 # Packaging drafts
 
-**Drafts. None of these have been built, linted or submitted.** They're starting points for
-the Linux channels the Release workflow doesn't cover. The workflow already makes the
-AppImage, `.deb` and `.rpm` (see [`docs/releasing.md`](../docs/releasing.md)).
-F-Droid and IzzyOnDroid live in [`docs/fdroid/`](../docs/fdroid/).
+**The Flathub and AUR files are drafts: not built, linted or submitted.** They're starting
+points for the Linux channels the Release workflow doesn't cover. The workflow already makes
+the AppImage, `.deb` and `.rpm` (see [`docs/releasing.md`](../docs/releasing.md)).
+
+Ready to send for v0.1.0 (prepared 2026-10-25, not submitted; the maintainer submits):
+- **winget:** [`winget/manifests/p/PerritoDeck/PerritoDeck/0.1.0/`](winget/manifests/p/PerritoDeck/PerritoDeck/0.1.0/),
+  passes `winget validate`; how to submit in [`winget/SUBMIT.md`](winget/SUBMIT.md).
+- **F-Droid:** [`docs/fdroid/SUBMIT.md`](../docs/fdroid/SUBMIT.md), with the recipe next to it.
+- **IzzyOnDroid:** [`docs/fdroid/IZZY-REQUEST.md`](../docs/fdroid/IZZY-REQUEST.md); read its
+  first section (IzzyOnDroid's AI policy) before sending.
 
 | Channel | Files | Builds from |
 |---|---|---|

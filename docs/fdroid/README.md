@@ -1,11 +1,13 @@
 # F-Droid and IzzyOnDroid submission kit
 
 Everything needed to list **Perrito** (`dev.perritodeck.client`) on F-Droid and IzzyOnDroid.
-Nothing here has been submitted. Both stores need the repository to be **public** and a release tag. The draft recipe builds `v0.1.0`, which is what the first release will be (decision D5 in `docs/plan/phase-8.md`; see `docs/next-steps.md` item 13).
+Nothing here has been submitted. The repository is public and `v0.1.0` is released (2026-10-25); the recipe builds that tag. The submissions are ready to send: [`SUBMIT.md`](SUBMIT.md) for F-Droid and [`IZZY-REQUEST.md`](IZZY-REQUEST.md) for IzzyOnDroid.
 
 | File | What it is |
 |---|---|
-| [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Draft build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`) |
+| [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`), `commit:` the full hash of `v0.1.0` |
+| [`SUBMIT.md`](SUBMIT.md) | F-Droid: the merge request steps and text, the v0.1.0 build and the comparison with our APK |
+| [`IZZY-REQUEST.md`](IZZY-REQUEST.md) | IzzyOnDroid: the request text, the criteria checked, and why its AI policy likely rules the app out |
 | [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid and IzzyOnDroid read this layout straight from the repository (so would Play, which isn't used for now) |
 
 ## Readiness checklist
@@ -46,8 +48,8 @@ The E2E runs upload their screenshots as workflow artifacts (`e2e-<run>`, on the
 
 ## F-Droid (main repository)
 
-1. Make the repository public and push the release tag (maintainer).
-2. Fork `gitlab.com/fdroid/fdroiddata` and copy the draft, unchanged, to `metadata/dev.perritodeck.client.yml`. The draft is exactly what `fdroid rewritemeta` writes, so it has no comments: fdroiddata's CI runs `fdroid rewritemeta` on the merge request and fails it if the file changes, and rewritemeta drops comments. Reviewers usually swap `commit: v0.1.0` for the tag's full commit hash. Then in that checkout:
+1. Make the repository public and push the release tag (maintainer). Done 2026-10-24 and 2026-10-25.
+2. Fork `gitlab.com/fdroid/fdroiddata` and copy the recipe, unchanged, to `metadata/dev.perritodeck.client.yml` (the full steps and the merge request text are in [`SUBMIT.md`](SUBMIT.md)). The recipe is exactly what `fdroid rewritemeta` writes, so it has no comments: fdroiddata's CI runs `fdroid rewritemeta` on the merge request and fails it if the file changes, and rewritemeta drops comments. `commit:` is the tag's full commit hash, as reviewers want. Then in that checkout:
    ```sh
    fdroid readmeta && fdroid rewritemeta dev.perritodeck.client && fdroid lint dev.perritodeck.client
    fdroid build -v -l dev.perritodeck.client   # needs the Android SDK; or let the MR's CI do it
@@ -94,11 +96,11 @@ Known risks to check when doing step 2:
 
 Faster than F-Droid (days) and serves the APKs from our GitHub Releases as they are.
 
-- Needs: a public repository, a **signed** `perrito-<version>.apk` attached to each GitHub Release, and the fastlane metadata in the repository. The metadata is there, and the Release workflow publishes only a signed APK, so what's left is the release key (`docs/next-steps.md` item 11) and going public.
+- Needs: a public repository, a **signed** `perrito-<version>.apk` attached to each GitHub Release, and the fastlane metadata in the repository. All three are in place since v0.1.0 (2026-10-25); the Release workflow publishes only a signed APK.
 - Its scanner rejects trackers, proprietary libraries and the dependency-info blob. None of these are present.
-- Size limit is about 30 MB per APK. The minified release APK is about 2.2 MB (2,179,425 bytes unsigned, 2026-10-15; the signed size needs measuring again once the release key exists), and `android.yml` reports its size in every run and warns above 30 MB.
+- Size limit is about 30 MB per APK. The minified release APK is about 2.2 MB (the signed `perrito-0.1.0.apk` is 2,249,787 bytes), and `android.yml` reports its size in every run and warns above 30 MB.
 - IzzyOnDroid now also verifies reproducible builds and shows a badge for them. The same reproducibility work as above applies.
-- Request it by opening an issue at `gitlab.com/IzzyOnDroid/repo` with the "inclusion request" template. Give the repository URL and confirm that the APK is attached to releases.
+- Request it by opening an issue at [codeberg.org/IzzyOnDroid/repodata](https://codeberg.org/IzzyOnDroid/repodata/issues) with the "App Inclusion Request" template (the GitLab tracker is archived). The filled-in request is in [`IZZY-REQUEST.md`](IZZY-REQUEST.md); read its first section before sending, because IzzyOnDroid's AI policy (2026) likely rules the app out.
 - After inclusion, new GitHub Releases are picked up automatically, with no action needed per release.
 
 ## Google Play

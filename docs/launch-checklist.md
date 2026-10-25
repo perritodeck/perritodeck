@@ -363,14 +363,18 @@ on real hardware.
 
 See [docs/distribution.md](distribution.md) for each channel's requirements.
 
-- [ ] **IzzyOnDroid:** request inclusion (needs the public repo and a release APK).
-- [ ] **F-Droid:** merge request to `fdroiddata` from the draft in `docs/fdroid/`.
+- [ ] **IzzyOnDroid:** request inclusion. The request is ready in
+  [docs/fdroid/IZZY-REQUEST.md](fdroid/IZZY-REQUEST.md) (on Codeberg now); read its first
+  section first: IzzyOnDroid's AI policy likely rules the app out.
+- [ ] **F-Droid:** merge request to `fdroiddata`. Ready in
+  [docs/fdroid/SUBMIT.md](fdroid/SUBMIT.md): the recipe builds `v0.1.0`; decide first
+  whether F-Droid signs it or D11 is settled for our signature.
 - **Google Play: not for now** (D8 in `docs/plan/phase-8.md`, 2026-10-17). v0.1.0's
   Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid. The closed test,
   the data safety form and the `play-bundle` upload are off the launch path; the notes for
   later are under "Google Play" in `docs/distribution.md`.
-- [ ] **Desktop:** winget (`wingetcreate new` with the NSIS installer) is the Windows
-  channel after the first release. Flathub and AUR (from `packaging/`) wait for the
+- [ ] **Desktop:** winget is the Windows channel: the v0.1.0 manifests are ready in
+  `packaging/winget/` ([SUBMIT.md](../packaging/winget/SUBMIT.md)). Flathub and AUR (from `packaging/`) wait for the
   release that adds Linux, and a Homebrew cask for the one that adds macOS, best once
   notarised (D5).
 - [ ] Amazon Appstore (optional, for Fire tablet owners).
