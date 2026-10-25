@@ -35,7 +35,7 @@ To test what doesn't ship, run the workflow by hand ([step 5](#5-tag-maintainer-
 - [x] Third-party licence texts in the APK: it carries `assets/third-party-licenses.txt`, generated at build time from the release build's dependencies, and Perrito shows it under Open-source licences (done 2026-10-15; not yet looked at on a device). The desktop installers carry `third-party-licenses.txt` too.
 - [ ] Check that `website/download.html` offers only what ships ([What ships](#what-ships)), for v0.1.0 the Windows installer and the APK, and that the deployed page does too.
 - [ ] Optional, and not needed while macOS isn't released: Apple Developer ID and notarisation secrets (below). Without them the Mac app is ad-hoc signed and people have to use "Open Anyway".
-- [ ] Optional: Windows code signing (below). The maintainer is waiting for the Azure Artifact Signing certificate; v0.1.0 ships unsigned unless it arrives first. Without it, SmartScreen warns.
+- [ ] Optional: Windows code signing (below). The maintainer is waiting for the Azure Artifact Signing certificate; v0.1.0 ships unsigned (decided 2026-10-25). Without it, SmartScreen warns.
 - [ ] Make the repository public before launch. The website's download links and every store need it.
 - [ ] Right after that, run every workflow once by hand, the weekly ones included. All of them must pass before the first tag. Every Actions run since 2026-10-11 has stopped before a job started, and CI stays blocked until the repository is public, so a release must not be the first thing to meet the CI machines ([`DECISIONS.md`](DECISIONS.md), 2026-10-15).
 - [ ] Once it's public: the `release` environment for the Android signing secrets ([below](#once-the-repository-is-public-a-release-environment)).
@@ -83,8 +83,7 @@ Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a v
 
   `docs/release-notes/v0.1.0.md` is the first one. Its `TODO` comments each name the item that settles them:
   - CI and the release-APK checks (phase-8 M3-7 and M3-10);
-  - the soak test and the Windows manual steps (M3-16 and M3-17);
-  - Windows signing (D1).
+  - the soak test and the Windows manual steps (M3-16 and M3-17).
 
   A v0.1.0 tag stops at Check versions until every one of them is resolved.
 - [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid and IzzyOnDroid show it, and the release notes include it. The workflow fails without it.
@@ -200,7 +199,7 @@ Needs an Apple Developer Program membership (99 USD a year).
 If only the certificate is set, the app is signed but not notarised. If nothing is set, `"signingIdentity": "-"` in `tauri.conf.json` ad-hoc signs it, which Apple silicon needs before it will run the app at all. The command-line host binaries are plain executables, ad-hoc signed by the linker, and aren't notarised.
 
 ### Windows: code signing (waiting for a certificate)
-Unsigned installers trigger SmartScreen until they build up reputation. The maintainer keeps the **Azure Artifact Signing** account and is waiting for its identity validation and certificate (decision D1, 2026-10-15). v0.1.0 ships unsigned unless the certificate arrives first.
+Unsigned installers trigger SmartScreen until they build up reputation. The maintainer keeps the **Azure Artifact Signing** account and is waiting for its identity validation and certificate (decision D1, 2026-10-15). v0.1.0 ships unsigned (decided 2026-10-25); signing comes in a later release.
 - **Before wiring it in**, check which name the certificate shows as the publisher. An individual validation shows a legal name, and that name then appears in every signature and in the SmartScreen prompt.
 - Azure Artifact Signing is used through `bundle.windows.signCommand` or Microsoft's signing action.
 - **SignPath Foundation** stays the alternative: free certificates for open-source projects, used through their GitHub Action. Needs an application and a public repository.

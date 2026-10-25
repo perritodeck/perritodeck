@@ -305,8 +305,9 @@ on real hardware.
   release), and the certificate's fingerprint in `website/download.html`
   (`#android-certificate`). A tag build fails without the key. `docs/next-steps.md`
   item 11 has the steps.
-- [ ] Windows signing (D1): v0.1.0 ships unsigned unless the Azure Artifact Signing
-  certificate arrives first. Before wiring it in, check which name the certificate shows
+- [x] Windows signing (D1): **v0.1.0 ships unsigned** (decided 2026-10-25: Azure Artifact
+  Signing's validation is taking too long). The release notes and the download page tell
+  people how to get past SmartScreen. Signing waits for a later release. Before wiring it in, check which name the certificate shows
   as publisher (an individual validation shows a legal name). Apple signing isn't needed
   for v0.1.0.
 - [x] `release.yml` publishes only v0.1.0's scope (2026-10-15, `docs/plan/phase-8.md`
