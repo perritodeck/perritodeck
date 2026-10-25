@@ -11,7 +11,7 @@ PerritoDeck has two parts:
 - **PerritoDeck** on your computer: a tray app where you lay out buttons by dragging, and the host that draws them and runs their actions.
 - **Perrito** on the tablet: a full-screen grid of live buttons and sliders. It runs on Android 5.1 and newer, including Amazon Fire tablets. An iPhone/iPad version is coming.
 
-**Status: pre-alpha.** It works end to end, tested on Windows 11 with an Amazon Fire 7 and in CI on Android emulators, but there's no published release yet. Expect rough edges and breaking changes. The [roadmap](docs/plan/) shows what's done.
+**Status: pre-alpha.** It works end to end, tested on Windows 11 with an Amazon Fire 7 and in CI on Android emulators. The first release, [v0.1.0](https://github.com/perritodeck/perritodeck/releases/tag/v0.1.0), is out for Windows and Android. Expect rough edges and breaking changes. The [roadmap](docs/plan/) shows what's done.
 
 ## Screenshots
 
@@ -58,16 +58,15 @@ Not there yet: the iOS app (written, not yet built), dials and touch strips as s
 
 ## Install
 
-The first release isn't out yet. When it is, everything will be on the
-[download page](https://perritodeck.dev/download.html) and on
+Everything is on the [download page](https://perritodeck.dev/download.html) and on
 [GitHub Releases](https://github.com/perritodeck/perritodeck/releases):
 
-- **Windows**: the installer. The first release (v0.1.0) is Windows and Android only;
-  Linux and macOS join a later release once they've been tried on real hardware, and Linux
-  builds from source until then.
-- **Perrito for Android** as an APK, then on IzzyOnDroid and F-Droid (not on Google Play for now)
-
-Until then, build from source (below).
+- **Windows 10 or 11**: the installer. It isn't signed yet, so SmartScreen asks first
+  ([what to do](https://perritodeck.dev/download.html#unsigned)).
+- **Perrito for Android** (5.1 and newer, Amazon Fire tablets included): the APK. F-Droid
+  comes later; it isn't on Google Play for now.
+- **Linux**: build from source (below). Linux and macOS join a later release once they've
+  been tried on real hardware.
 
 ## Quick start
 
