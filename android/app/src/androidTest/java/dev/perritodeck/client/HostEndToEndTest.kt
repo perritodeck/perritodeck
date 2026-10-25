@@ -1,5 +1,7 @@
 package dev.perritodeck.client
 
+import android.app.KeyguardManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -102,29 +104,62 @@ class HostEndToEndTest {
         // doesn't go through Wi-Fi or mobile data, so switching them off can't cut it.
         val via = (vm.connection.state.value as? ConnState.Connected)?.url
         assertTrue("connected over the emulator's network (10.0.2.2), not $via", via?.contains("10.0.2.2") == true)
-        shell("svc wifi disable")
-        shell("svc data disable")
+        setNetwork(on = false)
         waitForState("noticed the network went away") { it is ConnState.Connecting }
         screenshot("6-network-down")
         Thread.sleep(5_000)
-        shell("svc wifi enable")
-        shell("svc data enable")
+        setNetwork(on = true)
         waitForState("reconnected after the network came back", 60_000) { it is ConnState.Connected }
         compose.onNode(hasContentDescription("live", substring = true)).performClick()
         compose.waitUntilAtLeastOneExists(hasContentDescription("muted", substring = true), timeout)
         screenshot("7-reconnected")
     }
 
-    /** Get past the emulator's swipe lock screen until the app is in front again. */
+    /**
+     * Get past the emulator's swipe lock screen until the app is in front again. The swipe
+     * is the last resort, and only while the lock screen is still up: if the app is in
+     * front by then, it lands on the deck and presses a key (it once flipped the toggle
+     * that the next step presses).
+     */
     private fun unlock() {
+        val keyguard = InstrumentationRegistry.getInstrumentation().targetContext
+            .getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         repeat(10) {
             if (resumed()) return
             shell("wm dismiss-keyguard") // API 23+
-            shell("input keyevent 82") // menu key unlocks the swipe keyguard on older versions
-            shell("input swipe 300 900 300 100")
+            shell("input keyevent 82") // the menu key also dismisses a swipe lock screen
+            if (waitUntil(2_000) { resumed() }) return
+            if (keyguard.isKeyguardLocked) shell("input swipe 300 900 300 100")
             Thread.sleep(1_000)
         }
         throw AssertionError("the app didn't come back after waking the screen")
+    }
+
+    /**
+     * Wi-Fi and mobile data off or on, checked through the Wi-Fi setting. The shell user
+     * can't switch Wi-Fi on Android 7 (`svc wifi` dies with a SecurityException: no
+     * CHANGE_WIFI_STATE), so there it runs as root, which the emulator's images allow.
+     */
+    private fun setNetwork(on: Boolean) {
+        val verb = if (on) "enable" else "disable"
+        fun switched() = waitUntil(5_000) {
+            shell("settings get global wifi_on").trim().let { if (on) it != "0" else it == "0" }
+        }
+        shell("svc wifi $verb")
+        shell("svc data $verb")
+        if (switched()) return
+        shell("su 0 svc wifi $verb")
+        shell("su 0 svc data $verb")
+        if (!switched()) throw AssertionError("couldn't switch Wi-Fi ${if (on) "on" else "off"}")
+    }
+
+    private fun waitUntil(ms: Long, ok: () -> Boolean): Boolean {
+        val until = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < until) {
+            if (ok()) return true
+            Thread.sleep(200)
+        }
+        return ok()
     }
 
     private fun resumed(): Boolean = compose.runOnUiThread {
@@ -163,11 +198,12 @@ class HostEndToEndTest {
         throw AssertionError("timed out waiting: $what (state ${vm.connection.state.value})")
     }
 
-    /** Runs a shell command as the shell user and waits for it to finish. */
-    private fun shell(cmd: String) {
+    /** Runs a shell command as the shell user, waits for it to finish and returns its output. */
+    private fun shell(cmd: String): String {
         val pfd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(cmd)
-        ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+        val out = ParcelFileDescriptor.AutoCloseInputStream(pfd).use { String(it.readBytes()) }
         Log.i("PerritoE2E", "shell: $cmd")
+        return out
     }
 
     /**
