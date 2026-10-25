@@ -173,7 +173,7 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   `main`, and `SITE_PUBLISH_TOKEN` in it (a fine-grained token, the perritodeck
   organization as resource owner, `perritodeck.github.io` only, Contents read and write;
   or a write deploy key). Run **Site publish** by hand and expect "site: no change", and
-  **Site check**, which passes (or skips itself if the cutover hasn't happened yet).
+  **Site check**, which passes.
   - `SITE_PUBLISH_TOKEN` expires on: *(write the date here when it's made, and renew it
     before then; a deploy key doesn't expire)*
 - [ ] Settings → General → Features: Issues on; Discussions on (optional, for Q&A);
@@ -224,26 +224,24 @@ The steps are in [`docs/website.md`](website.md): "Deploy" for the setup and pub
 "Cutover runbook" for the move to GitHub Pages (D12, decided 2026-10-17), "Launch day" for
 the day the release goes out. `docs/next-steps.md` item 12 has what's left.
 
-- [x] The site is live (2026-10-15): a Cloudflare Worker named `perritodeck` with static
-  assets serves `perritodeck.dev` until the cutover, and pushes to `main` redeploy it by
-  themselves (a push at 03:02:14 UTC on 2026-10-17 was live by 03:02:42). It matches the
-  current `main` (`6861f46`: `/README.md` answers 404, 13 plugins are marked
-  Experimental).
-- [ ] **The cutover to GitHub Pages** (D12), at least several days before §4's flip, while
-  noindex is on and no release is out: the cutover runbook in `docs/website.md`, from
-  reading Billing and plans and verifying the domain for the organization to the DNS swap
-  and Enforce HTTPS. HTTPS may be down for up to 48 hours in between. If the site
-  repository's first Pages build hits the billing block, keep the Worker and sort out
-  billing before the flip. A few stable days later the Worker, the Cloudflare GitHub app
-  and the Web Analytics entry go, and Claude then deletes `website/_headers` and makes the
-  CSP test read the `<meta>` tag alone; the zone settings only the dashboard shows then
-  stop mattering.
+- [x] The site is live: since 2026-10-15 on `perritodeck.dev`, and since 2026-10-24 served
+  by GitHub Pages from `perritodeck/perritodeck.github.io`, published by hand from WSL
+  (the first publish, `34861f5`, is `perritodeck@328162b`).
+- [x] **The cutover to GitHub Pages** (D12), done 2026-10-24, while noindex is on and no
+  release is out: the cutover runbook in `docs/website.md`. GitHub's four `A` and four
+  `AAAA` records and the `www` `CNAME` are in DNS (DNS only), the Let's Encrypt certificate
+  for the apex and `www` was approved within about a minute, and Enforce HTTPS is on. The
+  site repository's Pages build ran despite the billing block. The Cloudflare Worker was
+  deleted at the swap, so there was no rollback; the `www` Redirect Rule and the Cloudflare
+  GitHub app went too, and Web Analytics had no entry for the site. `website/_headers` is
+  deleted, and the CSP test reads the `<meta>` tag alone. The zone settings only the
+  dashboard shows no longer matter.
 - [ ] Until the flip, publish by hand from WSL after each change to `website/` or
   `plugins/` on `main` ("Publishing by hand" in `docs/website.md`), with the maintainer's
   OK for each push to the site repository.
-- [ ] Until the flip, after the cutover, check by hand now and then, and after any DNS
-  change, that the site hasn't drifted to the state that took evi-ai.dev down (there's no
-  weekly run before the flip):
+- [ ] Until the flip, check by hand now and then, and after any DNS change, that the site
+  hasn't drifted to the state that took evi-ai.dev down (there's no weekly run before the
+  flip):
   `python3 scripts/publish_site.py --check-live` (only GitHub's addresses for the apex and
   `www`, `Server: GitHub.com` on `/`, `/plugins/index.json` and `www`'s 301, a certificate
   with more than 21 days left)
@@ -251,12 +249,15 @@ the day the release goes out. `docs/next-steps.md` item 12 has what's left.
   (`approved`).
 - [x] Custom domain `perritodeck.dev`, with `www` answering 301 to it, path and query kept,
   HTTPS enforced (`http://` gets a 301) and DNSSEC in force (DS 2371/13/2 is at the `.dev`
-  registry, and resolvers validate), checked 2026-10-15 on the Worker. At the cutover
-  `www` becomes a `CNAME` to `perritodeck.github.io` and GitHub does the redirects;
-  DNSSEC and mail for `dev@` (§3, D2) don't change.
+  registry, and resolvers validate), first checked 2026-10-15. Checked again on GitHub
+  Pages on 2026-10-24: `www` is
+  a `CNAME` to `perritodeck.github.io`, GitHub does the redirects (`www` to the apex
+  keeping the path and query, `http://` to `https://`, `perritodeck.github.io` to the
+  domain), and DNSSEC and mail for `dev@` (§3, D2) didn't change.
 - [ ] Check `https://perritodeck.dev/plugins/index.json` loads and that the desktop app's
-  Plugins → "Look online" installs a plugin from it, after the cutover. The first half is
-  done on the Worker (24 plugins, 2026-10-15).
+  Plugins → "Look online" installs a plugin from it. The first half is done on GitHub
+  Pages (24 plugins, `application/json`, the zips' SHA-256s match, 2026-10-24); the
+  install in the real app is left.
 - [ ] **Launch day**, after step 7 publishes the release: work through "Launch day" in
   `docs/website.md`. It removes the temporary `noindex` tags and the "Not released yet"
   notice and other pre-release lines, checks the status lines, and lists the checks after

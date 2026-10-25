@@ -22,18 +22,17 @@ order in the [launch checklist](../launch-checklist.md), and the release mechani
 
 ## Right now
 
-- **The site is live** on `https://perritodeck.dev` with the temporary noindex, served by
-  a Cloudflare Worker named `perritodeck` with static assets (checked on 2026-10-15 and
-  2026-10-17). Pushes to `main` redeploy it by themselves. **D12 (2026-10-17) moves it to
-  GitHub Pages**, the way evi-ai.dev works: a public repository,
-  `perritodeck/perritodeck.github.io`, serves what `scripts/publish_site.py` builds from
-  `website/` and `plugins/`, and Cloudflare does DNS only. In the tree, not yet committed:
-  the policy `<meta>` tags (CSP, referrer, robots) at the top of every page and of the
-  catalogue template, a catalogue build that's the same on any OS, the publish script, the
-  Site publish workflow and the weekly drift check. The cutover itself is M1-5, step by
-  step in the [cutover runbook](../website.md#cutover-runbook); until the flip the site is
-  published by hand from WSL. DNSSEC (DS 2371/13/2) and mail for dev@ (D2) stay as they
-  are.
+- **The site is on GitHub Pages** since 2026-10-24 (D12, M1-5), on
+  `https://perritodeck.dev` with the temporary noindex: the public repository
+  `perritodeck/perritodeck.github.io` serves what `scripts/publish_site.py` builds from
+  `website/` and `plugins/`, and Cloudflare does DNS only. The first publish, by hand from
+  WSL, was `perritodeck@328162b`, and its Pages build ran despite the billing block. The
+  certificate was approved within about a minute and Enforce HTTPS is on. The Cloudflare
+  Worker was deleted at the swap, so there was no rollback, and every check after the swap
+  passed ([cutover runbook](../website.md#cutover-runbook)). `website/_headers` is gone and
+  the CSP test reads the `<meta>` tag alone. Left of M1-6: Look online installing from the
+  live catalogue in the real app. Until the flip the site is published by hand from WSL.
+  DNSSEC (DS 2371/13/2) and mail for dev@ (D2) didn't change.
 - **The OBS real-world pass is done.** It ran on 2026-10-13 against OBS 31.0.3 (93 of 110
   cases), and all 22 findings were fixed (OBS plugin 1.0.3 and the host) and re-checked
   against the same OBS on 2026-10-15
@@ -47,8 +46,8 @@ order in the [launch checklist](../launch-checklist.md), and the release mechani
 - **CI is blocked until the flip.** GitHub Actions has stopped every run since 2026-10-11
   at a billing block, and the maintainer is leaving it, because Actions are free once the
   repo is public (DECISIONS, 2026-10-15). Until then everything is checked locally
-  (Windows, and Linux in WSL), and the site is published by hand. Whether the block also
-  stops the public site repository's Pages builds shows at its first publish (M1-5), and
+  (Windows, and Linux in WSL), and the site is published by hand. The block doesn't stop
+  the public site repository's Pages builds (they ran at the first publish, 2026-10-24);
   the Billing and plans page says whether it's a failed payment or the spending limit.
   Right before the flip every old run and its artifacts are
   deleted (D9, M1-10). The first runs after it are the first CI since 2026-10-11, and the
@@ -82,7 +81,7 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 | ✅ D9 | **Old Actions runs and artifacts** become public at the flip (E2E logs, the 2026-10-11 bundles) | **Decided 2026-10-15:** delete all runs and their artifacts right before the flip. Claude does it with the maintainer's OK at that moment (M1-10). Not done yet | M1 |
 | ✅ D10 | **One name for the desktop app.** "PerritoDeck" is `tauri.conf.json`'s `productName` and so the window title, tray tooltip, installer, Start menu and uninstall entry, Windows version info, macOS bundle and Linux `.desktop` name (`tauri.conf.json:3,16`, `src-tauri/src/lib.rs:704,764-766`, `packaging/flatpak/dev.perritodeck.PerritoDeck.desktop:3` and `.metainfo.xml:5`, `packaging/aur/PKGBUILD:76`), and the website's "PerritoDeck desktop app" (`index.html:104`, `privacy.html:46`). "PerritoDeck Host" was what the tablet apps told people to start: Android `strings.xml:14,18,32`, `net/Pairing.kt:64`, `net/DeckConnection.kt:474`; iOS `ScanView.swift:44`, `HomeView.swift:22,69`, `Info.plist:50`, `PerritoKit/Pairing.swift:43`, `PerritoKit/PinnedWebSocket.swift:31`; the website's `download.html:7,13,53` and `privacy.html:55`. The command-line program stays `perritodeck-host` either way | **Decided 2026-10-15:** "PerritoDeck", the `productName`. "PerritoDeck Host" is retired everywhere people see it: the tablet strings, the website and the store text change in one commit (renamed in the tree on 2026-10-15, not yet committed). The tablet app stays "Perrito", and the command-line binary keeps its file name, `perritodeck-host` | The store listing (M3) |
 | D11 | **Reproducible Android builds and the startup profile.** `assets/dexopt/baseline.prof`, the ART startup profile R8 rewrites for the minified code, records the checksum of `classes.dex`, so it matches whenever the dex does. Measured on 2026-10-15 on one Windows PC (JDK 17, AGP 8.11.1): three clean release builds with the build cache off, in three folders on two drives, gave the same APK (2,179,425 bytes unsigned), while an incremental Kotlin compile changed the dex and so the profile (six classes when the compile came from the user-level build cache). With R8's profile rewriting off (only `android { experimentalProperties[...] }` does it; the `gradle.properties` flag has no effect on AGP 8.11.1) builds still match, but only 464 of the profile's 35,030 rules name a class in the obfuscated code (8,666 of 8,738 with it on), so the startup profile is effectively lost; turning off the ArtProfile tasks loses it outright on API 24+ | **Settled 2026-10-15 by measurement**, so no maintainer decision is needed: keep AGP's defaults and compare clean builds made with `--no-build-cache` ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide again only if CI's and F-Droid's builds differ; no comparison between machines has been run yet. **Reopened 2026-10-24:** in WSL, F-Droid's build and ours of the same commit differed only in `baseline.prof`, and that profile changed between runs of one setup too, so it isn't deterministic ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide before adding `Binaries` | The reproducible-build comparison and F-Droid's `Binaries` (M4) |
-| ✅ D12 | **Where the website is hosted.** The live site is a Cloudflare Worker with static assets, set up in the dashboard, while the 2026-10-13 decision chose Cloudflare Pages with Git integration. The Worker answers unknown addresses with an empty 404 instead of `404.html` and redirects `/privacy.html` with a 307; the repository has no Wrangler config for it. The maintainer's other project, evi-ai.dev, is on GitHub Pages | **Decided 2026-10-17:** GitHub Pages, set up as evi-ai.dev is. A separate public repository, `perritodeck/perritodeck.github.io`, is the organization's Pages site (Deploy from a branch, `main`, `/`, with a `CNAME` file and `.nojekyll`), and Cloudflare does DNS only, never proxied. `website/` stays the only source and the site repository holds generated output only, written by `scripts/publish_site.py`: by hand from WSL until the flip, then by the Site publish workflow with a token in a `site` environment. GitHub Pages can't send headers, so the CSP (without `frame-ancestors`), the referrer policy and noindex become `<meta>` tags; framing protection, `nosniff`, `Permissions-Policy`, COOP, long cache lifetimes and noindex on files that aren't pages are given up, and so is the HSTS header, moot on `.dev`. The site's source is public on github.com before launch. `website/_headers` stays until the Worker is deleted, a few stable days after the cutover. The Worker, its dashboard-only settings and the Cloudflare GitHub app go after the cutover ([website.md, Cutover runbook](../website.md#cutover-runbook)) | M1-5, M1-6 (the 404 page) |
+| ✅ D12 | **Where the website is hosted.** The live site is a Cloudflare Worker with static assets, set up in the dashboard, while the 2026-10-13 decision chose Cloudflare Pages with Git integration. The Worker answers unknown addresses with an empty 404 instead of `404.html` and redirects `/privacy.html` with a 307; the repository has no Wrangler config for it. The maintainer's other project, evi-ai.dev, is on GitHub Pages | **Decided 2026-10-17:** GitHub Pages, set up as evi-ai.dev is. A separate public repository, `perritodeck/perritodeck.github.io`, is the organization's Pages site (Deploy from a branch, `main`, `/`, with a `CNAME` file and `.nojekyll`), and Cloudflare does DNS only, never proxied. `website/` stays the only source and the site repository holds generated output only, written by `scripts/publish_site.py`: by hand from WSL until the flip, then by the Site publish workflow with a token in a `site` environment. GitHub Pages can't send headers, so the CSP (without `frame-ancestors`), the referrer policy and noindex become `<meta>` tags; framing protection, `nosniff`, `Permissions-Policy`, COOP, long cache lifetimes and noindex on files that aren't pages are given up, and so is the HSTS header, moot on `.dev`. The site's source is public on github.com before launch. `website/_headers` stays until the Worker is deleted, a few stable days after the cutover. The Worker, its dashboard-only settings and the Cloudflare GitHub app go after the cutover ([website.md, Cutover runbook](../website.md#cutover-runbook)). **Done 2026-10-24:** the cutover, with the Worker deleted at the swap (no rollback) and `website/_headers` deleted the same day (M1-5) | M1-5, M1-6 (the 404 page) |
 | ✅ D13 | **The unmaintained advisories with no upgrade:** `zvariant`, `zbus_names` and `zvariant_derive` (RUSTSEC-2026-0370 to 0372, merged into zbus 6) and `proc-macro-error` (RUSTSEC-2024-0370). All Linux only, so not in v0.1.0; ashpd, Tauri's opener and single-instance plugins and Tauri's GTK stack haven't moved yet | **Decided 2026-10-17:** accepted for now, each with a reason in `host/deny.toml`, like D6. They go when ashpd and the two Tauri plugins move to zbus 6 and Tauri moves to gtk-rs 0.19; cargo-deny's `advisory-not-detected` warning flags a stale ignore. Every advisory with a fix was updated (rustls, zip, webpki-roots, rustls-webpki, tokio), so `cargo deny check` passes on both workspaces (2026-10-24) | CI running advisories |
 
 ## M1: public repo
@@ -93,8 +92,8 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 | 2. ✅ Bring the website, mail and DNS docs in line with reality (nameservers already moved, the mail service, NEL and Speed Brain off, DNSSEC, the privacy URL). Done 2026-10-15: the site's notes moved to [`docs/website.md`](../website.md), whose "Deploy", "Where it stands" and "The domain" describe the live Worker, `www`, HSTS, NEL, DNSSEC and D2's mail, and whose "The project" asked which to keep (D12; on 2026-10-17 it gave way to the cutover runbook). Next-steps, the launch checklist, distribution and "Right now" above say the same | C | |
 | 3. ✅ `bootstrap-gradle-wrapper.yml` no longer pushes to `main`. Done 2026-10-15, differently from planned: it pushes a signed-off `gradle-wrapper-<version>` branch and links a compare page from which a person opens the PR, so "Allow GitHub Actions to create and approve pull requests" stays off (DECISIONS). It hasn't run on GitHub yet (CI is blocked) | C | |
 | 4. ✅ Stale docs from today's review (Actions permissions are already read-only; MSI and Linux lines in HANDOFF; the Twitch Affiliate item, decided). Done 2026-10-15; the Affiliate decision is in DECISIONS, the Twitch test plan and the tools README | C | |
-| 5. **Website: the cutover to GitHub Pages (D12)**, step by step in the [cutover runbook](../website.md#cutover-runbook). Done 2026-10-15 for the Worker, which serves `perritodeck.dev` until the cutover: the domain, `www` answering 301, DNSSEC in force (DS 2371/13/2 at the `.dev` registry), mail (D2). Left, in order: the D12 changes reviewed and committed (the policy `<meta>` tags first; the Worker deploys them); Billing & plans read (a failed payment or the spending limit?); `perritodeck.dev` verified for the organization; the public site repository created; the first publish by hand from WSL, with `pages-build-deployment` running despite the billing block (if not, stop and keep the Worker); the custom domain set in Pages before any DNS change; the DNS swap (Worker domain off, GitHub's 4 `A` and 4 `AAAA` records and the `www` `CNAME`, all DNS only), at least several days before the flip, since HTTPS may be down for up to 48 hours; the domain removed and added again, then Enforce HTTPS once the certificate is approved; after a few stable days the Worker, the Cloudflare GitHub app and the Web Analytics entry deleted, then (C) `website/_headers` deleted and the CSP test made to read the `<meta>` tag alone. The zone settings only the dashboard shows stop mattering then. D3 keeps the catalogue on `main` (2026-10-17) | M (C checks) | D12 ✅ |
-| 6. Checks after the cutover (in the runbook): `--check-live`, the Pages API's certificate and proxy state, the `http://`, `www` and `perritodeck.github.io` redirects, `/plugins/index.json` and a zip's SHA-256, the 404 page (GitHub serves `404.html`), `/README.md` and `/_headers` gone, DNSSEC and mail unchanged, no CSP errors, and **Look online** installing from the live catalogue. Partly done 2026-10-15 against the Worker: the redirects, a 404 status (with an empty body, not `404.html`), `/README.md` gone and `index.json` (24 plugins, 13 marked Experimental) | C | 5 |
+| 5. ✅ **Website: the cutover to GitHub Pages (D12)**, step by step in the [cutover runbook](../website.md#cutover-runbook). Done 2026-10-24: the D12 changes committed; `perritodeck.dev` verified for the organization (the challenge `TXT` record kept); the public site repository created and published by hand from WSL (`34861f5`, from `perritodeck@328162b`), with `pages-build-deployment` passing despite the billing block; the custom domain set in Pages; the DNS swap (GitHub's 4 `A` and 4 `AAAA` records and the `www` `CNAME`, all DNS only); the Let's Encrypt certificate approved within about a minute, then Enforce HTTPS. The Cloudflare Worker was deleted at the swap instead of a few stable days later, so there was no rollback; the `www` Redirect Rule and the Cloudflare GitHub app went too, and Web Analytics had no entry for the site. Then (C) `website/_headers` deleted, the CSP test made to read the `<meta>` tag alone, and `--check-live`'s skip for the Worker removed. The zone settings only the dashboard shows no longer matter. D3 keeps the catalogue on `main` (2026-10-17) | M (C checks) | D12 ✅ |
+| 6. Checks after the cutover (in the runbook): `--check-live`, the Pages API's certificate and proxy state, the `http://`, `www` and `perritodeck.github.io` redirects, `/plugins/index.json` and a zip's SHA-256, the 404 page (GitHub serves `404.html`), `/README.md` and `/_headers` gone, DNSSEC and mail unchanged, no CSP errors, and **Look online** installing from the live catalogue. Done 2026-10-24 but for the last: every check passed (24 plugins, `application/json`, the zips' SHA-256s match; no console errors on `/`, `/download` and `/plugins/`). Left: **Look online** in the real desktop app installing a plugin from the live catalogue | C | 5 ✅ |
 | 7. ✅ Account security. Done 2026-10-15: 2FA is on for the maintainer's GitHub, Namecheap, Cloudflare and ImprovMX accounts; the perritodeck org requires 2FA (`two_factor_requirement_enabled: true`, and no member without 2FA, checked through the API); auto-renew is on at Namecheap. The two parts that check didn't cover were confirmed on 2026-10-17: the maintainer has passkey 2FA on the Azure account D1 keeps, and Namecheap's Domain Lock is on for perritodeck.dev (the `.dev` registry's RDAP shows "client transfer prohibited", checked 2026-10-17). Nothing is left to confirm | M | |
 | 8. ✅ The stale `v0.1.0` tag. Done 2026-10-15: no other clone exists, and there are no tags in the repository or on GitHub | M | |
 | 9. Create the `triage` and `plugin` labels the issue forms use | C+M | the maintainer's OK |
@@ -102,7 +101,7 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 | 11. Final scans right before the flip: personal data in history, gitleaks over every ref | C | everything above pushed |
 | 12. **Flip the repository to public** | M | 1–11 |
 | 13. Repo settings after the flip: private vulnerability reporting, Dependabot alerts, secret scanning with push protection, rulesets for `main` (no required checks until the gate job exists) and `v*` tags, first-time contributor approval, require SHA-pinned actions, description/topics/website, and the `site` environment with `SITE_PUBLISH_TOKEN` (D12, [website.md](../website.md#after-the-flip-site-publish)) | M | 12 |
-| 14. Confirm Actions runs again, Site publish and Site check included (a manual run of Site publish says "site: no change"; Site check passes, or skips itself before the cutover) (the runbook's last steps) | M | 12 |
+| 14. Confirm Actions runs again, Site publish and Site check included (a manual run of Site publish says "site: no change"; Site check passes) (the runbook's last steps) | M | 12 |
 
 ## M2: website live
 
@@ -179,22 +178,19 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 Done by 2026-10-15, in the tree: the OBS pass and its fixes, the Twitch test tools, M1-1
 to M1-4, M2-2, M3-1 to M3-5, M3-12 and D10's renames. On 2026-10-17: D6's ignore in
 `host/deny.toml`, and D3, D6, D7, D8 and M1-7 written up in these docs; then D12's repo
-side, in the tree and not yet committed: the policy `<meta>` tags and their tests, the
-catalogue build that's the same on any OS, `scripts/publish_site.py` with its tests,
-`site-publish.yml`, the drift check in `site-check.yml`, and these docs with the cutover
-runbook.
+side: the policy `<meta>` tags and their tests, the catalogue build that's the same on any
+OS, `scripts/publish_site.py` with its tests, `site-publish.yml`, the drift check in
+`site-check.yml`, and these docs with the cutover runbook. On 2026-10-24: the cutover.
 
-1. Commit the 2026-10-15 work in reviewed pieces, with D10's renames (tablet strings,
-   website, store text) as one commit.
-2. Commit D12's repo side after review, the `<meta>` tags first (the Worker deploys them;
-   check in a browser that no page logs a CSP error with both policies in force), then work
-   through the cutover runbook with the maintainer (M1-5): the first publish by hand, and
-   the read-only checks after each step.
-3. M2-1, and the rest of M1-6 after the cutover: the 404 page, and Look online installing
-   from the live catalogue. Until the flip, publish by hand after each change to `website/`
-   or `plugins/` on `main`, and run `--check-live` now and then. Once the Worker is
-   deleted, a few stable days after the cutover: delete `website/_headers` and make the CSP
-   test read the `<meta>` tag alone (M1-5).
+1. ✅ Commit the 2026-10-15 work in reviewed pieces, with D10's renames (tablet strings,
+   website, store text) as one commit (`25ee003`).
+2. ✅ D12's repo side committed, and the cutover runbook worked through with the maintainer
+   (M1-5): done 2026-10-24, with the first publish by hand, the read-only checks after each
+   step, and then `website/_headers` deleted and the CSP test made to read the `<meta>` tag
+   alone.
+3. M2-1, and the rest of M1-6: Look online installing from the live catalogue in the real
+   app (the 404 page is checked). Until the flip, publish by hand after each change to
+   `website/` or `plugins/` on `main`, and run `--check-live` now and then.
 4. M3-6 after the Twitch pass. Right before the flip: M1-10 (delete every Actions run and
    its artifacts, with the maintainer's OK then) and M1-11.
 5. ✅ The advisories `cargo deny check advisories` flagged besides D6's: done 2026-10-24.

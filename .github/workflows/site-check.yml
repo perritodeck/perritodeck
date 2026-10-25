@@ -4,8 +4,7 @@ name: Site check
 # couldn't renew its certificate, and once that expired Cloudflare answered 526 for weeks.
 # This fails long before the certificate runs out unless perritodeck.dev and www, and the
 # catalogue the host's Look online downloads, come straight from GitHub Pages
-# (docs/website.md, The domain). It skips itself while the Cloudflare Worker still serves the
-# site, before the cutover.
+# (docs/website.md, The domain).
 #
 # A workflow of its own, so it takes seconds rather than waiting on a Rust build, and no push
 # can cancel it (a push to main touching host/ cancels the Host workflow's weekly run).

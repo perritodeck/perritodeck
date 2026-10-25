@@ -11,12 +11,11 @@ builds from a fresh checkout of HEAD, so no untracked or git-ignored file goes o
 one in a plugin's folder, which build_catalog.py would zip), and build_catalog.py can take each
 file's mode from git. The catalogue goes into a new folder, so no old version's zip is left
 over. Then the site checkout is made to hold exactly website/ plus the catalogue as plugins/,
-where the app's Look online downloads it. website/_headers is left out: only the Cloudflare
-Worker reads it, and GitHub Pages would serve it as a file. .git stays, and so do CNAME
-(perritodeck.dev) and .nojekyll, which are created if missing. Everything else in the site
-checkout is deleted, and no README is written. Last, it checks the result: the pages are
-there, index.json parses and every file it lists is beside it with its SHA-256, and no
-_headers or .md file is left to be served.
+where the app's Look online downloads it. .git stays, and so do CNAME (perritodeck.dev) and
+.nojekyll, which are created if missing. Everything else in the site checkout is deleted, and
+no README is written. Last, it checks the result: the pages are there, index.json parses and
+every file it lists is beside it with its SHA-256, and no _headers, _redirects or .md file
+would be served.
 
 It doesn't commit or push. It prints the site checkout's `git status`, so whoever runs it by
 hand sees the change before committing it. On main, .github/workflows/site-publish.yml commits
@@ -30,9 +29,7 @@ guards, but it still won't empty a folder that isn't the site.
 down: its DNS records were switched to proxied, GitHub couldn't renew its certificate, and once
 that expired Cloudflare answered 526 for weeks. It fails unless perritodeck.dev and its www
 resolve only to GitHub Pages, / and /plugins/index.json answer 200 and www 301 to the bare
-domain, all with Server: GitHub.com, and the certificate has more than 21 days left. Before the
-cutover it skips itself: while perritodeck.dev doesn't point at GitHub and answers with the
-Content-Security-Policy header that only the Cloudflare Worker sends, the Worker serves the site.
+domain, all with Server: GitHub.com, and the certificate has more than 21 days left.
 
 Standard library only.
 """
@@ -59,7 +56,8 @@ SITE_ORIGIN = re.compile(r"[/:]perritodeck/perritodeck\.github\.io(\.git)?/?$", 
 # What GitHub Pages needs beside the build: the custom domain, and no Jekyll (which leaves out
 # files whose names start with "_" or ".").
 KEPT = ("CNAME", ".nojekyll")
-# Cloudflare's configuration files. GitHub Pages doesn't read them; it would serve them as files.
+# Cloudflare's configuration files. GitHub Pages doesn't read them; it would serve them as files,
+# so a publish that would serve one fails.
 UNPUBLISHED = {"_headers", "_redirects"}
 # What the site can't do without. The app's Look online reads plugins/index.json.
 REQUIRED = ("index.html", "404.html", "plugins/index.html", "plugins/index.json")
@@ -155,15 +153,14 @@ def checkout(repo, dest):
 
 
 def build(src, out):
-    """The site as published, in the new folder `out`: src/website without UNPUBLISHED, and the
-    catalogue built from src/plugins as out/plugins."""
+    """The site as published, in the new folder `out`: src/website, and the catalogue built
+    from src/plugins as out/plugins."""
     website = os.path.join(src, "website")
     os.makedirs(out)
     for rel in files(website):
         if rel.split("/")[0] == "plugins":
             sys.exit(f"website/{rel} is committed, but website/plugins/ is where the catalogue is built")
-        if rel not in UNPUBLISHED:
-            copy(os.path.join(website, *rel.split("/")), os.path.join(out, *rel.split("/")))
+        copy(os.path.join(website, *rel.split("/")), os.path.join(out, *rel.split("/")))
     builder = os.path.join(src, "plugins", "build_catalog.py")
     r = subprocess.run([sys.executable, builder, os.path.join(out, "plugins")], capture_output=True)
     sys.stdout.write(r.stdout.decode(errors="replace"))
@@ -302,8 +299,7 @@ def fetch(host, path):
 
 
 def check_live(resolve=resolve, fetch=fetch, now=time.time):
-    """What's wrong with perritodeck.dev and www as served; [] if nothing, or if it's skipped
-    because the Cloudflare Worker still serves the site."""
+    """What's wrong with perritodeck.dev and www as served; [] if nothing."""
     problems, elsewhere = [], {}
     for host in (DOMAIN, WWW):
         try:
@@ -318,18 +314,6 @@ def check_live(resolve=resolve, fetch=fetch, now=time.time):
             answers[host, path] = fetch(host, path)
         except (OSError, http.client.HTTPException) as e:
             answers[host, path] = e
-    # Checking DNS alone would skip evi's failure too: proxied records resolve to Cloudflare. So
-    # it skips only while the Worker answers. Only the Worker sends a Content-Security-Policy
-    # header (from website/_headers): GitHub Pages can't, and a proxy in front of it has none.
-    home = answers[DOMAIN, "/"]
-    if elsewhere.get(DOMAIN) and not isinstance(home, Exception) and "Content-Security-Policy" in home[1]:
-        annotate(
-            "warning",
-            f"Skipped: {DOMAIN} resolves to {', '.join(elsewhere[DOMAIN])}, not to GitHub Pages, and answers with "
-            "the Cloudflare Worker's Content-Security-Policy header, so the Worker still serves the site. Once "
-            "it doesn't, an address that isn't GitHub's fails this check.",
-        )
-        return []
     for host, found in elsewhere.items():
         if found:
             problems.append(

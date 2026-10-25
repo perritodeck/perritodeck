@@ -433,22 +433,21 @@ class Head(HTMLParser):
 LAUNCHED = False
 
 
-def header_policies():
-    """The Content-Security-Policy headers website/_headers sends."""
-    with open(os.path.join(WEBSITE, "_headers"), encoding="utf-8") as f:
-        return [line.split(":", 1)[1].strip() for line in f if line.strip().startswith("Content-Security-Policy:")]
+# The site's one Content-Security-Policy, in a <meta> tag on every page and in the catalogue
+# template: only the site's own files, no inline code, nothing fetched at runtime. It has no
+# frame-ancestors, which browsers ignore in a <meta> tag.
+POLICY = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
+    "base-uri 'none'; form-action 'none'"
+)
 
 
 def head_start(not_found=False):
     """The tags every page's <head> starts with. GitHub Pages can't send headers, so the
-    policies are <meta> tags, and first, since a policy covers only what comes after it. The
-    CSP is the header's without frame-ancestors, which browsers ignore in a <meta> tag."""
-    (policy,) = header_policies()
-    directives = (d.strip() for d in policy.split(";"))
-    meta_policy = "; ".join(d for d in directives if d and d.split()[0] != "frame-ancestors")
+    policies are <meta> tags, and first, since a policy covers only what comes after it."""
     start = [
         ("meta", {"charset": "utf-8"}),
-        ("meta", {"http-equiv": "Content-Security-Policy", "content": meta_policy}),
+        ("meta", {"http-equiv": "Content-Security-Policy", "content": POLICY}),
         ("meta", {"name": "referrer", "content": "no-referrer"}),
     ]
     if not LAUNCHED or not_found:  # 404.html keeps its robots tag for good
@@ -557,9 +556,8 @@ class Page(unittest.TestCase):
 
 
 class Website(unittest.TestCase):
-    """The site's Content-Security-Policy (in website/_headers, and in a <meta> tag on every
-    page) allows only the site's own files, with no inline code. Anything inline would
-    silently stop working once deployed."""
+    """The site's Content-Security-Policy (a <meta> tag on every page) allows only the site's
+    own files, with no inline code. Anything inline would silently stop working once deployed."""
 
     def pages(self):
         found = glob.glob(os.path.join(WEBSITE, "*.html")) + glob.glob(os.path.join(WEBSITE, "guide", "*.html"))
@@ -659,22 +657,21 @@ class Website(unittest.TestCase):
             with self.subTest(rel):
                 check_policies(self, text, not_found=rel == "404.html")
 
-    def test_there_is_one_strict_policy(self):
-        policies = header_policies()
-        self.assertEqual(len(policies), 1, "two CSP headers on one path are two policies that must both pass")
-        policy = policies[0]
-        self.assertIn("default-src 'none'", policy)
-        self.assertIn("script-src 'self';", policy)
-        self.assertIn("style-src 'self';", policy)
-        for loose in ("unsafe-", "sha256-", "nonce-", "*", "http:", "https:", "data:"):
-            self.assertNotIn(loose, policy)
+    def test_the_policy_is_strict(self):
+        # That there's one policy on each page, and that it's this one, is check_policies().
+        self.assertIn("default-src 'none'", POLICY)
+        self.assertIn("script-src 'self';", POLICY)
+        self.assertIn("style-src 'self';", POLICY)
+        for loose in ("unsafe-", "sha256-", "sha384-", "sha512-", "nonce-", "*", "http:", "https:", "data:",
+                      "frame-ancestors"):
+            self.assertNotIn(loose, POLICY)
 
     def test_the_folder_holds_only_files_the_site_serves(self):
-        # scripts/publish_site.py publishes every committed file under website/ but _headers and
-        # _redirects, so a README, notes or a script there would be live at
-        # https://perritodeck.dev/<name>. They go in docs/website.md and scripts/.
+        # scripts/publish_site.py publishes every committed file under website/, so a README,
+        # notes or a script there would be live at https://perritodeck.dev/<name>. They go in
+        # docs/website.md and scripts/.
         served = {".html", ".css", ".js", ".png", ".webp", ".ico", ".svg", ".woff2"}
-        named = {"_headers", "_redirects", "robots.txt", "sitemap.xml"}
+        named = {"robots.txt", "sitemap.xml"}
 
         def unpublishable(root):
             for folder, subfolders, files in os.walk(root):
@@ -692,11 +689,12 @@ class Website(unittest.TestCase):
 
         self.assertEqual(sorted(unpublishable(WEBSITE)), [], "this would be published; see docs/website.md")
         with tempfile.TemporaryDirectory() as tmp:
-            for rel in ("index.html", "img/og.png", "fonts/LICENSE-x.txt", "_headers", "plugins/index.json",
-                        "README.md", "notes.txt", "img/og-image.py", "guide/LICENSE-x.txt"):
+            for rel in ("index.html", "img/og.png", "fonts/LICENSE-x.txt", "robots.txt", "plugins/index.json",
+                        "README.md", "notes.txt", "img/og-image.py", "guide/LICENSE-x.txt", "_headers"):
                 write(os.path.join(tmp, *rel.split("/")), "")
             self.assertEqual(
-                sorted(unpublishable(tmp)), ["README.md", "guide/LICENSE-x.txt", "img/og-image.py", "notes.txt"]
+                sorted(unpublishable(tmp)),
+                ["README.md", "_headers", "guide/LICENSE-x.txt", "img/og-image.py", "notes.txt"],
             )
 
 

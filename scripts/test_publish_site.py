@@ -27,7 +27,6 @@ WEBSITE = {
     "website/404.html": "<!doctype html><title>Not found</title>\n",
     "website/style.css": "body { margin: 0; }\n",
     "website/guide/index.html": "<!doctype html><title>Guide</title>\n",
-    "website/_headers": "/*\n  X-Robots-Tag: noindex\n",
 }
 PUBLISHED = [
     ".nojekyll", "404.html", "CNAME", "guide/index.html", "index.html",
@@ -225,6 +224,15 @@ class Publish(Repo):
         self.commit("a readme")
         self.assertIn("README.md would be served", self.refused())
 
+    def test_a_publish_fails_when_the_result_would_serve_a_cloudflare_file(self):
+        for name in sorted(ps.UNPUBLISHED):
+            with self.subTest(name):
+                write(os.path.join(self.repo, "website", name), "/*\n  X-Robots-Tag: noindex\n")
+                self.commit(name)
+                self.assertIn(f"{name} would be served", self.refused())
+                os.remove(os.path.join(self.repo, "website", name))
+                self.commit(f"no {name}")
+
     def test_a_committed_file_in_website_plugins_is_refused(self):
         write(os.path.join(self.repo, "website", "plugins", "extra.json"), "{}\n")
         git(self.repo, "add", "-f", "website/plugins/extra.json")
@@ -297,8 +305,6 @@ class Check(Repo):
 GITHUB = ["185.199.108.153", "185.199.111.153", "2606:50c0:8000::153", "2606:50c0:8003::153"]
 CLOUDFLARE = ["104.21.22.139", "172.67.205.29"]
 NOW = 1_800_000_000
-# The header only the Cloudflare Worker sends (from website/_headers); GitHub Pages can't.
-WORKER = {"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"}
 
 
 def headers(fields):
@@ -344,27 +350,25 @@ class CheckLive(unittest.TestCase):
                                         "https://www.perritodeck.dev/"])
         self.assertIn("perritodeck.dev and www.perritodeck.dev are GitHub Pages", said)
 
-    def test_before_the_cutover_it_skips_itself(self):
-        # Today: the Worker, behind Cloudflare's addresses, sends website/_headers' headers.
-        problems, said = self.run_check(CLOUDFLARE, servers=["cloudflare"], extra=WORKER)
-        self.assertEqual(problems, [])
-        self.assertIn("Skipped: perritodeck.dev resolves to 104.21.22.139", said)
-
     def test_the_proxy_switched_back_on_fails(self):
         # evi-ai.dev's failure: the records proxied again, while the old certificate still works.
-        # No Worker answers any more, whatever is still in the repository.
-        problems, _ = self.run_check(CLOUDFLARE, servers=["cloudflare"])
+        problems, said = self.run_check(CLOUDFLARE, servers=["cloudflare"])
         self.assertIn("set the apex and www records back to DNS only", problems[0])
         self.assertIn("https://perritodeck.dev/ came through Cloudflare (Server: cloudflare): set the apex and www "
                       "records to DNS only", problems)
+        self.assertNotIn("Skipped", said)
+
+    def test_a_content_security_policy_header_doesnt_skip_it(self):
+        # The Cloudflare Worker that sent one is gone (deleted at the cutover, 2026-10-24), so
+        # nothing in front of the site is expected any more.
+        csp = {"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'"}
+        problems, said = self.run_check(CLOUDFLARE, servers=["cloudflare"], extra=csp)
+        self.assertIn("set the apex and www records back to DNS only", problems[0])
+        self.assertNotIn("Skipped", said)
 
     def test_only_www_proxied_fails(self):
         problems, _ = self.run_check(www=CLOUDFLARE)
         self.assertTrue(any(p.startswith("www.perritodeck.dev resolves to 104.21.22.139") for p in problems), problems)
-
-    def test_once_it_points_at_github_the_worker_header_doesnt_skip_it(self):
-        problems, _ = self.run_check(status=404, extra=WORKER)
-        self.assertIn("https://perritodeck.dev/ answered 404, not 200", problems)
 
     def test_what_fails_it(self):
         cases = {
@@ -380,7 +384,7 @@ class CheckLive(unittest.TestCase):
             "perritodeck.dev resolves to 192.0.2.1, not only to GitHub Pages": {"addresses": GITHUB + ["192.0.2.1"]},
             "perritodeck.dev doesn't resolve": {"addresses": socket.gaierror("Name or service not known")},
             "www.perritodeck.dev doesn't resolve": {"www": socket.gaierror("Name or service not known")},
-            # Cloudflare's addresses and an error page: nothing shows the Worker still serves the site.
+            # Cloudflare's addresses and its error page: evi-ai.dev once the certificate expired.
             "https://perritodeck.dev/ answered 526, not 200": {"addresses": CLOUDFLARE, "status": 526},
         }
         for expected, case in cases.items():

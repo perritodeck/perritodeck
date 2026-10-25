@@ -310,8 +310,8 @@ has to be public.
 
 **Deploy:** the plan here was Cloudflare Pages, with the build command
 `python3 plugins/build_catalog.py website/plugins` and the output directory `website`. The
-live site has been a Cloudflare Worker with static assets on the custom domain since
-2026-10-15, and moves to GitHub Pages at the cutover (item 12; the runbook is in
+live site was a Cloudflare Worker with static assets on the custom domain from 2026-10-15,
+and moved to GitHub Pages on 2026-10-24 (item 12; the runbook is in
 [`docs/website.md`](website.md#cutover-runbook)).
 
 **Build out:**
@@ -661,58 +661,48 @@ CI's included, are unsigned, which is what F-Droid wants.
 - `docs/fdroid/dev.perritodeck.client.yml`: fill in `AllowedAPKSigningKeys` and `Binaries`
   once the builds match.
 
-## 12. The website goes live (maintainer) — live (2026-10-15), moving to GitHub Pages (D12)
+## 12. The website goes live (maintainer) — live (2026-10-15), on GitHub Pages since 2026-10-24 (D12)
 
-**Where it stands** (checked 2026-10-15; [docs/website.md, Until the
-cutover](website.md#until-the-cutover) has the details). `https://perritodeck.dev` is live
-with the temporary `X-Robots-Tag: noindex`. A Cloudflare Worker named `perritodeck` with
-static assets serves it on the custom domain: it isn't a Pages project, as the 2026-10-13
-decision planned, and `perritodeck.pages.dev` doesn't exist. That settles two earlier
-questions: the bare domain is the canonical address, and the domain is attached before
-launch (the store listings link the privacy policy, and the real-world passes can use the
-real catalogue), with
-noindex until launch day. The site matches the current `main` (`6861f46`, checked by
-15:16 UTC and again at 15:46): `/README.md` answers 404, `/img/og.png` loads, and
-`/plugins/index.json` lists the 24 plugins, 13 of them marked Experimental, also for the
-app's user agent. `http://` redirects to `https://`, and `www` answers 301 to
-`https://perritodeck.dev`, keeping the path and query (one Redirect Rule, plus a proxied
-`A` record to 192.0.2.1 for `www`). HSTS is the site's own two-year header from
-`_headers`, and Network Error Logging is off. DNSSEC is in force: DS 2371/13/2 is at the
-`.dev` registry, and resolvers validate. From outside, the pages carry nothing Cloudflare
-injects and no Speed Brain header. Mail is set up as D2 decided (item 8).
+**Where it stands** (checked 2026-10-24; [docs/website.md](website.md) has the details).
+`https://perritodeck.dev` is live with the temporary `robots` noindex tag, served by GitHub
+Pages from the public repository `perritodeck/perritodeck.github.io` (D12, decided
+2026-10-17, the way evi-ai.dev works). Cloudflare does DNS only: GitHub's four `A` and
+four `AAAA` records and `www` as a `CNAME` to `perritodeck.github.io`, never proxied, plus
+the domain's challenge `TXT` record, kept for good. `website/` stays the only source;
+`scripts/publish_site.py` builds the site and the catalogue from `main` into a clone of the
+site repository, by hand from WSL until the flip and then through the Site publish
+workflow. The first publish was `34861f5`, from `perritodeck@328162b`, and GitHub's
+`pages-build-deployment` ran despite the billing block. GitHub Pages can't send headers, so
+the CSP (without `frame-ancestors`), the referrer policy and noindex are `<meta>` tags at
+the top of every page and of the catalogue template; the other headers are given up
+(DECISIONS has the list).
 
-**Decided (D12, 2026-10-17): GitHub Pages, the way evi-ai.dev works.** A separate public
-repository, `perritodeck/perritodeck.github.io`, is the organization's Pages site (Deploy
-from a branch, `main`, `/`, with a `CNAME` file and `.nojekyll`), and Cloudflare does DNS
-only, never proxied. `website/` stays the only source; `scripts/publish_site.py` builds the
-site and the catalogue from `main` into a clone of the site repository, by hand from WSL
-until the flip and then through the Site publish workflow. GitHub Pages can't send
-headers, so the CSP (without `frame-ancestors`), the referrer policy and noindex are
-`<meta>` tags at the top of every page and of the catalogue template, and the other
-headers in `_headers` are given up (DECISIONS has the list). `website/_headers` stays until
-the Worker is deleted, a few stable days after the cutover; the meta and header policies
-both apply until the cutover, and both pass. In the tree, not yet committed: the tags and
-their tests, a catalogue build that's the same on any OS, the publish script and its
-tests, the Site publish workflow, and the weekly drift check (the Site check workflow).
+The cutover was on 2026-10-24 (the [cutover runbook](website.md#cutover-runbook) has what
+happened). The Let's Encrypt certificate for the apex and `www` was approved within about a
+minute (until 2027-01-22), and Enforce HTTPS is on. The Cloudflare Worker that had served
+the site since 2026-10-15 was deleted at the swap rather than kept a few days as the
+rollback, so there was no rollback. The `www` Redirect Rule and the "Cloudflare Workers and
+Pages" GitHub App went too, and Web Analytics had no entry for the site. Every check after
+the swap passed: `http://` to `https://`, `www` to the apex keeping the path and query,
+`perritodeck.github.io` to the domain, 200s with `Server: GitHub.com`, the 404 page,
+`/README.md` and `/_headers` answering 404, the catalogue (24 plugins, `application/json`,
+the zips' SHA-256s match), DNSSEC validating and the mail records unchanged,
+`publish_site.py --check-live`, and no console errors on `/`, `/download` and `/plugins/`.
+Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, and
+`--check-live` no longer skips itself for the Worker.
 
-**Left** (the [cutover runbook](website.md#cutover-runbook) has the steps, who does each,
-and the checks):
-- **The cutover (`docs/plan/phase-8.md` M1-5):** commit the D12 changes; read Billing and
-  plans; verify `perritodeck.dev` for the organization; create the site repository; the
-  first publish by hand, which also shows whether the site repository's Pages builds run
-  despite the billing block (if they don't, keep the Worker); the custom domain in Pages
-  before DNS; the DNS swap, at least several days before the flip, since HTTPS may be down
-  for up to 48 hours; Enforce HTTPS; then, after a few stable days, the Worker, the
-  Cloudflare GitHub app and the Web Analytics entry deleted, and `website/_headers` deleted
-  with the CSP test made meta-only. The zone settings only the
-  dashboard shows were never confirmed, and stop mattering at the cutover.
+**Left** (the [cutover runbook](website.md#cutover-runbook) has who does each):
+- ✅ **The cutover (`docs/plan/phase-8.md` M1-5):** done 2026-10-24, as above.
 - ✅ **Where the catalogue comes from (D3, decided 2026-10-17):** `main`. Each publish
   rebuilds it (by hand until the flip, then on every push to `main` that touches
   `website/` or `plugins/`), so plugin fixes reach every app's "Look online" without an
   app release. Manifests can't yet say which host version they need (item 17); revisit D3
   once they can.
-- **Look online against the live catalogue:** Plugins → Look online installs a plugin
-  from it (not tried yet; one of the checks after the cutover).
+- **Look online against the live catalogue:** Plugins → Look online in the real app
+  installs a plugin from it (not tried yet; the one check after the cutover still open,
+  M1-6).
+- **Until the flip:** publish by hand after each change to `website/` or `plugins/` on
+  `main`, and run `--check-live` now and then and after any DNS change.
 - **At the flip:** the `site` environment and `SITE_PUBLISH_TOKEN`, and first manual runs
   of Site publish and Site check.
 - **Launch day:** [docs/website.md, Launch day](website.md#launch-day) removes the noindex
