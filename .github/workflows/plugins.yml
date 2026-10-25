@@ -39,6 +39,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+      # Windows has no time zone database of its own, so the clock plugin's tests of zone
+      # names need Python's tzdata package there, as people who use them on Windows do.
+      - if: runner.os == 'Windows'
+        run: python -m pip install --disable-pip-version-check tzdata==2026.5
       # SDKs, first-party plugins, and the bundled SDK copies matching the SDK. It also
       # runs test_build_catalog.py, which checks website/ for anything the site's
       # Content-Security-Policy would block. "python", not python3: setup-python provides

@@ -16,6 +16,14 @@ def at(*args, tz=UTC):
     return datetime.datetime(*args, tzinfo=tz)
 
 
+# Zone names need a time zone database: the system's, or on Windows Python's tzdata
+# package (CI installs it there). Without one, the plugin's hint is tested with a mock.
+needs_zone_database = unittest.skipUnless(
+    clock.zoneinfo is not None and clock.zoneinfo.available_timezones(),
+    "no time zone database here: pip install tzdata",
+)
+
+
 class ClockTest(unittest.TestCase):
     def setUp(self):
         clock.LOCAL_TZ = HERE
@@ -72,6 +80,7 @@ class ClockTest(unittest.TestCase):
 
     # --- time zones ---
 
+    @needs_zone_database
     def test_named_time_zone(self):
         clock.plugin.watching = {"time:Asia/Tokyo", "date:America/New_York", "week:Pacific/Auckland"}
         got = self.tick(at(2026, 10, 11, 14, 7))
@@ -87,6 +96,7 @@ class ClockTest(unittest.TestCase):
             clock._published.clear()
             self.assertEqual(self.tick(at(2026, 10, 11, 14, 7))[f"time:{text}"], expected, text)
 
+    @needs_zone_database
     def test_bad_zone_shows_dash_and_logs_once(self):
         clock.plugin.watching = {"time:Mars/Olympus", "time:UTC+15"}
         got = self.tick(at(2026, 10, 11, 14, 7))
