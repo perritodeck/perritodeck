@@ -16,12 +16,14 @@ import dev.perritodeck.client.net.DeckConnection
 import dev.perritodeck.client.net.Discovery
 import dev.perritodeck.client.net.Pairing
 import dev.perritodeck.client.net.PairingException
+import dev.perritodeck.client.net.SavedAddressCheck
 import dev.perritodeck.client.net.Tls
 import dev.perritodeck.client.protocol.DEFAULT_PORT
 import dev.perritodeck.client.protocol.Hello
 import dev.perritodeck.client.protocol.Platform
 import dev.perritodeck.client.protocol.Screen
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +58,8 @@ sealed interface PairState {
 
 class DeckViewModel(app: Application) : AndroidViewModel(app) {
     val settings = Settings(app)
-    val discovery = Discovery(app)
+    private val savedAddresses = SavedAddressCheck(PROBE_TIMEOUT_MS) { Pairing.probe(it.host, it.port) }
+    val discovery = Discovery(app, onNetworkChange = ::networkChanged)
     val connection = DeckConnection(Tls.defaultClient, viewModelScope)
 
     private val _route = MutableStateFlow<Route>(Route.Home)
@@ -72,7 +75,15 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /**
+     * Paired computers answering at their saved address, for Home's "On this network" when
+     * discovery can't see them (see [SavedAddressCheck]).
+     */
+    val reachable: StateFlow<Set<String>> = savedAddresses.reachable
+
     private var pairJob: Job? = null
+    private var homeShowing = false
+    private var checkJob: Job? = null
 
     /** An address discovery saw for a paired host, saved once a connection through it works. */
     private data class SeenAddress(val hostId: String, val address: HostPort)
@@ -90,6 +101,38 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
                     _notice.value = s.reason
                     _route.value = Route.Home
                 }
+            }
+        }
+    }
+
+    /** Home is showing: look for computers, and check the saved ones' addresses now and then. */
+    fun homeShown() {
+        homeShowing = true
+        discovery.start()
+        checkSavedAddresses()
+    }
+
+    fun homeHidden() {
+        homeShowing = false
+        discovery.stop()
+        checkJob?.cancel()
+    }
+
+    /** A Wi-Fi or Ethernet network came up ([up]) or went away. */
+    private fun networkChanged(up: Boolean) {
+        if (!up) {
+            checkJob?.cancel()
+            savedAddresses.clear()
+        }
+        if (homeShowing) checkSavedAddresses()
+    }
+
+    private fun checkSavedAddresses() {
+        checkJob?.cancel()
+        checkJob = viewModelScope.launch {
+            while (true) {
+                savedAddresses.check(_paired.value)
+                delay(RECHECK_MS)
             }
         }
     }
@@ -287,6 +330,14 @@ class DeckViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         connection.disconnect()
-        discovery.stop()
+        discovery.close()
+    }
+
+    private companion object {
+        /** A TLS handshake with the saved address; a computer on this network answers well within it. */
+        const val PROBE_TIMEOUT_MS = 3_000L
+
+        /** How often Home checks the saved addresses again, so a computer that sleeps drops out. */
+        const val RECHECK_MS = 30_000L
     }
 }

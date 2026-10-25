@@ -43,7 +43,7 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
   - Account deletion: not applicable (no accounts).
 - **Content rating (IARC):** utility app, no user-generated content, no ads → expected "Everyone".
 - **Ads:** no. **In-app purchases:** none.
-- **Permissions declaration:** none needed. The app asks for `INTERNET` and `CAMERA`; the camera only scans the pairing QR code while the scanner is open, and nothing it sees is stored or sent. Neither permission needs a special declaration.
+- **Permissions declaration:** none needed. The app asks for `INTERNET`, `CAMERA`, `ACCESS_NETWORK_STATE` and `CHANGE_WIFI_MULTICAST_STATE`; the camera only scans the pairing QR code while the scanner is open, and nothing it sees is stored or sent. The other two notice Wi-Fi going and coming back and let the computers' mDNS announcements through while Home looks for them. None of them needs a special declaration.
 
 ### Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery
 - Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after IzzyOnDroid and F-Droid.

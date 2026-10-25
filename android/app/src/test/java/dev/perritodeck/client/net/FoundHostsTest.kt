@@ -61,6 +61,21 @@ class FoundHostsTest {
     }
 
     @Test
+    fun clearForgetsEveryHostAtOnce() {
+        // The Fire 7 reports no lost service while Wi-Fi is off, only once it's back: losing
+        // the network clears the list without waiting for that.
+        val found = FoundHosts()
+        found.newRun()
+        found.resolved(service, desktop)
+        found.resolved("PerritoDeck on laptop", FoundHost("laptop", "192.168.1.30", 46710, "fp-laptop"))
+        found.clear()
+        assertEquals(emptyList<FoundHost>(), found.hosts.value)
+        // The late lost report finds nothing to remove.
+        found.lost(service)
+        assertEquals(emptyList<FoundHost>(), found.hosts.value)
+    }
+
+    @Test
     fun theSameComputerAtANewAddressReplacesItself() {
         val found = FoundHosts()
         found.newRun()

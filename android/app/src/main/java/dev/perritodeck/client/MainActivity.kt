@@ -65,14 +65,16 @@ private fun PerritoApp(vm: DeckViewModel) {
             val canScan = remember { hasCamera(context) }
             val paired by vm.paired.collectAsStateWithLifecycle()
             val found by vm.discovery.hosts.collectAsStateWithLifecycle()
+            val reachable by vm.reachable.collectAsStateWithLifecycle()
             val notice by vm.notice.collectAsStateWithLifecycle()
             DisposableEffect(Unit) {
-                vm.discovery.start()
-                onDispose { vm.discovery.stop() }
+                vm.homeShown()
+                onDispose { vm.homeHidden() }
             }
             HomeScreen(
                 paired = paired,
                 found = found,
+                reachable = reachable,
                 notice = notice,
                 onConnect = vm::connectTo,
                 onForget = vm::forget,

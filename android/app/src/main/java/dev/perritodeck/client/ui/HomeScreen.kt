@@ -30,11 +30,14 @@ import androidx.compose.ui.unit.dp
 import dev.perritodeck.client.R
 import dev.perritodeck.client.data.PairedHost
 import dev.perritodeck.client.net.FoundHost
+import dev.perritodeck.client.net.onThisNetwork
 
 @Composable
 fun HomeScreen(
     paired: List<PairedHost>,
     found: List<FoundHost>,
+    /** Paired computers that answered at their saved address. */
+    reachable: Set<String>,
     notice: String?,
     onConnect: (PairedHost) -> Unit,
     onForget: (PairedHost) -> Unit,
@@ -45,7 +48,7 @@ fun HomeScreen(
 ) {
     val pairedIds = paired.map { it.hostId }.toSet()
     val unpairedFound = found.filter { it.hostId == null || it.hostId !in pairedIds }
-    val onlineIds = found.mapNotNull { it.hostId }.toSet()
+    val onlineIds = onThisNetwork(found, reachable)
 
     Column(
         Modifier
