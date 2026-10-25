@@ -17,7 +17,7 @@ Repo: https://github.com/perritodeck/perritodeck.git
 Builds:
   - versionName: 0.1.0
     versionCode: 1
-    commit: v0.1.0
+    commit: c396920de64705018c07d57771dfb6cfd62ababd
     subdir: android/app
     sudo:
       - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
