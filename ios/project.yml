@@ -7,6 +7,9 @@ options:
     iOS: "16.0"
   developmentLanguage: en
   createIntermediateGroups: true
+  # XcodeGen's default project format follows a newer Xcode (format 77, Xcode 16),
+  # which Xcode 15 can't open; CI builds with Xcode 15.4 (macos-14).
+  projectFormat: xcode15_3
 settings:
   base:
     SWIFT_VERSION: "5.0"
