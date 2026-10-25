@@ -178,15 +178,19 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
 - [ ] Desktop app with platforms = all (Actions → Desktop app → Run workflow): the Linux and
   macOS bundles and app crate, which CI's Run workflow leaves out. The weekly run (Mondays)
   covers them too.
-- [ ] The website's publishing (D12; "At the flip" in the cutover runbook in
+- [x] The website's publishing (D12; "At the flip" in the cutover runbook in
   `docs/website.md`): Settings → Environments → `site`, with deployment branches limited to
   `main`, and `SITE_PUBLISH_TOKEN` in it (a fine-grained token, the perritodeck
   organization as resource owner, `perritodeck.github.io` only, Contents read and write;
   or a write deploy key). Run **Site publish** by hand and expect "site: no change", and
   **Site check**, which passes. So far (2026-10-24) Site publish built and checked the site
-  on GitHub, and with no token yet it pushed nothing.
-  - `SITE_PUBLISH_TOKEN` expires on: *(write the date here when it's made, and renew it
-    before then; a deploy key doesn't expire)*
+  on GitHub, and with no token yet it pushed nothing. Done 2026-10-25: the token is set, and
+  a manual Site publish pushed `site: publish from perritodeck@ff0ba41` (the download page's
+  certificate fingerprint) as `perritodeck-site-bot`; pushes to `main` now publish by
+  themselves. (Deploy keys are switched off for the organization, hence the token.)
+  - `SITE_PUBLISH_TOKEN` ("perritodeck site publish") **expires on 2027-10-26**. Renew it
+    before then (regenerate, then `gh secret set SITE_PUBLISH_TOKEN --env site`), or the
+    site stops publishing.
 - [ ] Settings → General → Features: Issues on; Discussions on (optional, for Q&A);
   Wiki off; Projects as preferred.
 - [x] Description, website `https://perritodeck.dev`, topics (`stream-deck`, `macro-pad`,

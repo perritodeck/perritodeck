@@ -49,8 +49,8 @@ release mechanics in [releasing](../releasing.md).
   Worker was deleted at the swap, so there was no rollback, and every check after the swap
   passed ([cutover runbook](../website.md#cutover-runbook)). `website/_headers` is gone and
   the CSP test reads the `<meta>` tag alone. Look online passed in the real app on
-  2026-10-24, which finishes M1-6. Until `SITE_PUBLISH_TOKEN` exists the site is published
-  by hand from WSL. DNSSEC (DS 2371/13/2) and mail for dev@ (D2) didn't change.
+  2026-10-24, which finishes M1-6. Since 2026-10-25 Site publish publishes every push to
+  `main` that touches the site (`SITE_PUBLISH_TOKEN`, expires 2027-10-26). DNSSEC (DS 2371/13/2) and mail for dev@ (D2) didn't change.
 - **The OBS real-world pass is done.** It ran on 2026-10-13 against OBS 31.0.3 (93 of 110
   cases), and all 22 findings were fixed (OBS plugin 1.0.3 and the host) and re-checked
   against the same OBS on 2026-10-15
