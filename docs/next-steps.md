@@ -794,10 +794,10 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   downloads table, the Android certificate and the Android changelog. Check versions
   refuses a tag, or a run that publishes, whose file is missing, empty or says TODO
   ([releasing, step 3](releasing.md#3-write-the-changelog); DECISIONS, 2026-10-24). The
-  first is `docs/release-notes/v0.1.0.md`. Its two TODO comments, which block the tag
-  until they're gone, wait on the last release-APK checks (QR decoding, the discovery
-  recheck) and CI on the commit that gets tagged (phase-8 M3-10), and the soak test and the
-  Windows manual steps (M3-16 and M3-17). Windows signing is skipped for v0.1.0 (D1, 2026-10-25).
+  first is `docs/release-notes/v0.1.0.md`. Its TODO comments are all
+  resolved (2026-10-25): the release-APK checks (QR pairing, the discovery recheck) and the
+  soak test passed; the remaining Windows manual steps (M3-17) stay on the "not tried yet"
+  list rather than holding the tag. Windows signing is skipped for v0.1.0 (D1, 2026-10-25).
 - ✅ **Third-party notices in the APK (2026-10-15).** The APK carries
   `assets/third-party-licenses.txt`, generated at build time, and Perrito shows it under
   Open-source licences (item 8, launch checklist §3).
