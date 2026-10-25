@@ -278,12 +278,20 @@ class TrueNASTest(unittest.TestCase):
 
     def test_slow_jobs_answer_early(self):
         FakeTrueNAS.state["job_delay"] = 0.5
+        # Connected and logged in first, so only the actions are timed: on a slow runner
+        # (macOS) logging in took most of the margin the three actions had together.
+        truenas.client()
         with mock.patch.object(truenas, "JOB_WAIT", 0.05):
-            start = time.monotonic()
-            self.assertIsNone(truenas.start_app({"app": "immich"}))
-            self.assertIsNone(truenas.scrub({"pool": "tank"}))
-            self.assertIsNone(truenas.run_task({"kind": "replication", "task_id": "3"}))
-            self.assertLess(time.monotonic() - start, 0.45)
+            actions = [
+                ("start_app", truenas.start_app, {"app": "immich"}),
+                ("scrub", truenas.scrub, {"pool": "tank"}),
+                ("run_task", truenas.run_task, {"kind": "replication", "task_id": "3"}),
+            ]
+            for name, action, settings in actions:
+                # Each answers after JOB_WAIT; one that waited for its job would take 0.5 s.
+                start = time.monotonic()
+                self.assertIsNone(action(settings))
+                self.assertLess(time.monotonic() - start, 0.45, name)
             # The connection is still fine afterwards, and late answers are dropped.
             truenas.safe_poll(apps=False)
             self.assertEqual(self.values()["alerts"], "2")
