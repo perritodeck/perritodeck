@@ -703,7 +703,7 @@ class SignIn(Step):
         if not got or m is None:
             # The attempt would go on polling for half an hour, and a late approval in the
             # wrong browser profile would swap the sign-in in the middle of the run.
-            h.sign_in_failed = f"no approval within {minutes:g} minutes; {h.sign_out_now()}"
+            h.sign_in_failed = f"no approval within {minutes:g} minutes; {h.sign_out_now(waiting=True)}"
             return FAIL, h.sign_in_failed, extra
         if m.group("error"):
             return FAIL, f"the sign-in didn't work: {m.group('error')}", extra
@@ -725,6 +725,8 @@ SIGN_IN_LINE = re.compile(r"^(?:signed in to Twitch as (?P<login>\S+)|Twitch sig
 START_LINE = "the saved Twitch sign-in is for "
 # How an earlier attempt ends when Sign in is pressed again: not this attempt's outcome.
 EARLIER_ATTEMPT = ("replaced by a new sign-in", "cancelled by signing out")
+# Seconds Sign out waits for a sign-in attempt it cancelled to say it ended.
+SIGN_IN_END_WAIT = 5
 
 
 def sign_in_outcome(h, mark):
@@ -745,7 +747,7 @@ def settle_sign_in(h, mark, seconds):
     h.plugin.wait(lambda: sign_in_outcome(h, mark) is not None, seconds)
     m = sign_in_outcome(h, mark)
     if m is None:  # the next case that needs the sign-in signs in again
-        return None, None, f"no answer within {seconds:g} s; {h.sign_out_now()}"
+        return None, None, f"no answer within {seconds:g} s; {h.sign_out_now(waiting=True)}"
     if m.group("error"):
         return None, m.group("error"), ""
     login = m.group("login").lower()
@@ -764,7 +766,7 @@ def person_step(h, step):
     try:
         return h.do(step)
     except SkipCase as e:
-        raise SkipCase(f"{e}; {h.sign_out_now()}", e.status) from None
+        raise SkipCase(f"{e}; {h.sign_out_now(waiting=True)}", e.status) from None
 
 
 # --- cases -------------------------------------------------------------------------------------
@@ -1320,7 +1322,7 @@ def check_a15(h):
             break
         time.sleep(0.02)
     else:  # cancel the attempt, so a late approval can't sign anyone in mid-run
-        return FAIL, f"no approval arrived; {h.sign_out_now()}"
+        return FAIL, f"no approval arrived; {h.sign_out_now(waiting=True)}"
     h.do(Run("sign-out", expect=OK()))
     time.sleep(3)
     lines = [m for _, _, m in h.plugin.logs_since(mark)]
@@ -2230,16 +2232,26 @@ class Harness:
             raise Refusal(f"Twitch says the token belongs to {actual or 'nobody'}, not the test broadcaster {self.T}")
         self.verified.add(key)
 
-    def sign_out_now(self):
+    def sign_out_now(self, waiting=False):
         """Press Sign out at once: the plugin cancels a sign-in still waiting for approval
-        and revokes the saved token. Returns what happened, for the report."""
+        and revokes the saved token. Returns what happened, for the report.
+
+        waiting: a sign-in attempt is still waiting, so this also waits (a few seconds at
+        most) for the plugin to say it ended. Its own thread says so after Sign out has
+        answered, and a run that stops the plugin straight after would lose the line."""
         self.verified.clear()
+        mark = self.plugin.mark()
         try:
             a = self.plugin.run("sign-out", {})
         except Exception as e:  # report it with the sign-in's outcome
             return f"signing out failed ({type(e).__name__}: {e}); delete {self.folder} by hand"
+        ended = not waiting or self.plugin.wait(
+            lambda: any(SIGN_IN_LINE.match(m) for _, _, m in self.plugin.logs_since(mark)), SIGN_IN_END_WAIT)
         gone = not os.path.exists(self.tokens_path)
         if a.ok and not a.message and gone:
+            if not ended:
+                return ("signed out at once (the token revoked), but the waiting sign-in didn't say it ended "
+                        f"within {SIGN_IN_END_WAIT:g} s")
             return "signed out at once (any attempt still waiting cancelled, the token revoked)"
         said = "no answer in time" if a.timed_out else (a.message or "ok")
         return (f"signed out at once: {said}; tokens.json {'gone' if gone else 'still there'}"
