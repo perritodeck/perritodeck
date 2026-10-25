@@ -42,7 +42,7 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   ```sh
   git log --all --format='%an <%ae> | %cn <%ce>' | sort -u
   git log -p --all | grep -oiE '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | sort | uniq -c | sort -rn
-  git log -p --all | grep -oiE '(/Users/|/home/|C:\\+Users\\+)[A-Za-z0-9._-]+' | sort | uniq -c
+  git log -p --all | grep -oiE '(/Users/|/home/|C:[\]+Users[\]+|C:/Users/|/c/Users/|/mnt/c/Users/)[A-Za-z0-9._-]+' | sort | uniq -c
   ```
 - [x] **CI screenshot branches** (`ci/e2e-api22`, `ci/e2e-api34`, `ci/e2e-fire7`,
   `ci/e2e-firehd10`), which held emulator screenshots and logs, were deleted on GitHub on
