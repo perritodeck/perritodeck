@@ -614,7 +614,7 @@ CI's included, are unsigned, which is what F-Droid wants.
   run, which also runs `lintVitalRelease`, and reports its size against IzzyOnDroid's
   ~30 MB limit (item 13).
 
-**Maintainer steps.** Done on 2026-10-25: steps 1–3 (the key generated and backed up twice; certificate SHA-256 `848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5`), step 4 (the `release` environment, `v*` tags only with the maintainer as required reviewer, and `environment: release` on in `release.yml`), step 6 (both variables) and step 7 (the download page). Left: step 5, the three secrets into the `release` environment.
+**Maintainer steps.** Done on 2026-10-25: steps 1–3 (the key generated and backed up twice; certificate SHA-256 `848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5`), step 4 (the `release` environment, `v*` tags only with the maintainer as required reviewer, and `environment: release` on in `release.yml`), step 6 (both variables) and step 7 (the download page). Step 5 too: the three secrets are in the `release` environment (none at repository level). The first tag build is the first real test of the signing.
 
 1. **Generate the key** with JDK 17's `keytool`, letting it prompt for the password:
    `keytool -genkeypair -v -storetype PKCS12 -keystore <SAFE_DIR>\perrito-release.p12
