@@ -911,10 +911,21 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   cable-takeover host fix is verified (twice, keys, the slider and the clock kept working
   on the cable after Wi-Fi went off), and pairing and the deck work over Wi-Fi. The PC's
   network had been Public, which blocked inbound Wi-Fi; it's Private now.
-- **The "On this network" fix isn't verified on the Fire 7 yet.** Android's NSD on the
-  tablet never reported the host, even with Wi-Fi on, though the host's mDNS packets reach
-  the tablet (Amazon's own JmDNS logs them). Likely a stale mdnsd, running for 11 days.
-  Next: reboot the tablet and rerun. Also still by hand: QR decoding with the release APK.
+- **"On this network" after Wi-Fi changes: fixed, not yet rerun on the Fire 7.** The Fire 7
+  (2026-10-25, release APK) found and resolved the host within a second on a fresh start,
+  but NSD reported nothing lost while Wi-Fi was off (Home kept "On this network" for 5+
+  minutes), and after Wi-Fi came back its mdnsd found nothing for 4 minutes, even in a new
+  discovery run, until the app's process died and NsdService restarted mdnsd. A resolve
+  started while Wi-Fi was off never called back and blocked every later one. Now Perrito
+  watches Wi-Fi and Ethernet (a network callback): losing one clears the found list at
+  once and a new one restarts discovery, which runs only while one is up. Each resolve
+  gives up after 8 s, and stopping discovery resets the one in flight. A paired computer
+  is also "On this network" when its saved address answers a TLS probe with its
+  fingerprint (on Home, when a network comes up, and every 30 s), and stops being on
+  losing the network. Discovery holds a Wi-Fi multicast lock. Unpaired computers still
+  depend on mdnsd, which the app can't restart; on Android 9 a resolve that never answers
+  may also make later ones fail (one per app) until it does. Next: rerun Wi-Fi off and on
+  on the Fire 7. Also still by hand: QR decoding with the release APK.
 - **Possible improvements the Fire 7 showed** (not regressions):
   - Perrito doesn't reconnect by itself when Wi-Fi comes back.
   - A connection on the cable stays on the cable, even once Wi-Fi is back.

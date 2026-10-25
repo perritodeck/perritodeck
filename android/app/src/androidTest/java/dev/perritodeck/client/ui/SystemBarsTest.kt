@@ -68,6 +68,7 @@ class SystemBarsTest {
             HomeScreen(
                 paired = hosts,
                 found = emptyList(),
+                reachable = emptySet(),
                 notice = null,
                 onConnect = {},
                 onForget = {},
