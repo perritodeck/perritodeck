@@ -1580,7 +1580,10 @@ class EventSubTest(Base):
         # keepalive, and took the read timeout for a lost connection. Here the read
         # timeout (0.15 s) is shorter than the gap between keepalives (0.5 s), as
         # Twitch's 10 s is to its 30 s.
-        self.ws.keepalive = 0.6
+        # The keepalive in two parts ends 0.8 s after the one before it, so the session's
+        # own limit (keepalive + grace, 1.2 s) is kept clear of that: at 0.6 + 0.2 it had
+        # no margin at all, and a slow runner (macOS) overslept into it.
+        self.ws.keepalive = 1.0
         with mock.patch.object(twitch, "KEEPALIVE_GRACE", 0.2), mock.patch.object(twitch, "WS_READ_TIMEOUT", 0.15):
             self.watch("last_raid:me")
             wait_for(lambda: len(self.subs()) == 1, message="subscription")
