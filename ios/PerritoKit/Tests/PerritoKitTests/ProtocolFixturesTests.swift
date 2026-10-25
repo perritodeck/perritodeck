@@ -87,6 +87,12 @@ final class ProtocolFixturesTests: XCTestCase {
         XCTAssertEqual(hello.platform, .android)
         XCTAssertEqual(hello.deviceSecret, "Zk3x9QmV2pLr8TnW5yHc1dBs7aGe4uJo0iKf6XqRzMs")
         XCTAssertNil(hello.requestedGrid)
+        XCTAssertNil(hello.networkFailed)
+
+        guard case .hello(let flagged) = try fixture("hello-network-failed.json").message else {
+            return XCTFail("hello-network-failed.json is not a hello")
+        }
+        XCTAssertEqual(flagged.networkFailed, true)
 
         guard case .paired(let paired) = try fixture("paired.json").message else {
             return XCTFail("paired.json is not paired")
@@ -115,6 +121,7 @@ final class ProtocolFixturesTests: XCTestCase {
         XCTAssertEqual(payload["capabilities"] as? [String], ["keys", "haptics", "multiTouch", "images", "sliders"])
         XCTAssertNil(payload["requestedGrid"], "nil optionals are left out")
         XCTAssertNil(payload["token"], "nil optionals are left out")
+        XCTAssertNil(payload["networkFailed"], "nil optionals are left out")
         XCTAssertEqual(payload["deviceSecret"] as? String, "s3cret")
 
         let heartbeat = try jsonObject(Codec.encode(Envelope(.heartbeat(Heartbeat(seq: 7, sentAtMs: 1_760_169_602_000)))))

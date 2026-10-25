@@ -49,6 +49,10 @@ public struct Hello: Codable, Equatable, Sendable {
     public var token: String?
     /// Secret issued by `paired`.
     public var deviceSecret: String?
+    /// Sent by a tablet on a USB cable whose connections to the computer's network address
+    /// time out (its firewall may keep tablets on Wi-Fi out). iPhones and iPads have no
+    /// cable connection, so Perrito for iOS never sets it; nil is left out of the JSON.
+    public var networkFailed: Bool?
 
     /// What this client can do; the same list the Android app advertises.
     public static let clientCapabilities = ["keys", "haptics", "multiTouch", "images", "sliders"]
@@ -63,7 +67,8 @@ public struct Hello: Codable, Equatable, Sendable {
         capabilities: [String],
         requestedGrid: Grid? = nil,
         token: String? = nil,
-        deviceSecret: String? = nil
+        deviceSecret: String? = nil,
+        networkFailed: Bool? = nil
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -75,6 +80,7 @@ public struct Hello: Codable, Equatable, Sendable {
         self.requestedGrid = requestedGrid
         self.token = token
         self.deviceSecret = deviceSecret
+        self.networkFailed = networkFailed
     }
 }
 
