@@ -237,7 +237,7 @@ mod imp {
     const ACCESS_ALLOWED_CALLBACK_OBJECT: u8 = 11;
 
     /// The entries of `path`'s DACL and its owner, or `None` when it has no DACL.
-    fn read_access(path: &Path) -> io::Result<Option<(Vec<Ace>, Option<String>)>> {
+    pub fn read_access(path: &Path) -> io::Result<Option<(Vec<Ace>, Option<String>)>> {
         let name = wide(path);
         let mut dacl: *mut ACL = ptr::null_mut();
         let mut owner: PSID = ptr::null_mut();
@@ -723,15 +723,21 @@ mod tests {
         let path = dir.path().join("integrations.toml");
         write_atomic(&path, b"x", "integrations.toml").unwrap();
         let sddl = imp::dacl_sddl(&path).unwrap().expect("a DACL");
-        let me = imp::current_user_sid().unwrap();
         assert!(sddl.starts_with("D:P"), "{sddl}");
-        let mut sids: Vec<&str> = sddl
-            .split('(')
-            .skip(1)
-            .map(|ace| ace.trim_end_matches(')').rsplit(';').next().unwrap())
-            .collect();
+        // Who the entries are for comes from the ACL itself, not the SDDL, which spells
+        // some accounts as two-letter aliases: the built-in Administrator (RID 500, what
+        // GitHub's Windows runners log in as) prints as `LA`, not its `S-1-5-21-…-500`.
+        let (aces, _) = imp::read_access(&path).unwrap().expect("a DACL");
+        let me = imp::current_user_sid().unwrap();
+        // FILE_ALL_ACCESS, which SDDL's `FA` stands for.
+        const FILE_ALL_ACCESS: u32 = 0x001F_01FF;
+        for ace in &aces {
+            assert!(ace.allow && !ace.inherit_only, "{ace:?} in {sddl}");
+            assert_eq!(ace.mask, FILE_ALL_ACCESS, "{ace:?} in {sddl}");
+        }
+        let mut sids: Vec<&str> = aces.iter().map(|a| a.sid.as_deref().unwrap()).collect();
         sids.sort();
-        let mut want = vec!["BA", "SY", me.as_str()];
+        let mut want = vec!["S-1-5-18", "S-1-5-32-544", me.as_str()];
         want.sort();
         assert_eq!(sids, want, "{sddl}");
     }
