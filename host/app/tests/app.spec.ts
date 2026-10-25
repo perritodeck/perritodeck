@@ -1126,6 +1126,11 @@ test.describe("plugins", () => {
     await expect(online.getByText("Added")).toHaveCount(2);
     const installed = page.locator("section", { has: page.getByRole("heading", { name: "Installed" }) });
     await expect(installed.getByText("Weather", { exact: true })).toBeVisible();
+    // Removing it offers it again in the catalogue, without looking online again.
+    await installed.getByRole("listitem").filter({ hasText: "Weather" }).getByRole("button", { name: "Remove…" }).click();
+    await installed.getByRole("group", { name: "Remove Weather?" }).getByRole("button", { name: "Remove" }).click();
+    await expect(installed.getByText("Weather", { exact: true })).toHaveCount(0);
+    await expect(online.getByRole("button", { name: "Add Weather" })).toBeVisible();
   });
 
   test("marks experimental plugins in the online catalogue, with what they were tested against", async ({ page }) => {

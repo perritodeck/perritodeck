@@ -176,7 +176,12 @@
                 <button
                   class="btn danger small"
                   disabled={working.includes(p.manifest.id)}
-                  onclick={() => actOn(p.manifest.id, () => api.removePlugin(p.manifest.id)).then(() => (confirming = null))}
+                  onclick={() =>
+                    actOn(p.manifest.id, () => api.removePlugin(p.manifest.id)).then(async () => {
+                      confirming = null;
+                      // The catalogue marks what's added, so a removed plugin can be added again.
+                      if (online) online = await api.onlinePlugins().catch(() => online);
+                    })}
                   >{working.includes(p.manifest.id) ? "Removing…" : "Remove"}</button
                 >
                 <button class="btn quiet small" onclick={() => (confirming = null)}>Keep</button>
