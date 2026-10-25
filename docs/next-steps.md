@@ -808,7 +808,10 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   secrets kept out of the window, comment-keeping saves, `enabled = false`, and an
   owner-only `integrations.toml` (0600, or a protected DACL on Windows). A save is used after
   Restart now; nothing is applied live. It passed the real-app pass on Windows on
-  2026-10-24 (below). Still to do, these follow-ups:
+  2026-10-24 (below): the saved file's protected DACL, the masked secret and Restart now.
+  Still to do, these follow-ups:
+  - **Test connection against a real OBS** (31): OBS wasn't running during the pass, so only
+    the "nothing answered" path was tried in the real app.
   - **The plugin settings form still sends saved secrets to the window**
     (`host/app/src/views/Plugins.svelte`, `get_plugin_settings`): its password fields are
     masked only on screen. Give it the keep/set/clear model the integrations form uses.
