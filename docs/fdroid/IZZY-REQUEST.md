@@ -1,5 +1,13 @@
 # IzzyOnDroid inclusion request for Perrito (v0.1.0)
 
+> **Not sent.** On 2026-10-25 the maintainer decided not to submit Perrito to IzzyOnDroid
+> ([`DECISIONS.md`](../DECISIONS.md)). Its policy says apps made fully or partly with
+> generative AI will most likely be rejected, and it rejects apps that integrate with LLM
+> services. PerritoDeck is built with heavy Claude assistance (316 of the 321 commits up to
+> v0.1.0 carry a Claude co-author trailer). This file is kept as a record of what was
+> prepared. Android users get the APK from GitHub Releases, which Obtainium can track, and
+> F-Droid comes later.
+
 Prepared on 2026-10-25 for the maintainer to send. Nothing has been posted, and no account
 has been made.
 

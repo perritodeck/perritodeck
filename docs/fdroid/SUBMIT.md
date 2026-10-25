@@ -26,7 +26,7 @@ So stage 2 (`Binaries:` + `AllowedAPKSigningKeys:`, F-Droid publishing our signe
 
 The merge request template says: if reproducible builds aren't enabled, F-Droid signs the
 APK with its own key, and you can't switch to yours later. F-Droid users would then have a
-differently signed Perrito from GitHub and IzzyOnDroid users, and moving them to our key
+differently signed Perrito from GitHub users, and moving them to our key
 later means they uninstall and reinstall. Two ways to go:
 
 1. **Submit v0.1.0 now** as it is. F-Droid signs it. Fine if the F-Droid listing may stay

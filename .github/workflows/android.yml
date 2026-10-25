@@ -49,8 +49,8 @@ jobs:
         run: |
           size=$(stat -c %s app/build/outputs/apk/release/app-release-unsigned.apk)
           echo "Release APK (minified, unsigned): $((size / 1024)) KiB" >> "$GITHUB_STEP_SUMMARY"
-          # IzzyOnDroid's usual size limit is 30 MB.
-          if [ "$size" -gt 30000000 ]; then echo "::warning::The release APK is $size bytes, over IzzyOnDroid's usual 30 MB limit."; fi
+          # Warn if the APK grows past 30 MB, a common size limit for Android app repositories.
+          if [ "$size" -gt 30000000 ]; then echo "::warning::The release APK is $size bytes, over 30 MB."; fi
       - name: Upload APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

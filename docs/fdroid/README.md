@@ -1,14 +1,16 @@
-# F-Droid and IzzyOnDroid submission kit
+# F-Droid submission kit
 
-Everything needed to list **Perrito** (`dev.perritodeck.client`) on F-Droid and IzzyOnDroid.
-Nothing here has been submitted. The repository is public and `v0.1.0` is released (2026-10-25); the recipe builds that tag. The submissions are ready to send: [`SUBMIT.md`](SUBMIT.md) for F-Droid and [`IZZY-REQUEST.md`](IZZY-REQUEST.md) for IzzyOnDroid.
+Everything needed to list **Perrito** (`dev.perritodeck.client`) on F-Droid.
+Nothing here has been submitted. The repository is public and `v0.1.0` is released (2026-10-25); the recipe builds that tag. The submission is ready to send: [`SUBMIT.md`](SUBMIT.md).
+
+**Not IzzyOnDroid** (decided 2026-10-25, [`DECISIONS.md`](../DECISIONS.md)). Its inclusion policy says apps made fully or partly with generative AI will most likely be rejected, and PerritoDeck is built with heavy Claude assistance. [`IZZY-REQUEST.md`](IZZY-REQUEST.md) is the request that was prepared; it wasn't sent.
 
 | File | What it is |
 |---|---|
 | [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`), `commit:` the full hash of `v0.1.0` |
 | [`SUBMIT.md`](SUBMIT.md) | F-Droid: the merge request steps and text, the v0.1.0 build and the comparison with our APK |
-| [`IZZY-REQUEST.md`](IZZY-REQUEST.md) | IzzyOnDroid: the request text, the criteria checked, and why its AI policy likely rules the app out |
-| [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid and IzzyOnDroid read this layout straight from the repository (so would Play, which isn't used for now) |
+| [`IZZY-REQUEST.md`](IZZY-REQUEST.md) | IzzyOnDroid: the request prepared on 2026-10-25 and not sent (see the note above) |
+| [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid reads this layout straight from the repository (so would Play, which isn't used for now) |
 
 ## Readiness checklist
 
@@ -92,16 +94,5 @@ Known risks to check when doing step 2:
 - **Builds by `fdroid build` and our own build give the same `classes.dex`, resources and native libraries** (2026-10-24, WSL Ubuntu on the same PC, Temurin 17 for both, the same commit): only the baseline-profile files differ, as above. Not compared yet: F-Droid's build server (Debian OpenJDK 17) with CI (Temurin 17 on GitHub's runners), and builds on different machines. The minified release build itself works: on 2026-10-13 it was built with a throwaway key and run on the Fire 7 (code pairing, a key press, the scan screen), and `android.yml` builds it unsigned in every Android CI run. An API 22 emulator, QR decoding, USB, the deck and sliders are still to try by hand (`docs/next-steps.md` item 13).
 - The `minSdk 22` APK is signed with v1 + v2 signatures (set explicitly in the signing config; v3 is off, D7). `apksigcopier` handles both.
 
-## IzzyOnDroid
-
-Faster than F-Droid (days) and serves the APKs from our GitHub Releases as they are.
-
-- Needs: a public repository, a **signed** `perrito-<version>.apk` attached to each GitHub Release, and the fastlane metadata in the repository. All three are in place since v0.1.0 (2026-10-25); the Release workflow publishes only a signed APK.
-- Its scanner rejects trackers, proprietary libraries and the dependency-info blob. None of these are present.
-- Size limit is about 30 MB per APK. The minified release APK is about 2.2 MB (the signed `perrito-0.1.0.apk` is 2,249,787 bytes), and `android.yml` reports its size in every run and warns above 30 MB.
-- IzzyOnDroid now also verifies reproducible builds and shows a badge for them. The same reproducibility work as above applies.
-- Request it by opening an issue at [codeberg.org/IzzyOnDroid/repodata](https://codeberg.org/IzzyOnDroid/repodata/issues) with the "App Inclusion Request" template (the GitLab tracker is archived). The filled-in request is in [`IZZY-REQUEST.md`](IZZY-REQUEST.md); read its first section before sending, because IzzyOnDroid's AI policy (2026) likely rules the app out.
-- After inclusion, new GitHub Releases are picked up automatically, with no action needed per release.
-
 ## Google Play
-Not for now (D8 in `docs/plan/phase-8.md`, decided 2026-10-17): v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid. The notes for later are in [`../distribution.md`](../distribution.md#google-play): the 12-tester closed test, the data safety answers, and Play App Signing as D7 settles it (our release key as the upload key). The Release workflow still keeps `perrito-<version>.aab` as the `play-bundle` workflow artifact.
+Not for now (D8 in `docs/plan/phase-8.md`, decided 2026-10-17): Android users get the APK from GitHub Releases, and F-Droid comes later. The notes for later are in [`../distribution.md`](../distribution.md#google-play): the 12-tester closed test, the data safety answers, and Play App Signing as D7 settles it (our release key as the upload key). The Release workflow still keeps `perrito-<version>.aab` as the `play-bundle` workflow artifact.
