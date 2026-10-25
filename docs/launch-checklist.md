@@ -305,12 +305,14 @@ packages and the command-line archives are not in it. Linux and macOS still buil
 test in CI, Linux keeps building from source, and they join a later release once tested
 on real hardware.
 
-- [ ] Android signing: the maintainer's new release key, three secrets
+- [x] Android signing: the maintainer's new release key, three secrets
   (`PERRITO_KEYSTORE_BASE64`, `PERRITO_KEYSTORE_PASSWORD`, `PERRITO_KEY_PASSWORD`) and two
   variables (`PERRITO_KEY_ALIAS`, and `PERRITO_CERT_SHA256`, recommended for the first
   release), and the certificate's fingerprint in `website/download.html`
   (`#android-certificate`). A tag build fails without the key. `docs/next-steps.md`
-  item 11 has the steps.
+  item 11 has the steps. Done 2026-10-25: the key was generated and backed up twice, the three
+  secrets are in the `release` environment, both variables are set, the fingerprint
+  `848c5d3f…f24e5` is on the download page, and v0.1.0's APK verified with it.
 - [x] Windows signing (D1): **v0.1.0 ships unsigned** (decided 2026-10-25: Azure Artifact
   Signing's validation is taking too long). The release notes and the download page tell
   people how to get past SmartScreen. Signing waits for a later release. Before wiring it in, check which name the certificate shows
