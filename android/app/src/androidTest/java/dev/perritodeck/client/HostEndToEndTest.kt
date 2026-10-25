@@ -96,7 +96,12 @@ class HostEndToEndTest {
         screenshot("5-after-sleep")
 
         // Network drops out (Wi-Fi off, router reboot): the app keeps retrying, then
-        // reconnects on its own once the network is back.
+        // reconnects on its own once the network is back. That needs the connection to go
+        // over the emulator's network: an `adb reverse` tunnel to 127.0.0.1 (what the host
+        // sets up for a tablet on USB, and so for the emulator, unless run with --no-usb)
+        // doesn't go through Wi-Fi or mobile data, so switching them off can't cut it.
+        val via = (vm.connection.state.value as? ConnState.Connected)?.url
+        assertTrue("connected over the emulator's network (10.0.2.2), not $via", via?.contains("10.0.2.2") == true)
         shell("svc wifi disable")
         shell("svc data disable")
         waitForState("noticed the network went away") { it is ConnState.Connecting }

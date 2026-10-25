@@ -54,9 +54,13 @@ jobs:
           rustup show active-toolchain || rustup toolchain install
           cargo build --release --locked -p perritodeck-host
 
+      # --no-usb: the host would otherwise run `adb reverse` for the emulator as for a
+      # tablet on a cable, and the app (which tries 127.0.0.1 first) would connect through
+      # that tunnel rather than over the emulator's network at 10.0.2.2, where the test
+      # switches the network off and on again.
       - name: Start host (TLS, fixed test pairing code)
         run: |
-          ./host/target/release/perritodeck-host --listen 127.0.0.1 --no-mdns \
+          ./host/target/release/perritodeck-host --listen 127.0.0.1 --no-mdns --no-usb \
             --data-dir "$RUNNER_TEMP/perritodeck-host" --pair-code 424242 < /dev/null > host.log 2>&1 &
           for i in $(seq 1 20); do
             if nc -z 127.0.0.1 46710; then
