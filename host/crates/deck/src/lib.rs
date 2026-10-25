@@ -10,7 +10,7 @@ mod templates;
 pub mod watch;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -208,6 +208,9 @@ struct FramesKey {
 
 /// Rendered animations kept per profile; more than this and the cache starts over.
 const MAX_CACHED_ANIMATIONS: usize = 32;
+/// Handshake layouts kept per tablet for [`Deck::connected`]; more than two at once means
+/// some were never followed by their `connected`.
+const MAX_HANDED_OUT: usize = 4;
 
 /// A slider's position before anything is known about it.
 const SLIDER_START: u8 = 50;
@@ -231,9 +234,13 @@ struct State {
     agent_refs: HashMap<String, (AgentKey, usize)>,
     /// Profiles whose agent looks changed since [`Deck::take_looks_changed`] last asked.
     looks_changed: HashSet<String>,
-    /// The keys each device was given in its handshake, until [`Deck::connected`] takes
-    /// them: what the tablet is really showing, which may be older than the profile now.
-    handed_out: HashMap<String, Vec<KeySpec>>,
+    /// The keys each device was given in its handshakes, oldest first, until
+    /// [`Deck::connected`] takes them: what the tablet is really showing, which may be
+    /// older than the profile now. One per handshake, because a tablet can open a second
+    /// connection (over the cable, say) before the host has heard about its first, and
+    /// each connection is shown what its own handshake gave it. `None` for a handshake
+    /// that got Companion's note, which `connected` doesn't start from.
+    handed_out: HashMap<String, VecDeque<Option<Vec<KeySpec>>>>,
 }
 
 impl State {
@@ -389,18 +396,26 @@ impl Deck {
         let mut st = self.lock();
         let slot = st.slot(&st.profile_for(&hello.device_id));
         let grid = device_grid(&slot.profile, demo::grid_for(hello));
-        if slot.profile.companion {
+        let (layout, keys) = if slot.profile.companion {
             let note = self.remote_note.lock().expect("note poisoned").clone();
-            return note_layout(grid, &note);
+            (note_layout(grid, &note), None)
+        } else {
+            let layout = page_layout(
+                slot,
+                0,
+                grid,
+                hello.capabilities.iter().any(|c| c == "sliders"),
+            );
+            let keys = Some(layout.keys.clone());
+            (layout, keys)
+        };
+        // Every handshake that gets a layout is followed by its `connected`, which takes
+        // the oldest; the cap only bounds what a lost one could leave behind.
+        let queue = st.handed_out.entry(hello.device_id.clone()).or_default();
+        if queue.len() >= MAX_HANDED_OUT {
+            queue.pop_front();
         }
-        let layout = page_layout(
-            slot,
-            0,
-            grid,
-            hello.capabilities.iter().any(|c| c == "sliders"),
-        );
-        st.handed_out
-            .insert(hello.device_id.clone(), layout.keys.clone());
+        queue.push_back(keys);
         layout
     }
 
@@ -418,8 +433,13 @@ impl Deck {
         // value, say) is sent below rather than assumed to be there already.
         let handed_out = st
             .handed_out
-            .remove(device_id)
+            .get_mut(device_id)
+            .and_then(VecDeque::pop_front)
+            .flatten()
             .filter(|keys| keys.len() == layout.keys.len());
+        if st.handed_out.get(device_id).is_some_and(VecDeque::is_empty) {
+            st.handed_out.remove(device_id);
+        }
         let sent = handed_out
             .unwrap_or_else(|| layout.keys.clone())
             .into_iter()
@@ -464,8 +484,9 @@ impl Deck {
             let keys: Vec<String> = d.agent_keys.drain().collect();
             self.release_agents(&mut st, &keys);
         }
+        // What a newer connection from the same tablet was handed in its handshake stays:
+        // this may be the connection it replaced going away.
         let gone = st.devices.remove(device_id);
-        st.handed_out.remove(device_id);
         drop(st);
         if let Some(a) = self.agents() {
             a.device(device_id, None);

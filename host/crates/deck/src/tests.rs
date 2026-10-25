@@ -584,6 +584,69 @@ title = "CPU\n{cpu}"
     );
 }
 
+/// A tablet that opens a second connection (over the cable, after Wi-Fi) is handed a
+/// layout in each handshake before the host hears of either. The newer connection must
+/// still be sent a value that changed after its handshake, whichever order the host
+/// hears the first connection come and go in.
+#[tokio::test]
+async fn a_newer_connection_from_the_same_tablet_gets_what_changed_since_its_handshake() {
+    let profile = r##"
+schema_version = 1
+name = "L"
+[grid]
+cols = 2
+rows = 1
+[[pages]]
+name = "Main"
+[[pages.keys]]
+at = [0, 0]
+title = "CPU\n{cpu}"
+"##;
+    let grid = Grid { cols: 2, rows: 1 };
+    let screen = hello().screen;
+    let new_deck = || {
+        let sent = Arc::new(Sent::default());
+        let keys = Arc::new(Keys::default());
+        let deck = Deck::new(
+            Profile::parse(profile).unwrap(),
+            ".",
+            sent.clone(),
+            Executor::new(keys.clone(), keys.clone()),
+        );
+        (deck, sent)
+    };
+    let reached = |sent: &Sent| {
+        let msgs = sent.take();
+        assert!(
+            msgs.iter()
+                .any(|m| matches!(m, Message::SetTitle(t) if t.title == "CPU\n7%")),
+            "the new connection still shows the value from its handshake: {msgs:?}"
+        );
+    };
+
+    // The host hears of the first connection before the second one's handshake; the
+    // first one's teardown must not take what the second was handed.
+    let (deck, sent) = new_deck();
+    deck.initial_layout(&hello());
+    deck.connected("tab", grid, screen, &[]);
+    deck.initial_layout(&hello());
+    deck.disconnected("tab");
+    deck.set_live([("cpu".to_string(), "7%".to_string())]);
+    deck.connected("tab", grid, screen, &[]);
+    reached(&sent);
+
+    // Both handshakes come first: the first connection must not take what the second
+    // was handed.
+    let (deck, sent) = new_deck();
+    deck.initial_layout(&hello());
+    deck.initial_layout(&hello());
+    deck.connected("tab", grid, screen, &[]);
+    deck.disconnected("tab");
+    deck.set_live([("cpu".to_string(), "7%".to_string())]);
+    deck.connected("tab", grid, screen, &[]);
+    reached(&sent);
+}
+
 #[tokio::test]
 async fn live_values_and_followed_toggles() {
     let profile = r##"
