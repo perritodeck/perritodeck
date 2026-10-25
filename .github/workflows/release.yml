@@ -175,12 +175,9 @@ jobs:
     name: Android APK
     needs: check-version
     runs-on: ubuntu-latest
-    # Off until the repository is public. Then create a "release" environment that only v* tags
-    # may use, with a required reviewer, move the three signing secrets into it and turn this
-    # line on (docs/releasing.md). Not before: the environment doesn't exist yet, and a private
-    # repository on the Free plan can't have one, so naming it now would protect nothing and
-    # could stop the job.
-    # environment: release
+    # The three signing secrets live in the "release" environment, which only v* tags may use
+    # and the maintainer approves (docs/releasing.md). A manual run has to start from the tag.
+    environment: release
     timeout-minutes: 30
     outputs:
       cert_sha256: ${{ steps.collect.outputs.cert_sha256 }}

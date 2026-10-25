@@ -174,6 +174,8 @@ To try a signed build locally (for testing only; never publish a locally built A
 Google Play isn't used for now (D8). If it ever is, D7 (2026-10-17) settles the keys: Play App Signing with the app-signing key Google generates, and this release key as the **upload key**. That's how the workflow already signs the `play-bundle` artifact, so nothing changes. Google's key signs what Play installs, so a Play install and an install from GitHub, IzzyOnDroid or F-Droid can't update each other.
 
 #### Once the repository is public: a release environment
+Done 2026-10-25: the `release` environment exists (`v*` tags only, dmang-dev the required reviewer) and `release.yml` names it. What's left is putting the three secrets in it (step 4).
+
 Repository secrets reach every workflow run, from any branch. A GitHub environment holds them back until a reviewer approves a run from a version tag. A private repository on the Free plan can't have environments; once the repository is public they cost nothing. Then:
 
 1. Settings → Environments → **New environment**, named `release`.
