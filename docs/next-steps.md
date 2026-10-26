@@ -613,8 +613,8 @@ CI's included, are unsigned, which is what F-Droid wants.
   (`#android-certificate`) waiting for it. `perrito-X.Y.Z.apk` and `SHA256SUMS` go into a
   draft release; the AAB stays the `play-bundle` artifact.
 - `android.yml` builds the unsigned, minified (R8) `assembleRelease` in every Android CI
-  run, which also runs `lintVitalRelease`, and reports its size against IzzyOnDroid's
-  ~30 MB limit (item 13).
+  run, which also runs `lintVitalRelease`, and reports its size, warning above 30 MB
+  (item 13).
 
 **Maintainer steps.** Done on 2026-10-25: steps 1–3 (the key generated and backed up twice; certificate SHA-256 `848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5`), step 4 (the `release` environment, `v*` tags only with the maintainer as required reviewer, and `environment: release` on in `release.yml`), step 6 (both variables) and step 7 (the download page). Step 5 too: the three secrets are in the `release` environment (none at repository level). The first tag build is the first real test of the signing.
 
@@ -668,8 +668,8 @@ CI's included, are unsigned, which is what F-Droid wants.
 - ✅ **The Play upload key (D7, decided 2026-10-17):** if Play ever happens (not for now,
   D8), Play App Signing with the app-signing key Google generates, and the release key as
   the upload key. The Release workflow already signs the AAB with the release key, so
-  nothing in it changes. Play installs and GitHub, IzzyOnDroid or F-Droid installs can't
-  update each other.
+  nothing in it changes. Play installs and GitHub or F-Droid installs can't update each
+  other.
 - ✅ **v3 signing** (key rotation): stays off (D7).
 - ✅ **The first version:** v0.1.0 on current `main` (D5, decided 2026-10-15; item 13).
 - **A release environment (recommended):** a `release` environment with a required
@@ -1063,7 +1063,7 @@ Still open:
   before signing anything (`docs/releasing.md`, "Signing secrets"). Next to watch:
   Google's Android developer verification (global from 2027) will require apps on
   Google-certified devices, sideloaded ones included, to come from a verified developer.
-  It affects the GitHub, IzzyOnDroid and F-Droid builds, not Fire tablets (phase-8 M4).
+  It affects the GitHub and F-Droid builds, not Fire tablets (phase-8 M4).
 - **Windows code signing (D1, decided 2026-10-15):** the Azure Artifact Signing account
   stays, and the maintainer is waiting for its identity validation and certificate.
   v0.1.0 ships unsigned unless the certificate arrives first; unsigned installers get
@@ -1113,7 +1113,8 @@ Still open:
 - **The Settings screenshots** (`docs/assets/screenshot-settings*.png`, made by
   `scripts/screenshots.mjs`) don't show the Open-source licences link yet; refresh them
   with the next round of screenshots.
-- **Store submissions** (IzzyOnDroid, F-Droid, winget; Flathub, AUR and Homebrew once
-  Linux and macOS are in a release, D5; no Google Play for now, D8) and **release
+- **Store submissions** (F-Droid, with a reproducible v0.1.1, and winget; Flathub, AUR and
+  Homebrew once Linux and macOS are in a release, D5; no IzzyOnDroid, decided 2026-10-25;
+  no Google Play for now, D8) and **release
   automation** for them; **announcement prep** (demo video, launch post, good first
   issues). See `docs/launch-checklist.md` §8–9.

@@ -363,15 +363,16 @@ on real hardware.
 
 See [docs/distribution.md](distribution.md) for each channel's requirements.
 
-- [ ] **IzzyOnDroid:** request inclusion. The request is ready in
-  [docs/fdroid/IZZY-REQUEST.md](fdroid/IZZY-REQUEST.md) (on Codeberg now); read its first
-  section first: IzzyOnDroid's AI policy likely rules the app out.
+- **IzzyOnDroid: decided not to** (2026-10-25, `docs/DECISIONS.md`). Its policy says apps
+  made fully or partly with generative AI will most likely be rejected, and PerritoDeck is
+  built with heavy Claude assistance. The request prepared in
+  [docs/fdroid/IZZY-REQUEST.md](fdroid/IZZY-REQUEST.md) wasn't sent.
 - [ ] **F-Droid:** merge request to `fdroiddata`. Ready in
   [docs/fdroid/SUBMIT.md](fdroid/SUBMIT.md), submitted with `v0.1.1` so that F-Droid
   publishes our signed APK (D11, settled 2026-10-25): at the tag, put its hash in the recipe
   and check the match with `fdroid build`, then open the merge request.
 - **Google Play: not for now** (D8 in `docs/plan/phase-8.md`, 2026-10-17). v0.1.0's
-  Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid. The closed test,
+  Android app ships on GitHub Releases, and F-Droid comes later. The closed test,
   the data safety form and the `play-bundle` upload are off the launch path; the notes for
   later are under "Google Play" in `docs/distribution.md`.
 - [ ] **Desktop:** winget is the Windows channel: the v0.1.0 manifests are ready in

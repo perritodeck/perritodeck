@@ -76,6 +76,11 @@ release mechanics in [releasing](../releasing.md).
   F-Droid, so the Play closed test is off the launch path (M3-19). Account security
   (M1-7) is fully done: the maintainer confirmed passkey 2FA on the Azure account, and
   Namecheap's Domain Lock is on for perritodeck.dev.
+- **Decided on 2026-10-25: no IzzyOnDroid.** Its policy says apps made fully or partly with
+  generative AI will most likely be rejected, and PerritoDeck is built with heavy Claude
+  assistance. Android users get the APK from GitHub Releases, which Obtainium can track,
+  and F-Droid comes later, with a v0.1.1 whose builds are reproducible
+  ([DECISIONS](../DECISIONS.md)).
 
 ## Decisions only the maintainer can make
 
@@ -94,7 +99,7 @@ D7, D8, D12 and D13 were decided on 2026-10-17 and the rest on 2026-10-15, and e
 | ✅ D5 | **First release scope:** the version, and which platforms and packages ship (the MSI was built once and never installed; macOS has never run on a real Mac) | **Decided 2026-10-15:** v0.1.0, Windows and Android only. The release publishes the Windows NSIS installer and the Android APK. The MSI, macOS, the Linux packages and the command-line archives are not in it. Linux and macOS still build and test in CI, and Linux keeps building from source; they join a later release once tested on real hardware. minSdk stays 22 (DECISIONS, 2026-10-12) | M3 |
 | ✅ D6 | **RUSTSEC-2026-0192:** `ttf-parser` (behind `ab_glyph`, used to draw key titles) is unmaintained. Not a vulnerability | **Decided 2026-10-17:** accepted for now, with a reason in `host/deny.toml` (`[advisories] ignore`), and the library is replaced in a later release. `cargo deny check advisories` still fails on other advisories ([next-steps](../next-steps.md) item 8) | CI running advisories |
 | ✅ D7 | **Play:** a separate upload key or the release key; turn on v3 signing or not | **Decided 2026-10-17**, for whenever Play happens: Play App Signing with the app-signing key Google generates, and our release key as the upload key. The Release workflow already signs the `play-bundle` AAB with the release key, so nothing in it changes. Play installs and GitHub, IzzyOnDroid or F-Droid installs can't update each other. v3 key rotation stays off | Play (not for now, D8) |
-| ✅ D8 | **Store and verification identities:** a personal Play account shows the legal name, country and email; Android developer verification (global in 2027) is another identity check | **Decided 2026-10-17:** no Google Play for now. v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid; revisit if people ask for it. A personal Play account would publicly show the legal name, country and developer email, and an organization account needs a registered company. So the Play closed test (12 testers for 14 days), the Play listing, the data safety form and the Play account are off the launch path. The fastlane metadata stays: F-Droid and IzzyOnDroid use it. Google's Android developer verification isn't part of the decision: it's an open item to watch in M4 | Play |
+| ✅ D8 | **Store and verification identities:** a personal Play account shows the legal name, country and email; Android developer verification (global in 2027) is another identity check | **Decided 2026-10-17:** no Google Play for now. v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid (IzzyOnDroid was dropped on 2026-10-25, see the status above); revisit if people ask for it. A personal Play account would publicly show the legal name, country and developer email, and an organization account needs a registered company. So the Play closed test (12 testers for 14 days), the Play listing, the data safety form and the Play account are off the launch path. The fastlane metadata stays: F-Droid uses it. Google's Android developer verification isn't part of the decision: it's an open item to watch in M4 | Play |
 | ✅ D9 | **Old Actions runs and artifacts** become public at the flip (E2E logs, the 2026-10-11 bundles) | **Decided 2026-10-15:** delete all runs and their artifacts right before the flip. Claude does it with the maintainer's OK at that moment (M1-10). **Done 2026-10-24:** all 257 runs and their artifacts | M1 |
 | ✅ D10 | **One name for the desktop app.** "PerritoDeck" is `tauri.conf.json`'s `productName` and so the window title, tray tooltip, installer, Start menu and uninstall entry, Windows version info, macOS bundle and Linux `.desktop` name (`tauri.conf.json:3,16`, `src-tauri/src/lib.rs:704,764-766`, `packaging/flatpak/dev.perritodeck.PerritoDeck.desktop:3` and `.metainfo.xml:5`, `packaging/aur/PKGBUILD:76`), and the website's "PerritoDeck desktop app" (`index.html:104`, `privacy.html:46`). "PerritoDeck Host" was what the tablet apps told people to start: Android `strings.xml:14,18,32`, `net/Pairing.kt:64`, `net/DeckConnection.kt:474`; iOS `ScanView.swift:44`, `HomeView.swift:22,69`, `Info.plist:50`, `PerritoKit/Pairing.swift:43`, `PerritoKit/PinnedWebSocket.swift:31`; the website's `download.html:7,13,53` and `privacy.html:55`. The command-line program stays `perritodeck-host` either way | **Decided 2026-10-15:** "PerritoDeck", the `productName`. "PerritoDeck Host" is retired everywhere people see it: the tablet strings, the website and the store text change in one commit (renamed in the tree on 2026-10-15, not yet committed). The tablet app stays "Perrito", and the command-line binary keeps its file name, `perritodeck-host` | The store listing (M3) |
 | ✅ D11 | **Reproducible Android builds and the startup profile.** `assets/dexopt/baseline.prof`, the ART startup profile R8 rewrites for the minified code, records the checksum of `classes.dex`, so it matches whenever the dex does. Measured on 2026-10-15 on one Windows PC (JDK 17, AGP 8.11.1): three clean release builds with the build cache off, in three folders on two drives, gave the same APK (2,179,425 bytes unsigned), while an incremental Kotlin compile changed the dex and so the profile (six classes when the compile came from the user-level build cache). With R8's profile rewriting off (only `android { experimentalProperties[...] }` does it; the `gradle.properties` flag has no effect on AGP 8.11.1) builds still match, but only 464 of the profile's 35,030 rules name a class in the obfuscated code (8,666 of 8,738 with it on), so the startup profile is effectively lost; turning off the ArtProfile tasks loses it outright on API 24+ | **Settled 2026-10-15 by measurement**, so no maintainer decision is needed: keep AGP's defaults and compare clean builds made with `--no-build-cache` ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide again only if CI's and F-Droid's builds differ; no comparison between machines has been run yet. **Reopened 2026-10-24:** in WSL, F-Droid's build and ours of the same commit differed only in `baseline.prof`, and that profile changed between runs of one setup too, so it isn't deterministic ([fdroid/README.md](../fdroid/README.md#reproducible-builds)). Decide before adding `Binaries`. **Settled 2026-10-25:** the race is in R8 (b/434861604, horizontal class merging), fixed in R8 8.11.21; AGP 8.11.2 bundles R8 8.11.26, and with it nine clean builds in WSL in nine folders, and `fdroid build` of the recipe with fdroidserver 2.4.5 and master, all gave one APK (`8a3d06dc…`), profile kept (dropping it would cost 14% of cold start on an API 34 emulator). Android CI now builds the release APK twice and compares; Windows builds differ only in the line endings of two R8-written `META-INF/services` files, so compare on Linux. F-Droid gets v0.1.1 with `Binaries` and `AllowedAPKSigningKeys` ([fdroid/SUBMIT.md](../fdroid/SUBMIT.md), [DECISIONS](../DECISIONS.md)) | The reproducible-build comparison and F-Droid's `Binaries` (M4) |
@@ -160,18 +165,21 @@ D7, D8, D12 and D13 were decided on 2026-10-17 and the rest on 2026-10-15, and e
 
 ## M4: after the release
 
-- **Windows signing** per D1: Azure Artifact Signing once its certificate arrives and the
-  publisher name it shows has been checked (if that happens before v0.1.0, the first
-  release is signed); SignPath as the alternative.
+- **Windows signing** (D1): v0.1.0 shipped unsigned. The Azure Artifact Signing account was
+  deleted on 2026-10-25, and SignPath Foundation is unlikely (it turned down the
+  maintainer's other project). Under consideration: Certum's Open Source Code Signing
+  certificate (about €49 a year, the key in Certum's cloud, signing from the Release
+  workflow), which names the maintainer as "Open Source Developer, <name>".
 - **Linux and macOS in a release** (D5), each once tested on real hardware: a real Linux
   desktop with a tablet (M3-11), a real Mac. The MSI too, once it's been installed and
   tested.
-- Store submissions: IzzyOnDroid, the F-Droid merge request, winget (the NSIS installer);
-  Flathub and AUR once Linux is in a release (the drafts need the current plugin list and
-  the MCP bridge). Google Play isn't one of them for now (D8).
+- Store submissions: the F-Droid merge request (with a v0.1.1 whose builds are
+  reproducible), winget (the NSIS installer); Flathub and AUR once Linux is in a release
+  (the drafts need the current plugin list and the MCP bridge). Not IzzyOnDroid (decided
+  2026-10-25), and not Google Play for now (D8).
 - **To watch: Google's Android developer verification** (global from 2027). Apps
   installed on Google-certified Android devices, sideloaded ones included, will have to
-  come from a verified developer. That affects the GitHub, IzzyOnDroid and F-Droid builds,
+  come from a verified developer. That affects the GitHub and F-Droid builds,
   but not Fire tablets, which aren't Google-certified. It's an open item, not a decision
   yet, and another identity check, as in D1 and D8.
 - macOS entitlements and usage strings, Apple signing (D1-style identity question).

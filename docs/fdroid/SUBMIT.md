@@ -2,8 +2,8 @@
 
 F-Droid is submitted with **v0.1.1** and `Binaries:` (maintainer decision 2026-10-25; D11 in
 [`../plan/phase-8.md`](../plan/phase-8.md)): F-Droid builds the tag from source, checks that
-its build matches our signed `perrito-0.1.1.apk` and publishes ours, so F-Droid, GitHub and
-IzzyOnDroid users all have the same signature and can update across them. v0.1.0 isn't
+its build matches our signed `perrito-0.1.1.apk` and publishes ours, so F-Droid and GitHub
+(Obtainium) users have the same signature and can update across them. v0.1.0 isn't
 submitted: its baseline profile came out differently from build to build, so F-Droid's build
 can't match it ([README.md](README.md#reproducible-builds)).
 

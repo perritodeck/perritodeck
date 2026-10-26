@@ -1,6 +1,6 @@
 # Distribution
 
-Where PerritoDeck ships, what each channel needs, and what's ready. Store text and images live in [`fastlane/metadata/android/`](../fastlane/metadata/android/) — F-Droid and IzzyOnDroid read that layout, and so would Google Play (via `fastlane supply`), which isn't used for now (D8).
+Where PerritoDeck ships, what each channel needs, and what's ready. Store text and images live in [`fastlane/metadata/android/`](../fastlane/metadata/android/) — F-Droid reads that layout, and so would Google Play (via `fastlane supply`), which isn't used for now (D8).
 
 ## Identifiers (never change after first release)
 
@@ -16,7 +16,7 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 
 ## Android channels
 
-**v0.1.0's Android app ships on GitHub Releases, then IzzyOnDroid and F-Droid.** There's no Google Play for now (decision D8 in [`plan/phase-8.md`](plan/phase-8.md), 2026-10-17); its notes are kept [below](#google-play) for later.
+**Android users get the APK from GitHub Releases and the download page, and Obtainium can keep it updated.** F-Droid comes later, with a v0.1.1 whose builds are reproducible, so F-Droid ships our signed APK. Perrito isn't going to IzzyOnDroid ([below](#izzyondroid-not-sending), 2026-10-25), and there's no Google Play for now (decision D8 in [`plan/phase-8.md`](plan/phase-8.md), 2026-10-17); its notes are kept [below](#google-play) for later.
 
 ### F-Droid (main repo)
 - Needs: FOSS license ✔, no proprietary dependencies ✔, no Google Play Services ✔, `dependenciesInfo` block disabled ✔, fastlane metadata ✔, a tagged release (`v0.1.0`, decision D5 in [`plan/phase-8.md`](plan/phase-8.md); see [`next-steps.md`](next-steps.md) item 13), reproducible build (optional but planned).
@@ -24,19 +24,19 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 - **Blocker:** the repository must be public before submission.
 - Expect no anti-features: no trackers, no proprietary libraries, and the tablet talks to the computer over TLS.
 
-### IzzyOnDroid
-- Faster than F-Droid main (days, not weeks); picks up signed APKs from GitHub Releases.
-- Needs a public repo, a release APK attached to a GitHub Release, and the same fastlane metadata. Request inclusion via an issue on `gitlab.com/IzzyOnDroid/repo`.
+### IzzyOnDroid: not sending
+- Decided 2026-10-25 ([`DECISIONS.md`](DECISIONS.md)). IzzyOnDroid's inclusion policy says apps made fully or partly with generative AI will most likely be rejected, and it rejects apps that integrate with LLM services. PerritoDeck is built with heavy Claude assistance.
+- The request that was prepared is kept in [`fdroid/IZZY-REQUEST.md`](fdroid/IZZY-REQUEST.md). It wasn't sent.
 
 ### GitHub Releases + Obtainium
-- The Release workflow attaches `perrito-<version>.apk`, signed with the release key, to each tagged release, and the notes give the certificate's fingerprint. Obtainium users can then track it directly.
+- The Release workflow attaches `perrito-<version>.apk`, signed with the release key, to each tagged release, and the notes give the certificate's fingerprint. Obtainium users can then track it directly. This is the Android channel until F-Droid; the download page links the APK and Obtainium.
 
 ### Google Play
 - **Not for now** (D8 in [`plan/phase-8.md`](plan/phase-8.md), decided 2026-10-17). Nothing in this section is on the launch path: not the Play account, the closed test, the listing or the data safety form. Revisit if people ask for it. The notes below are kept for then.
 - **Developer account:** personal accounts created after Nov 2023 must run a **closed test with at least 12 testers for 14 continuous days** before production access.
 - **Identity verification** for the developer account takes a few days. The developer name can be "PerritoDeck", but a personal account would also publicly show the legal name, country and developer email, and an organization account needs a registered company. That's why D8 says not for now.
 - **Target API:** new apps must target the latest required level (currently API 36) ✔.
-- **App signing (D7, decided 2026-10-17):** Play App Signing with the app-signing key Google generates, and our release key as the upload key. The Release workflow already signs the `play-bundle` AAB with the release key, so nothing in it changes. v3 key rotation stays off. Google's key signs what Play installs, so Play installs and GitHub, IzzyOnDroid or F-Droid installs can't update each other: switching means uninstalling first.
+- **App signing (D7, decided 2026-10-17):** Play App Signing with the app-signing key Google generates, and our release key as the upload key. The Release workflow already signs the `play-bundle` AAB with the release key, so nothing in it changes. v3 key rotation stays off. Google's key signs what Play installs, so Play installs and GitHub or F-Droid installs can't update each other: switching means uninstalling first.
 - **Data safety form** — answers:
   - Does the app collect or share user data? **No.**
   - Is data encrypted in transit? **Yes**: the tablet and the computer talk over TLS with a pinned certificate, on the local network only.
@@ -46,11 +46,11 @@ Where PerritoDeck ships, what each channel needs, and what's ready. Store text a
 - **Permissions declaration:** none needed. The app asks for `INTERNET`, `CAMERA`, `ACCESS_NETWORK_STATE` and `CHANGE_WIFI_MULTICAST_STATE`; the camera only scans the pairing QR code while the scanner is open, and nothing it sees is stored or sent. The other two notice Wi-Fi going and coming back and let the computers' mDNS announcements through while Home looks for them. None of them needs a special declaration.
 
 ### Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery
-- Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after IzzyOnDroid and F-Droid.
+- Optional. Amazon's store is the only way most Fire tablet owners install apps without sideloading, so it's worth doing after F-Droid.
 
 ### Android developer verification (from 2027): to watch
 - Google's Android developer verification goes global in 2027. Apps installed on Google-certified Android devices, sideloaded ones included, will have to come from a verified developer.
-- That affects the GitHub, IzzyOnDroid and F-Droid builds, but not Fire tablets, which aren't Google-certified.
+- That affects the GitHub and F-Droid builds, but not Fire tablets, which aren't Google-certified.
 - It's an open item for after the release (M4 in [`plan/phase-8.md`](plan/phase-8.md)), not a decision.
 
 ## Desktop channels (Phase 6)
@@ -81,6 +81,6 @@ join a later release once tested on real hardware.
 - [ ] Android signing: the maintainer generates the new release key and sets three secrets and two variables (`PERRITO_KEY_ALIAS`, and `PERRITO_CERT_SHA256`, recommended), then puts the fingerprint on `website/download.html`. The pipeline is in place, and until then the Release workflow can't publish (Android CI builds the release APK unsigned either way). The steps are in [`next-steps.md`](next-steps.md) item 11. Windows signing follows D1 (above); Apple signing waits for a release with macOS.
 - [x] Third-party licence texts in the APK and a licences screen in Perrito (2026-10-15): generated at build time, F-Droid friendly. The desktop installers and the command-line archives carry `third-party-licenses.txt`, and the desktop app's Settings links to it ([`launch-checklist.md`](launch-checklist.md) §3).
 - [x] Desktop bundle identifier decided: `dev.perritodeck.PerritoDeck` (see the table above and `DECISIONS.md`).
-- [ ] Make the repository public before F-Droid/IzzyOnDroid/Flathub submission and before the download page goes live.
+- [ ] Make the repository public before F-Droid/Flathub submission and before the download page goes live.
 - [x] The privacy policy covers the camera: it's used only to scan pairing QR codes, and nothing it sees is stored or sent (`website/privacy.html`).
 - [x] Store text up to date (2026-10-13, corrected after review on 2026-10-15): `full_description.txt` lists sliders, QR pairing, USB (with what it needs: USB debugging and adb), pages, profiles, live values, plugins (those that aren't experimental first) and AI assistants, and names other brands only where needed: OBS Studio and Home Assistant, which are built in, Amazon Fire tablets, and the not-affiliated line. It calls the built-in Home Assistant experimental, as it has only met a stand-in so far ([`next-steps.md`](next-steps.md) item 17), and its slider and live-value examples come from parts tested for real (OBS, the computer, what's playing); drop "(still experimental)" once Home Assistant passes against a real instance. Plain text with `<b>` headings, within Play's limits (title 30 characters, short description 80, full description 4,000). It calls the desktop app "PerritoDeck" (D10 in [`plan/phase-8.md`](plan/phase-8.md)), and says it has an installer for Windows and runs on Linux from source (D5). Update it when Linux packages, macOS or iOS ship.
