@@ -681,9 +681,11 @@ CI's included, are unsigned, which is what F-Droid wants.
 
 **Later:**
 - A manual reproducibility job: rebuild unsigned in a clean container like F-Droid's
-  (Debian OpenJDK 17, no NDK) and compare with `apksigcopier compare`.
-- `docs/fdroid/dev.perritodeck.client.yml`: fill in `AllowedAPKSigningKeys` and `Binaries`
-  once the builds match.
+  (Debian OpenJDK 17, no NDK) and compare with `apksigcopier compare`. (Every Android CI run
+  now builds the release APK twice on Ubuntu and compares them; this would add Debian's JDK.)
+- `docs/fdroid/dev.perritodeck.client.yml`: `Binaries` and `AllowedAPKSigningKeys` are in the
+  v0.1.1 draft (D11 settled 2026-10-25); at the tag, `commit:` becomes the tag's full hash
+  (`docs/fdroid/SUBMIT.md`, step 1).
 
 ## 12. The website goes live (maintainer) — live (2026-10-15), on GitHub Pages since 2026-10-24 (D12)
 
@@ -941,14 +943,13 @@ Then `website/_headers` was deleted, the CSP test reads the `<meta>` tag alone, 
   slider-feel and haptics checks. More Kindles are on order. (`docs/DECISIONS.md:14,16`)
 - **Page switches stall the main thread on slow tablets** (~560 ms of long frames per
   switch on the Fire 7; item 6 has the numbers). Try per-key image state in the deck screen.
-- **Release APKs aren't reproducible yet: the baseline profile varies from build to build**
-  (`docs/fdroid/README.md`, Reproducible builds). `fdroid lint` and `fdroid build` ran on
-  2026-10-24: the recipe lints clean and builds. Nine clean builds of one commit in WSL gave
-  identical `classes.dex` but three different `baseline.prof` files, because R8's profile
-  rewriting sometimes drops the constructors of classes it merged. That reopens D11 in
-  `docs/plan/phase-8.md` (keep the profile, turn off R8's rewriting of it, or leave it out)
-  before `Binaries:` goes into the recipe. Still not compared: F-Droid's build server or CI
-  with a local build.
+- **Release APKs are reproducible since AGP 8.11.2 (2026-10-25, D11 settled).** The baseline
+  profile varied from build to build because of an R8 race (b/434861604), fixed in the R8
+  that AGP 8.11.2 bundles: nine clean builds in WSL and `fdroid build` of the draft recipe all
+  gave one APK (`docs/fdroid/README.md`, Reproducible builds). F-Droid is submitted with
+  v0.1.1 and `Binaries` (`docs/fdroid/SUBMIT.md`). Still not compared: F-Droid's build
+  server (Debian OpenJDK 17) with CI; the merge request's pipeline will be the first. Windows
+  builds differ in two R8-written `META-INF/services` files (CRLF), so compare on Linux.
 
 ## 16. CI
 

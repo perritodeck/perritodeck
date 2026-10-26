@@ -1,7 +1,9 @@
 # Versions are pinned to releases that still support minSdk 22 (Fire OS 5).
 # Newer AndroidX releases raise minSdk to 23; revisit once the oldest target device is known.
 [versions]
-agp = "8.11.1"
+# 8.11.2 or newer: it bundles R8 8.11.26, which has the fix for b/434861604 (a race in horizontal
+# class merging that made the release APK's baseline profile differ between builds; D11).
+agp = "8.11.2"
 kotlin = "2.2.0"
 composeBom = "2025.06.01"
 activityCompose = "1.10.1"

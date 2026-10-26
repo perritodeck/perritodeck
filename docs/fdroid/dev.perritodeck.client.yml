@@ -13,11 +13,12 @@ AutoName: Perrito
 
 RepoType: git
 Repo: https://github.com/perritodeck/perritodeck.git
+Binaries: https://github.com/perritodeck/perritodeck/releases/download/v%v/perrito-%v.apk
 
 Builds:
-  - versionName: 0.1.0
-    versionCode: 1
-    commit: c396920de64705018c07d57771dfb6cfd62ababd
+  - versionName: 0.1.1
+    versionCode: 2
+    commit: v0.1.1
     subdir: android/app
     sudo:
       - echo "deb https://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/bookworm.list
@@ -27,7 +28,9 @@ Builds:
     gradle:
       - yes
 
+AllowedAPKSigningKeys: 848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5
+
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+$
-CurrentVersion: 0.1.0
-CurrentVersionCode: 1
+CurrentVersion: 0.1.1
+CurrentVersionCode: 2
