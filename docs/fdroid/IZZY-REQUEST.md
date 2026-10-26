@@ -56,8 +56,9 @@ sent.
    template "App Inclusion Request" (title `[AppRequest] <App Name>`). It needs a Codeberg
    account; a handle is enough.
 3. **Reproducible builds.** IzzyOnDroid rebuilds apps and shows a badge when the builds
-   match. Ours would not match yet: the baseline profile (D11, [SUBMIT.md](SUBMIT.md)). Not
-   a blocker for inclusion.
+   match. v0.1.0 wouldn't match: its baseline profile varied between builds (D11). From
+   v0.1.1 (AGP 8.11.2) builds are reproducible ([README.md](README.md#reproducible-builds)).
+   Not a blocker for inclusion.
 4. The AI fields and the two "AI Accountability" boxes are the maintainer's own statements:
    check them against what actually happened before ticking anything.
 
@@ -129,6 +130,6 @@ Other notes:
 - The APK is attached to each GitHub release as perrito-<version>.apk (v0.1.0: https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perrito-0.1.0.apk). Releases are marked "pre-release" on GitHub while the project is pre-alpha; please include pre-releases.
 - Signing certificate SHA-256: 848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5
 - The desktop app (not this APK) has optional MCP support for AI assistants, and one of its plugins talks to a local Ollama. Perrito itself only talks to the paired computer.
-- Builds aren't reproducible yet: an independent build differs from ours only in the ART baseline profile (assets/dexopt/baseline.prof), which R8 doesn't write deterministically. Everything else, classes.dex included, is identical.
+- Reproducible builds: v0.1.0's ART baseline profile (assets/dexopt/baseline.prof) varied between builds because of an R8 race; everything else, classes.dex included, matched. From v0.1.1 (AGP 8.11.2, whose R8 has the fix) independent builds match ours byte for byte.
 - Anti-features: none known. No trackers, ads, analytics, proprietary libraries or self-updater; CAMERA is only for the pairing QR code.
 ```
