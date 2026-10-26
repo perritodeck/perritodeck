@@ -25,7 +25,7 @@ decisions it needs are in [`docs/plan/phase-8.md`](plan/phase-8.md).**
 | macOS | Host and plugin tests pass in CI (2026-10-24). A universal `.dmg` was built in CI once (2026-10-11) and not since. Never run on a real Mac. Not in v0.1.0 (D5) |
 | iOS | Built in CI for the first time on 2026-10-24 (iOS run 40157963719). Never run on a device |
 | Installers (NSIS/MSI) | NSIS built and tested on Windows (2026-10-13); v0.1.0 ships it and no MSI (D5). The MSI was built in CI once (2026-10-11) but is stale, and was never installed or tested |
-| CI | Runs again since the flip (2026-10-24), free now the repo is public. CI run 40157961726 on `01673dd` was green in every job: host and plugins on Windows, Linux and macOS, the desktop app, all four emulators, Android, protocol, licences and advisories, CI gate. The Release workflow has never run, and Desktop app with platforms = all hasn't run since 2026-10-11 (item 16) |
+| CI | Runs again since the flip (2026-10-24), free now the repo is public. CI run 40157961726 on `01673dd` was green in every job: host and plugins on Windows, Linux and macOS, the desktop app, all four emulators, Android, protocol, licences and advisories, CI gate. Since 2026-10-25 every push and pull request runs every platform its changes need, the Linux and macOS bundles and iOS included |
 
 Items marked 🖥 need a Windows PC and the test tablet. The rest can be done on any machine.
 **(maintainer)** marks a decision or an action only the maintainer can take.
@@ -471,14 +471,15 @@ that way: `bootstrap-gradle-wrapper.yml` no longer pushes to `main` but to a
 a person opens the pull request (2026-10-15, DECISIONS), so it works under the ruleset.
 
 After it's public:
-- Run Linux, macOS and the other emulators on pushes and pull requests too, which are weekly
-  or manual today because of cost: widen the matrices in `host.yml`, `desktop-app.yml`,
-  `e2e.yml` and `plugins.yml`. Pushes and pull requests reach those through `ci.yml`, so
-  don't add push or pull_request triggers back to them.
+- ✅ Linux, macOS, the desktop bundles, the real-app test, all four emulators and iOS run on
+  pushes and pull requests too (2026-10-25): the matrices in `host.yml`, `desktop-app.yml`,
+  `e2e.yml` and `plugins.yml` are the full ones, and `ci.yml` calls `ios.yml`. Pushes and pull
+  requests reach those through `ci.yml`, so don't add push or pull_request triggers back to
+  them.
 - Run the iOS workflow on `macos-latest` (it's on `macos-14`, where the first iOS build
   went green on 2026-10-24, with no rented Mac needed).
-- ✅ CLAUDE.md's CI section describes the public repo (2026-10-24). Change it again if the
-  matrices widen.
+- ✅ CLAUDE.md's CI section describes the public repo (2026-10-24), and the full matrices
+  (2026-10-25).
 - Set the Android signing secrets and variables (item 11); they're needed for the first
   release, not for going public. A `release` environment, recommended for the three
   secrets, can be created now the repo is public (a private repo on the Free plan couldn't

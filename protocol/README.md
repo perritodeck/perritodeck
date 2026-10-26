@@ -86,7 +86,7 @@ client                                   host
    |---|---|---|
    | Host (Rust) | `host/crates/protocol/src/lib.rs` | `cargo test -p perritodeck-protocol` in `host/` |
    | Android (Kotlin) | `android/app/src/main/java/dev/perritodeck/client/protocol/Protocol.kt` | `.\gradlew.bat testDebugUnitTest` (or `./gradlew`) in `android/` |
-   | iOS (Swift) | `ios/PerritoKit/Sources/PerritoKit/Protocol.swift` | `swift test` in `ios/PerritoKit` (needs a Mac; CI runs it weekly in the iOS workflow) |
+   | iOS (Swift) | `ios/PerritoKit/Sources/PerritoKit/Protocol.swift` | `swift test` in `ios/PerritoKit` (needs a Mac; CI runs it in the iOS workflow) |
 
    New fixtures are picked up by themselves: each suite reads every `.json` file in `fixtures/` (`host/crates/protocol/tests/fixtures.rs`, `android/app/src/test/java/dev/perritodeck/client/protocol/ProtocolFixturesTest.kt`, `ios/PerritoKit/Tests/PerritoKitTests/ProtocolFixturesTests.swift`).
 

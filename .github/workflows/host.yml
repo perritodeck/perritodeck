@@ -1,8 +1,7 @@
 name: Host
 
 # Pushes to main and pull requests run this through ci.yml, when host/, protocol/ or plugins/
-# change (the list is there): Windows only. Linux and macOS cost more minutes (macOS ten times
-# Linux), so all three run weekly or by hand.
+# change (the list is there), on Windows, Linux and macOS; also weekly and by hand.
 on:
   workflow_call:
   schedule:
@@ -30,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest"]') }}
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

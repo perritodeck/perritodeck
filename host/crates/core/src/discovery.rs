@@ -232,6 +232,17 @@ fn windows_network_categories() -> Option<Vec<String>> {
 /// the whole answer.
 #[cfg(windows)]
 fn powershell(command: &str, env: &[(&str, &str)]) -> Option<String> {
+    // It normally answers within a second; a report shouldn't wait on it for long.
+    powershell_within(command, env, std::time::Duration::from_secs(5))
+}
+
+/// [`powershell`], giving up after `timeout`.
+#[cfg(windows)]
+fn powershell_within(
+    command: &str,
+    env: &[(&str, &str)],
+    timeout: std::time::Duration,
+) -> Option<String> {
     use std::io::Read as _;
     use std::os::windows::process::CommandExt as _;
     use std::process::{Command, Stdio};
@@ -251,8 +262,7 @@ fn powershell(command: &str, env: &[(&str, &str)]) -> Option<String> {
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .ok()?;
-    // It normally answers within a second; a report shouldn't wait on it for long.
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + timeout;
     while child.try_wait().ok()?.is_none() {
         if Instant::now() > deadline {
             let _ = child.kill();
@@ -387,11 +397,18 @@ mod tests {
         );
     }
 
-    /// Windows PowerShell's output arrives as UTF-8 whatever the console's code page.
+    /// Windows PowerShell's output arrives as UTF-8 whatever the console's code page. It
+    /// waits longer than the app does: a cold PowerShell start on a busy CI runner, with the
+    /// other tests running, can take more than the app's 5 seconds, and this tests the text.
     #[cfg(windows)]
     #[test]
     fn powershell_output_keeps_accented_letters() {
-        let out = powershell("'Conexión de área local: Public'", &[]).unwrap();
+        let out = powershell_within(
+            "'Conexión de área local: Public'",
+            &[],
+            std::time::Duration::from_secs(60),
+        )
+        .unwrap();
         assert_eq!(out.trim(), "Conexión de área local: Public");
     }
 

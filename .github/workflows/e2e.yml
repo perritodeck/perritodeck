@@ -27,11 +27,14 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # Pushes run the oldest Android and the Fire 7 stand-in; all four weekly or by hand.
       # 22 = oldest supported. The test tablet is a Fire 7 (2019, KFMUWI): 1024x600 mdpi,
       # Fire OS 6 (API 25) or 7 (API 28); the Fire HD 10 is the common larger one.
       matrix:
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"name":"api22","api-level":22},{"name":"fire7","api-level":25,"screen-size":"1024x600","screen-density":160}]' || '[{"name":"api22","api-level":22},{"name":"api34","api-level":34},{"name":"fire7","api-level":25,"screen-size":"1024x600","screen-density":160},{"name":"firehd10","api-level":28,"screen-size":"1920x1200","screen-density":224}]') }}
+        include:
+          - { name: api22, api-level: 22 }
+          - { name: api34, api-level: 34 }
+          - { name: fire7, api-level: 25, screen-size: 1024x600, screen-density: 160 }
+          - { name: firehd10, api-level: 28, screen-size: 1920x1200, screen-density: 224 }
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

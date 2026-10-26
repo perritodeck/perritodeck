@@ -1,15 +1,21 @@
 name: iOS
 
-# macOS runners cost ten times Linux minutes, so the iOS client builds only weekly
-# (Mondays, after the other weekly jobs) or by hand (Actions → iOS → Run workflow).
+# Pushes to main and pull requests run this through ci.yml, when ios/ or protocol/ (PerritoKit's
+# tests read the fixtures) change (the list is there). Also weekly (Mondays, after the other
+# weekly jobs) and by hand (Actions → iOS → Run workflow).
 on:
+  workflow_call:
   schedule:
     - cron: "17 12 * * 1"
   workflow_dispatch:
 
-# A newer run on the same branch makes older runs pointless.
+# A newer run for the same branch makes older runs pointless, but each push to main is
+# checked in full (see ci.yml). The group starts with this workflow's own name and then has
+# github.workflow, which is the caller's name ("CI") when ci.yml calls this: so this never
+# shares ci.yml's group (a deadlock), and a CI run by hand and a run from this workflow's own
+# Run workflow button don't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ios-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
