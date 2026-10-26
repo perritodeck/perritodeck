@@ -50,7 +50,7 @@ PerritoDeck has three kinds of parts:
 | `protocol/` | The wire protocol: JSON Schema, golden fixtures and a validator ([protocol/README.md](../protocol/README.md)) |
 | `plugins/` | The plugin protocol, the Python and Node.js SDKs, the 24 first-party plugins and the catalogue builder. MIT-licensed, unlike the rest (Apache-2.0) |
 | `website/` | perritodeck.dev: plain HTML, CSS and a little JavaScript, no build step; the user guide, and the plugin catalogue page |
-| `fastlane/` | Store text and images for F-Droid, IzzyOnDroid and Google Play |
+| `fastlane/` | Store text and images for F-Droid (and Google Play, not used for now) |
 | `packaging/` | Draft Flatpak and AUR recipes |
 | `scripts/` | Release versioning, third-party notices, the Android emulator test, screenshots |
 | `docs/` | This file, decisions, plans, the security model, distribution and release notes |

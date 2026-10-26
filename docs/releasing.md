@@ -86,7 +86,7 @@ Pre-release tags like `v0.3.0-rc.1` work, but MSI needs numeric versions, so a v
   - the soak test and the Windows manual steps (M3-16 and M3-17).
 
   A v0.1.0 tag stops at Check versions until every one of them is resolved.
-- [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid and IzzyOnDroid show it, and the release notes include it. The workflow fails without it.
+- [ ] `fastlane/metadata/android/en-US/changelogs/<new versionCode>.txt`: 500 characters at most, plain text. F-Droid shows it, and the release notes include it. The workflow fails without it.
 - [ ] Optional: a `<release>` entry in `packaging/flatpak/dev.perritodeck.PerritoDeck.metainfo.xml`.
 
 ### 4. Check locally, commit
@@ -123,14 +123,14 @@ Cost: a v0.1.0 tag runs 5 Linux jobs and 1 Windows job (2× rate); a manual run 
 - [ ] Press **Publish release**.
 - [ ] The website: GitHub Pages serves it from `perritodeck/perritodeck.github.io` ([`docs/website.md`](website.md#deploy)), and it changes only when a publish runs, not with every push to `main`. After the flip that's the Site publish workflow, on a push to `main` that touches `website/` or `plugins/`, or by hand (Actions → Site publish → Run workflow); before the flip, `scripts/publish_site.py` run by hand from WSL. So once Site publish has run on the release commit from step 4, which bumped the links in `download.html`, they're live, and until **Publish release** the download page links to files that return 404: tag and publish promptly. Check that the run published ("site: no change" would mean it didn't see the commit). Each publish builds the plugin catalogue itself from `main` (`website/plugins/` isn't committed).
 - [ ] First release only: work through "Launch day" under "Deploy" in `docs/website.md`, then commit, push to `main`, check that Site publish ran, and check that the live site shows the change.
-- [ ] Stores: F-Droid picks up new tags by itself once listed; IzzyOnDroid picks up the APK. There's no Google Play for now (D8), so the `play-bundle` artifact isn't uploaded anywhere. The Flathub and AUR recipes (`packaging/README.md`) wait until Linux ships ([What ships](#what-ships)).
+- [ ] Stores: F-Droid picks up new tags by itself once listed; Obtainium users get the new APK from GitHub Releases. There's no Google Play for now (D8), so the `play-bundle` artifact isn't uploaded anywhere. The Flathub and AUR recipes (`packaging/README.md`) wait until Linux ships ([What ships](#what-ships)).
 
 ## Signing secrets (none are set yet)
 
 Secrets are set with `gh secret set NAME -R perritodeck/perritodeck`, and variables, which hold public values, with `gh variable set NAME -R perritodeck/perritodeck --body <value>` (maintainer only). Give a key or password on standard input or at the hidden prompt, never after `--body`, where it ends up in the shell history and the process list. The Android secrets and `PERRITO_KEY_ALIAS` are required for a release. The Apple and Windows ones are optional: whatever is missing there is skipped with a warning.
 
 ### Android: the release key
-It signs every APK published outside Google Play (GitHub Releases, IzzyOnDroid, Obtainium, and F-Droid once builds are reproducible). **If it's lost, existing users can't update** and would have to uninstall first. Back it up offline (password manager plus an encrypted USB stick) and check that the backup opens. The key doesn't exist yet: the maintainer generates it before the first signed release, and nothing real has been signed so far.
+It signs every APK published outside Google Play (GitHub Releases, Obtainium, and F-Droid once builds are reproducible). **If it's lost, existing users can't update** and would have to uninstall first. Back it up offline (password manager plus an encrypted USB stick) and check that the backup opens. The key doesn't exist yet: the maintainer generates it before the first signed release, and nothing real has been signed so far.
 
 | Name | Kind | What |
 |---|---|---|
@@ -170,7 +170,7 @@ The certificate's SHA-256 goes in the Android job summary and the release notes.
 
 To try a signed build locally (for testing only; never publish a locally built APK): set the four environment variables Gradle reads (`PERRITO_KEYSTORE`, the path to the `.p12`, and `PERRITO_KEYSTORE_PASSWORD`, `PERRITO_KEY_ALIAS` and `PERRITO_KEY_PASSWORD`) in that shell only, run `./gradlew --no-configuration-cache assembleRelease` in `android/`, check it with `apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`, and clear the variables afterwards. The release app (`dev.perritodeck.client`) installs next to the debug one (`dev.perritodeck.client.debug`) and pairs separately.
 
-Google Play isn't used for now (D8). If it ever is, D7 (2026-10-17) settles the keys: Play App Signing with the app-signing key Google generates, and this release key as the **upload key**. That's how the workflow already signs the `play-bundle` artifact, so nothing changes. Google's key signs what Play installs, so a Play install and an install from GitHub, IzzyOnDroid or F-Droid can't update each other.
+Google Play isn't used for now (D8). If it ever is, D7 (2026-10-17) settles the keys: Play App Signing with the app-signing key Google generates, and this release key as the **upload key**. That's how the workflow already signs the `play-bundle` artifact, so nothing changes. Google's key signs what Play installs, so a Play install and an install from GitHub or F-Droid can't update each other.
 
 #### Once the repository is public: a release environment
 Done 2026-10-25: the `release` environment exists (`v*` tags only, dmang-dev the required reviewer) and `release.yml` names it. What's left is putting the three secrets in it (step 4).
