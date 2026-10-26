@@ -1,0 +1,1 @@
+Same app as 0.1.0, now built reproducibly. F-Droid's build of this version matches the signed APK on GitHub, so F-Droid can ship that APK as it is, and you can switch between F-Droid and GitHub without reinstalling. Nothing else changed.

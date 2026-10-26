@@ -1714,7 +1714,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "perritodeck-actions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "enigo",
  "open",
@@ -1731,7 +1731,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-companion"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "image",
@@ -1742,7 +1742,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "futures-util",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-deck"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "notify",
@@ -1783,7 +1783,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-fakedeck"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-integrations"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "futures-util",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "directories",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-plugins"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "perritodeck-actions",
  "serde",
@@ -1898,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-profile"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "perritodeck-actions",
  "serde",
@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1920,7 +1920,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ab_glyph",
  "base64",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "perritodeck-sdcompat"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "futures-util",

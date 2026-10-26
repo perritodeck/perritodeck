@@ -47,11 +47,11 @@
     </div>
   </header>
 
-  <main class="prose" data-version="0.1.0">
+  <main class="prose" data-version="0.1.1">
     <div class="wrap">
       <div class="page-head">
         <h1>Download PerritoDeck</h1>
-        <p class="updated">Version 0.1.0 · free and open source · no account needed</p>
+        <p class="updated">Version 0.1.1 · free and open source · no account needed</p>
         <p class="lede">You need two things: <strong>PerritoDeck</strong> on your computer, and <strong>Perrito</strong> on your tablet or phone. The computer does what your buttons ask, and the tablet shows them.</p>
       </div>
 
@@ -63,7 +63,7 @@
           <h3>Windows <span class="yours">Your system</span></h3>
           <p class="state ok">Tested on Windows 11 with a real tablet</p>
           <p>Windows 10 or 11, 64-bit. Installs just for you, no administrator needed.</p>
-          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perritodeck-0.1.0-windows-x64-setup.exe">Download installer (.exe)</a>
+          <a class="button" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.1/perritodeck-0.1.1-windows-x64-setup.exe">Download installer (.exe)</a>
           <ul class="more">
             <li><code>winget</code> package coming</li>
           </ul>
@@ -92,7 +92,7 @@
       <h2 id="tablet">2. Install Perrito on your tablet</h2>
       <p class="lead-in">Any Android tablet or phone running Android 5.1 or newer, including Amazon Fire tablets.</p>
       <ul class="store-list">
-        <li><strong>Direct download</strong><span>The APK file, for sideloading or for <a href="https://obtainium.imranr.dev/">Obtainium</a>, which keeps it updated from GitHub.</span><a class="badge now" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/perrito-0.1.0.apk">perrito-0.1.0.apk</a></li>
+        <li><strong>Direct download</strong><span>The APK file, for sideloading or for <a href="https://obtainium.imranr.dev/">Obtainium</a>, which keeps it updated from GitHub.</span><a class="badge now" href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.1/perrito-0.1.1.apk">perrito-0.1.1.apk</a></li>
         <li><strong>F-Droid</strong><span>The free and open-source app store. Builds Perrito from source itself.</span><span class="badge">Coming</span></li>
         <li><strong>Google Play</strong><span>Not on Google Play for now. Tablets and phones with the Play Store can use any of the above.</span><span class="badge">Not for now</span></li>
         <li><strong>Amazon Appstore</strong><span>For Fire tablets without sideloading.</span><span class="badge">Later</span></li>
@@ -124,14 +124,14 @@
       </ul>
 
       <h2 id="verify">Check your download</h2>
-      <p>Each release comes with a file called <a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a> that lists a SHA-256 checksum, a fingerprint of the exact bytes, for every file. If your file's checksum matches its line there, you got exactly what was built from the published source, with nothing changed or cut off along the way. Download SHA256SUMS into the same folder, then run:</p>
+      <p>Each release comes with a file called <a href="https://github.com/perritodeck/perritodeck/releases/download/v0.1.1/SHA256SUMS">SHA256SUMS</a> that lists a SHA-256 checksum, a fingerprint of the exact bytes, for every file. If your file's checksum matches its line there, you got exactly what was built from the published source, with nothing changed or cut off along the way. Download SHA256SUMS into the same folder, then run:</p>
       <p class="os-label">Windows (PowerShell)</p>
-      <pre><code>Get-FileHash .\perritodeck-0.1.0-windows-x64-setup.exe -Algorithm SHA256</code></pre>
+      <pre><code>Get-FileHash .\perritodeck-0.1.1-windows-x64-setup.exe -Algorithm SHA256</code></pre>
       <p class="os-label">Linux, for the APK</p>
       <pre><code>sha256sum -c SHA256SUMS --ignore-missing</code></pre>
       <p class="os-label">macOS, for the APK</p>
       <pre><code>shasum -a 256 -c SHA256SUMS --ignore-missing</code></pre>
-      <p>(If your <code>shasum</code> doesn't know <code>--ignore-missing</code>, run <code>shasum -a 256 perrito-0.1.0.apk</code> and compare by eye.)</p>
+      <p>(If your <code>shasum</code> doesn't know <code>--ignore-missing</code>, run <code>shasum -a 256 perrito-0.1.1.apk</code> and compare by eye.)</p>
       <p>On Windows, compare the long hash with the line for that file in SHA256SUMS (upper or lower case doesn't matter); <code>Get-FileHash</code> works the same for the APK. On Linux and macOS each file should say <code>OK</code>.</p>
       <p>Every file is built from the tagged source by GitHub Actions, in public, and the build log shows the same checksums.</p>
 
@@ -140,7 +140,7 @@
       <!-- The release key's certificate, from keytool's SHA-256 (docs/releasing.md); the PERRITO_CERT_SHA256 variable and the release notes show the same value. -->
       <pre><code>848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5</code></pre>
       <p>To check an APK from here or from GitHub Releases, run <code>apksigner</code> from the Android SDK's build tools:</p>
-      <pre><code>apksigner verify --print-certs perrito-0.1.0.apk</code></pre>
+      <pre><code>apksigner verify --print-certs perrito-0.1.1.apk</code></pre>
       <p>The line with <code>certificate SHA-256 digest:</code> should end in the fingerprint above, and there should be no <code>ERROR</code> lines (warnings about files in <code>META-INF/</code> are normal). Some tools show the fingerprint in capitals with colons between the pairs; it's the same value. If it doesn't match, don't install the file. Android won't install an update signed with a different key over the app you have, so this check matters most the first time.</p>
 
       <h2 id="cli">Command-line host</h2>
