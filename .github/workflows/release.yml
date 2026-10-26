@@ -503,6 +503,12 @@ jobs:
           # It's added here rather than in tauri.conf.json because the file exists only in CI.
           licences='{"bundle":{"resources":{"third-party-licenses.txt":"third-party-licenses.txt"}}}'
           args=(--ci --bundles "$BUNDLES" --config "$licences")
+          # A universal macOS build: Tauri merges only the main binary into the universal one,
+          # and the script merges perritodeck-mcp before bundling (scripts/lipo-universal-bins.sh).
+          # Tauri merges each --config in turn.
+          if [ "$TARGET" = universal-apple-darwin ]; then
+            args+=(--config "{\"build\":{\"beforeBundleCommand\":\"bash $GITHUB_WORKSPACE/scripts/lipo-universal-bins.sh\"}}")
+          fi
           [ -n "$TARGET" ] && args+=(--target "$TARGET")
           npx tauri build "${args[@]}"
       - name: Collect

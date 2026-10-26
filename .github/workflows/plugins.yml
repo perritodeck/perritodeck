@@ -2,9 +2,9 @@ name: Plugins
 
 # Pushes to main and pull requests run this through ci.yml, when plugins/ or website/ change
 # (test_build_catalog.py checks website/ for anything the site's Content-Security-Policy would
-# block), or the two docs the tests read (the list is there): on Linux and Windows, where the
-# clipboard, windows, sdk-python, sysmon and soundboard plugins have tests of their own. macOS
-# as well weekly, or by hand.
+# block), or the two docs the tests read (the list is there): on Linux, Windows and macOS, where
+# the clipboard, windows, sdk-python, sysmon and soundboard plugins have tests of their own.
+# Also weekly and by hand.
 on:
   workflow_call:
   schedule:
@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest","windows-latest","macos-latest"]' || '["ubuntu-latest","windows-latest"]') }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:

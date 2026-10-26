@@ -67,15 +67,14 @@ pull request does cancel the older run). On push and pull request the called wor
 and artifacts (the debug APK, the E2E screenshots) belong to the CI run.
 
 The repo is public, so Actions are free on standard runners, macOS included; never use larger
-runners, which are always billed. The matrices still date from the billed days. A push or pull
-request runs Host tests and the app crate (`host/app/src-tauri`: fmt, clippy, tests) on
-Windows, the desktop UI tests, Android, Protocol, Plugins on Linux and Windows, Licences, and
-the emulators: API 22 and Fire 7 on a push, all four on a pull request. Weekly (Mondays) or by
-hand (Actions → workflow → Run workflow): Host and Plugins on all three OSes, the app crate
-and desktop bundles on all three, the real-app test, all four emulators, Licences (advisories
-appear without any change here, and `cargo deny check advisories` is a job of its own), iOS
-(`ios.yml`, never on push) and Site check. Actions → CI → Run workflow runs every called
-workflow as its own button would, but the app crate and bundles on Windows only. Site publish
+runners, which are always billed. Since 2026-10-25 every platform runs on every push and pull
+request that needs it: Host tests, Plugins, the app crate (`host/app/src-tauri`: fmt, clippy,
+tests) and the desktop bundles on Windows, Linux and macOS, the desktop UI tests and the
+real-app test, Android (with the reproducible-build check), Protocol, Licences, all four
+emulators, and iOS (`ios.yml`, when `ios/` or `protocol/` changes). Weekly (Mondays) Host,
+Plugins, Desktop app, E2E, iOS and Licences run again (advisories appear without any change
+here, and `cargo deny check advisories` is a job of its own), and so does Site check. Actions → CI → Run
+workflow runs every called workflow. Site publish
 builds `website/` when a push or pull request touches it or `plugins/`, and publishes from
 `main` once `SITE_PUBLISH_TOKEN` exists. Host CI sets `PERRITODECK_REQUIRE_NODE=1`, so the
 Stream Deck plugin tests fail instead of skipping when Node 22 is missing. Linux can also be

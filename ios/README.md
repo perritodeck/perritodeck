@@ -4,9 +4,9 @@ The iOS/iPadOS client for PerritoDeck: the same deck as the Android app, speakin
 same [protocol](../protocol/README.md). No third-party dependencies, no analytics; the
 app talks only to the computer it's paired with.
 
-**Status: written, not yet built.** It has never been compiled: building it needs a Mac,
-and the weekly iOS workflow (`.github/workflows/ios.yml`) hasn't run so far. Expect the
-first build to need fixes. It isn't part of the first release; before it can ship it also needs
+**Status: builds, never run on a device.** The iOS workflow (`.github/workflows/ios.yml`)
+has built it for the Simulator since 2026-10-24, but nobody has run it on an iPhone or iPad
+yet. It isn't part of the first release; before it can ship it also needs
 a privacy manifest (`PrivacyInfo.xcprivacy`) and a TestFlight round.
 
 | Path | What |
@@ -41,8 +41,8 @@ swift test
 
 The protocol tests read the golden files from `../../protocol/fixtures` (override with
 `PERRITODECK_FIXTURES=/path/to/fixtures`). The iOS workflow runs these tests and builds
-the app for the Simulator, unsigned, every Monday or by hand (Actions → iOS → Run
-workflow).
+the app for the Simulator, unsigned, on every push and pull request that changes `ios/` or
+`protocol/`, every Monday, and by hand (Actions → iOS → Run workflow).
 
 ### Trying it without a tablet
 

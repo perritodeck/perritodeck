@@ -1,26 +1,14 @@
 name: Desktop app
 
 # Pushes to main and pull requests run this through ci.yml, when host/, plugins/ (the app
-# bundles them), docs/assets/ or release.yml change (the list is there): the UI checks and
-# the app crate's checks on Windows.
+# bundles them), docs/assets/ or release.yml change (the list is there): the UI checks, the app
+# crate's checks and the bundles on Windows, Linux and macOS, and the real-app test on Linux.
+# Also weekly and by hand.
 on:
-  # ci.yml passes no inputs, so platforms is "windows" there, as on a push before.
   workflow_call:
-    inputs:
-      platforms:
-        type: string
-        default: windows
-  # Bundles and the real-app test are the expensive part (macOS especially): weekly,
-  # by hand (Actions → Desktop app → Run workflow), or when tagging a release.
   schedule:
     - cron: "17 10 * * 1"
   workflow_dispatch:
-    inputs:
-      platforms:
-        description: "Bundles to build"
-        default: windows
-        type: choice
-        options: [windows, all]
 
 # A newer run for the same branch makes older runs pointless, but each push to main is
 # checked in full (see ci.yml). The group starts with this workflow's own name and then has
@@ -62,14 +50,14 @@ jobs:
           retention-days: 7
 
   # The app's own Rust crate (host/app/src-tauri, a workspace of its own): fmt, clippy and its
-  # tests. Windows on every run; Linux and macOS too weekly, or by hand with platforms = all.
+  # tests, on Windows, Linux and macOS.
   # It embeds the built UI (../dist), hence npm run build first.
   app:
     name: App crate (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || inputs.platforms == 'all') && '["windows-latest","ubuntu-22.04","macos-latest"]' || '["windows-latest"]') }}
+        os: [windows-latest, ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -117,7 +105,6 @@ jobs:
   # the profile file and the "tablet" both change, undo.
   real-app:
     name: Real app end to end (Linux)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,11 +138,10 @@ jobs:
 
   build:
     name: Build (${{ matrix.os }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || inputs.platforms == 'all') && '["windows-latest","ubuntu-22.04","macos-latest"]' || '["windows-latest"]') }}
+        os: [windows-latest, ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -185,7 +171,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
-            npx tauri build --ci --target universal-apple-darwin
+            # Tauri merges only the main binary into the universal one; the script merges
+            # perritodeck-mcp before bundling (scripts/lipo-universal-bins.sh).
+            hook="{\"build\":{\"beforeBundleCommand\":\"bash $GITHUB_WORKSPACE/scripts/lipo-universal-bins.sh\"}}"
+            npx tauri build --ci --target universal-apple-darwin --config "$hook"
           else
             npx tauri build --ci
           fi

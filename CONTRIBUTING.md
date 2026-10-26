@@ -76,9 +76,9 @@ on port 46710. `perritodeck-host paths` prints where settings and logs live.
 - One topic per pull request. Keep unrelated formatting changes out.
 - Commit messages follow `type(scope): summary` (`feat`, `fix`, `docs`, `test`, `build`,
   `ci`, `refactor`), as in the existing history.
-- Run the checks for every area you touched. CI runs the main ones; Linux and macOS host
-  tests and the slower emulator runs happen weekly, so test those locally if you changed
-  platform code.
+- Run the checks for every area you touched. CI runs them all on every pull request
+  (Windows, Linux and macOS, the four emulators and iOS), but a local run is quicker than
+  waiting for it.
 - Changes to the wire protocol need a schema update and golden fixtures in `protocol/`,
   and must keep older tablets working.
 - Changes to host networking, pairing or actions: go through the checklist in
