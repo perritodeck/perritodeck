@@ -175,9 +175,8 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   macOS, the desktop app, all four emulators, Android, protocol, licences and advisories,
   CI gate), and so were iOS run 40157963719 (the first iOS build ever) and the push's own CI
   run.
-- [ ] Desktop app with platforms = all (Actions → Desktop app → Run workflow): the Linux and
-  macOS bundles and app crate, which CI's Run workflow leaves out. The weekly run (Mondays)
-  covers them too.
+- [x] The Linux and macOS bundles and app crate: since 2026-10-25 every push and pull request
+  that touches the app builds them, and CI's Run workflow does too.
 - [x] The website's publishing (D12; "At the flip" in the cutover runbook in
   `docs/website.md`): Settings → Environments → `site`, with deployment branches limited to
   `main`, and `SITE_PUBLISH_TOKEN` in it (a fine-grained token, the perritodeck
@@ -239,10 +238,9 @@ billing details in the docs were trimmed in place instead (`docs/next-steps.md` 
   write`, to push its branch) and the Release workflow's publish job ask for write.
 - [ ] Optional: [DCO app](https://github.com/apps/dco) to enforce sign-offs (required
   from 2026-10-13; the app checks the commits of pull requests, not older history).
-- [ ] Public repos get free standard GitHub-hosted runners, macOS included. Revisit the
-  CI cost rules (weekly-only Linux/macOS jobs, two emulators per push) and consider running
-  more on every push. `CLAUDE.md`'s CI section describes the public repo since 2026-10-24,
-  but the matrices haven't changed.
+- [x] Public repos get free standard GitHub-hosted runners, macOS included. Since 2026-10-25
+  every push and pull request runs every platform (Windows, Linux and macOS, all four
+  emulators, iOS) for the files it changes; `CLAUDE.md`'s CI section says so.
 
 ## 6. Website and plugin catalogue (perritodeck.dev)
 

@@ -14,8 +14,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # By hand (Actions → CI → Run workflow): every workflow below, each as its own Run workflow
-  # button would run it (Linux and macOS host tests, the four emulators, and so on).
+  # By hand (Actions → CI → Run workflow): every workflow below, as on a push that changed
+  # everything.
   workflow_dispatch:
 
 # A newer commit on a pull request (or a newer run by hand) makes the older run pointless, but
@@ -45,6 +45,7 @@ jobs:
       e2e: ${{ steps.pick.outputs.e2e }}
       plugins: ${{ steps.pick.outputs.plugins }}
       licences: ${{ steps.pick.outputs.licences }}
+      ios: ${{ steps.pick.outputs.ios }}
     steps:
       # Two commits: a pull request's checkout is its merge commit, whose first parent is the
       # base branch as it is now, so HEAD^1..HEAD is what the pull request changes.
@@ -89,6 +90,8 @@ jobs:
                            "host/rust-toolchain.toml", "host/app/package-lock.json",
                            "scripts/third-party-notices.py", "THIRD_PARTY_NOTICES.md",
                            ".github/workflows/licences.yml"],
+              # PerritoKit's tests read the protocol fixtures.
+              "ios": ["ios/**", "protocol/**", ".github/workflows/ios.yml"],
           }
           # A change to this file runs everything, so a new list is tried in full once.
           EVERYTHING = ".github/workflows/ci.yml"
@@ -203,11 +206,17 @@ jobs:
     if: needs.changes.outputs.licences == 'true'
     uses: ./.github/workflows/licences.yml
 
+  ios:
+    name: iOS
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    uses: ./.github/workflows/ios.yml
+
   # The required check. always(): it must report even when a job above failed or the run was
   # cancelled, because a required check that is skipped counts as passed.
   gate:
     name: CI gate
-    needs: [changes, protocol, host, desktop-app, android, e2e, plugins, licences]
+    needs: [changes, protocol, host, desktop-app, android, e2e, plugins, licences, ios]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
