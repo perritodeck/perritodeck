@@ -501,7 +501,13 @@ jobs:
           # Puts third-party-licenses.txt in the app's resource folder. Tauri merges --config
           # into tauri.conf.json as a JSON merge patch, so the plugin resources stay as they are.
           # It's added here rather than in tauri.conf.json because the file exists only in CI.
-          licences='{"bundle":{"resources":{"third-party-licenses.txt":"third-party-licenses.txt"}}}'
+          licences='{"bundle":{"resources":{"third-party-licenses.txt":"third-party-licenses.txt"}}'
+          # A universal macOS build: Tauri merges only the main binary into the universal one,
+          # and the script merges perritodeck-mcp before bundling (scripts/lipo-universal-bins.sh).
+          if [ "$TARGET" = universal-apple-darwin ]; then
+            licences+=",\"build\":{\"beforeBundleCommand\":\"bash $GITHUB_WORKSPACE/scripts/lipo-universal-bins.sh\"}"
+          fi
+          licences+='}'
           args=(--ci --bundles "$BUNDLES" --config "$licences")
           [ -n "$TARGET" ] && args+=(--target "$TARGET")
           npx tauri build "${args[@]}"

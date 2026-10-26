@@ -171,7 +171,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = macOS ]; then
-            npx tauri build --ci --target universal-apple-darwin
+            # Tauri merges only the main binary into the universal one; the script merges
+            # perritodeck-mcp before bundling (scripts/lipo-universal-bins.sh).
+            hook="{\"build\":{\"beforeBundleCommand\":\"bash $GITHUB_WORKSPACE/scripts/lipo-universal-bins.sh\"}}"
+            npx tauri build --ci --target universal-apple-darwin --config "$hook"
           else
             npx tauri build --ci
           fi

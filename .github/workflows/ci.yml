@@ -70,8 +70,9 @@ jobs:
               # protocol fixtures.
               "host": ["host/**", "protocol/**", "plugins/**", ".github/workflows/host.yml"],
               # The app bundles plugins/; its Playwright tests read the icon master in
-              # docs/assets and the licences file name in release.yml.
-              "desktop-app": ["host/**", "plugins/**", "docs/assets/**",
+              # docs/assets and the licences file name in release.yml; the macOS bundle runs
+              # scripts/lipo-universal-bins.sh.
+              "desktop-app": ["host/**", "plugins/**", "docs/assets/**", "scripts/lipo-universal-bins.sh",
                               ".github/workflows/release.yml", ".github/workflows/desktop-app.yml"],
               # Unit tests read the protocol fixtures and docs/assets (LauncherIconTest); the APK's
               # licence list carries LICENSE (ThirdPartyLicensesTest); scripts/gradle-annotate.sh.
