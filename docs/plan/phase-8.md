@@ -164,9 +164,11 @@ and the rest on 2026-10-15, and each is in [DECISIONS](../DECISIONS.md).
 
 ## M4: after the release
 
-- **Windows signing** per D1: Azure Artifact Signing once its certificate arrives and the
-  publisher name it shows has been checked (if that happens before v0.1.0, the first
-  release is signed); SignPath as the alternative.
+- **Windows signing** (D1): v0.1.0 shipped unsigned. The Azure Artifact Signing account was
+  deleted on 2026-10-25, and SignPath Foundation is unlikely (it turned down the
+  maintainer's other project). Under consideration: Certum's Open Source Code Signing
+  certificate (about €49 a year, the key in Certum's cloud, signing from the Release
+  workflow), which names the maintainer as "Open Source Developer, <name>".
 - **Linux and macOS in a release** (D5), each once tested on real hardware: a real Linux
   desktop with a tablet (M3-11), a real Mac. The MSI too, once it's been installed and
   tested.
