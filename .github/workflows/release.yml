@@ -233,13 +233,16 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
       # --no-configuration-cache: the configuration cache would keep the passwords on disk.
+      # --no-build-cache: F-Droid builds the tag from scratch and publishes this APK only if its
+      # build matches, so this one is built from scratch too (D11; an output from an incremental
+      # compile in the cache can change classes.dex, docs/fdroid/README.md).
       - name: Build release APK and bundle
         working-directory: android
         env:
           PERRITO_KEYSTORE_PASSWORD: ${{ secrets.PERRITO_KEYSTORE_PASSWORD }}
           PERRITO_KEY_PASSWORD: ${{ secrets.PERRITO_KEY_PASSWORD }}
           PERRITO_KEY_ALIAS: ${{ vars.PERRITO_KEY_ALIAS }}
-        run: ./gradlew --no-daemon --no-configuration-cache testReleaseUnitTest assembleRelease bundleRelease
+        run: ./gradlew --no-daemon --no-configuration-cache --no-build-cache testReleaseUnitTest assembleRelease bundleRelease
       - name: Delete the decoded key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.p12"

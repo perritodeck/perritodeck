@@ -65,3 +65,44 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/build/test-results/
+
+  # F-Droid publishes our signed APK only if its own build of the tag matches it byte for byte
+  # (D11; docs/fdroid/README.md, Reproducible builds). This builds the release APK twice, in two
+  # folders, with the build cache off, and compares them. A difference that comes and goes, like
+  # the baseline-profile race in AGP 8.11.1's R8, fails some runs and not others: the log has the
+  # comparison, and the two APKs are uploaded.
+  reproducible:
+    name: Reproducible release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Test the comparison script
+        working-directory: scripts
+        run: python3 -m unittest test_compare_apks
+      - name: Build the release APK (unsigned)
+        run: |
+          ../scripts/gradle-annotate.sh --no-build-cache assembleRelease
+          mkdir -p "$RUNNER_TEMP/apks"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/apks/first.apk"
+      - name: Build it again in another folder
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/second/perritodeck" HEAD
+          cd "$RUNNER_TEMP/second/perritodeck/android"
+          ../scripts/gradle-annotate.sh --no-build-cache assembleRelease
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/apks/second.apk"
+      - name: Compare the two
+        run: python3 ../scripts/compare_apks.py "$RUNNER_TEMP/apks/first.apk" "$RUNNER_TEMP/apks/second.apk"
+      - name: Upload the APKs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reproducible-apks
+          path: ${{ runner.temp }}/apks/
+          if-no-files-found: ignore
