@@ -7,7 +7,7 @@ Nothing here has been submitted. The repository is public and `v0.1.0` is releas
 
 | File | What it is |
 |---|---|
-| [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`), a draft for `v0.1.1` with `Binaries:` and `AllowedAPKSigningKeys:`. `commit: v0.1.1` is a placeholder: at tag time it becomes the tag's full hash ([SUBMIT.md](SUBMIT.md), step 1) |
+| [`dev.perritodeck.client.yml`](dev.perritodeck.client.yml) | Build recipe for `fdroiddata` (`metadata/dev.perritodeck.client.yml`), for `v0.1.1` (commit `155b58fb77cc8d9e0a7d9536f2b857052c7f57c2`) with `Binaries:` and `AllowedAPKSigningKeys:`, ready to submit ([SUBMIT.md](SUBMIT.md)) |
 | [`SUBMIT.md`](SUBMIT.md) | F-Droid: what to do at the `v0.1.1` tag, the merge request steps and text, and the builds and comparisons that show F-Droid's build matches ours |
 | [`IZZY-REQUEST.md`](IZZY-REQUEST.md) | IzzyOnDroid: the request prepared on 2026-10-25 and not sent (see the note above) |
 | [`../../fastlane/metadata/android/en-US/`](../../fastlane/metadata/android/en-US/) | Store text, icon, screenshots and changelogs. F-Droid reads this layout straight from the repository (so would Play, which isn't used for now) |

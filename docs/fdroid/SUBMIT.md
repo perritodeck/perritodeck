@@ -8,14 +8,16 @@ submitted: its baseline profile came out differently from build to build, so F-D
 can't match it ([README.md](README.md#reproducible-builds)).
 
 Nothing has been submitted, forked or posted. The recipe is
-[`dev.perritodeck.client.yml`](dev.perritodeck.client.yml), a draft for v0.1.1 until the tag
-exists; step 1 below finishes it.
+[`dev.perritodeck.client.yml`](dev.perritodeck.client.yml), finished for v0.1.1 (released
+2026-10-26, commit `155b58fb77cc8d9e0a7d9536f2b857052c7f57c2`): the two steps under "At the v0.1.1 tag" are done, so the
+submission starts at "Steps".
 
-## Where it stands (checked 2026-10-25)
+## Where it stands (checked 2026-10-26)
 
 | Check | Result |
 |---|---|
-| Recipe | Draft for v0.1.1: `Binaries: https://github.com/perritodeck/perritodeck/releases/download/v%v/perrito-%v.apk` after `Repo:`, `AllowedAPKSigningKeys: 848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5` (the release certificate's SHA-256, the same key that signed `perrito-0.1.0.apk`) after `Builds:`, `versionName: 0.1.1`, `versionCode: 2`, `CurrentVersion: 0.1.1`, `CurrentVersionCode: 2`, the `sudo:` JDK 17 lines kept. **`commit: v0.1.1` is a placeholder** for the tag's full hash, which only exists once the tag does (step 1); the recipe can't carry a comment saying so, because rewritemeta drops comments and fdroiddata's CI then fails |
+| Recipe | For v0.1.1: `Binaries: https://github.com/perritodeck/perritodeck/releases/download/v%v/perrito-%v.apk` after `Repo:`, `AllowedAPKSigningKeys: 848c5d3f31f3bef31ecdaf308d4fa1db6a2c0a78b63ce6dacb3d6bacc98f24e5` (the release certificate's SHA-256, the same key that signed `perrito-0.1.0.apk`) after `Builds:`, `versionName: 0.1.1`, `versionCode: 2`, `CurrentVersion: 0.1.1`, `CurrentVersionCode: 2`, the `sudo:` JDK 17 lines kept, and `commit: 155b58fb77cc8d9e0a7d9536f2b857052c7f57c2`, the v0.1.1 tag's commit (the recipe can't carry a comment, because rewritemeta drops comments and fdroiddata's CI then fails) |
+| **v0.1.1 itself (2026-10-26):** `fdroid build -v -l` of the finished recipe at the tag, fdroidserver 2.4.5, with `Binaries:` pointed at the draft release's signed `perrito-0.1.1.apk` (served from localhost, since a draft's files aren't public; the published file has the same SHA-256) and `AllowedAPKSigningKeys:` the release key | "compared built binary to supplied reference binary successfully" and "supplied reference binary has allowed signer 848c5d3f…"; 1 build succeeded |
 | `fdroid readmeta`, `lint -v`, `lint -f`, `rewritemeta --list`; CI's rewritemeta job (`fdroid rewritemeta`, then `git diff --exit-code`); yamllint with fdroiddata's `.yamllint`; `check-jsonschema` with `schemas/metadata.json` | all clean, no change, with fdroidserver 2.4.5 (PyPI) and git master `2d1e622` with ruamel.yaml 0.18.10, fdroiddata at `0a6edd29` |
 | Reproducible: our own clean release builds (AGP 8.11.2), nine in WSL in nine folders | byte-identical: 2,209,025 bytes, SHA-256 `8a3d06dcf34c051bcd9975718985baf2e534013abc0ef762dfe71c5ae6052654` |
 | The Android workflow's new Reproducible release build job on GitHub's Ubuntu runner (pull request #7) | both of its builds: that same APK, `8a3d06dc…` |
@@ -23,10 +25,11 @@ exists; step 1 below finishes it.
 | The same, **with `Binaries:`** pointing at that commit's release build signed by AGP with a throwaway key (served from localhost) and `AllowedAPKSigningKeys:` that key | `fdroid build` downloads it and runs its check: "compared built binary to supplied reference binary successfully" |
 | v0.1.0, for the record: `fdroid build` of the tag compared with the published `perrito-0.1.0.apk` | 431 of 433 entries identical; only `baseline.prof` and `baseline.profm` differ, which is why v0.1.0 isn't submitted |
 
-The logs are in WSL under `~/pd/repro/logs/` (`fix.log`, `base.log`, `fdroid-branch-*.log`,
-`signed-verify.log`, `lint-draft.log`) and, for v0.1.0, `~/pd/fdroid/logs/60-*` to `62-*`.
+The v0.1.1 log is in WSL at `~/pd/verify-v011/logs/verify.log`, and v0.1.0's in
+`~/pd/fdroid/logs/60-*` to `62-*`. The D11 work's logs (`~/pd/repro/logs/`) were deleted with
+its clones on 2026-10-26; PR #7 and `docs/DECISIONS.md` have its results.
 
-## At the v0.1.1 tag, before submitting (maintainer)
+## At the v0.1.1 tag, before submitting (done 2026-10-26)
 
 1. **Release v0.1.1** as usual ([`../releasing.md`](../releasing.md)): `scripts/release-version.py 0.1.1`
    (versionName `0.1.1`, versionCode `2`), `fastlane/metadata/android/en-US/changelogs/2.txt`, the tag,

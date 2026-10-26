@@ -684,9 +684,10 @@ CI's included, are unsigned, which is what F-Droid wants.
 - A manual reproducibility job: rebuild unsigned in a clean container like F-Droid's
   (Debian OpenJDK 17, no NDK) and compare with `apksigcopier compare`. (Every Android CI run
   now builds the release APK twice on Ubuntu and compares them; this would add Debian's JDK.)
-- `docs/fdroid/dev.perritodeck.client.yml`: `Binaries` and `AllowedAPKSigningKeys` are in the
-  v0.1.1 draft (D11 settled 2026-10-25); at the tag, `commit:` becomes the tag's full hash
-  (`docs/fdroid/SUBMIT.md`, step 1).
+- `docs/fdroid/dev.perritodeck.client.yml`: finished for v0.1.1 (released 2026-10-26), with
+  `Binaries`, `AllowedAPKSigningKeys` and the tag's full hash as `commit:`. An `fdroid build` of
+  the tag matched the signed `perrito-0.1.1.apk` before it was published. Next: the merge
+  request (`docs/fdroid/SUBMIT.md`, Steps).
 
 ## 12. The website goes live (maintainer) — live (2026-10-15), on GitHub Pages since 2026-10-24 (D12)
 
