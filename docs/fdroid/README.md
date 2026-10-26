@@ -85,6 +85,7 @@ The Android workflow's **Reproducible release build** job does this on every cha
 - WSL Ubuntu, Temurin 17.0.20, nine clean builds in fresh clones at nine different paths, each with an empty Gradle build cache: all byte-identical, 2,209,025 bytes, SHA-256 `8a3d06dcf34c051bcd9975718985baf2e534013abc0ef762dfe71c5ae6052654`. The same commit's parent with AGP 8.11.1 (R8 8.11.18), six builds the same way: three different APKs with the same `classes.dex`.
 - `fdroid build -v -l` of a test copy of the `v0.1.1` draft against a local clone of the branch, with fdroidserver 2.4.5 and with git master: both give that same APK, byte for byte, and `fdroid scanner` finds nothing.
 - A release build signed by AGP with a throwaway key, as the Release workflow signs with ours: `verify_apks` copies its signature onto F-Droid's unsigned build and it verifies, which is exactly what F-Droid does before publishing our APK.
+- GitHub's Ubuntu runner (Temurin 17), the new CI job on pull request #7 (run `40252576111`): both of its builds were that same APK, `8a3d06dc…`. So CI, WSL on this PC and `fdroid build` agree; F-Droid's build server (Debian's OpenJDK 17) is the one left, and the merge request's pipeline runs it.
 - Windows (Zulu 17), two fresh clones on two drives: identical to each other (2,209,029 bytes, `fd0637d2…`), and the same as the Linux builds except for two 5-byte files, see the last risk below.
 
 What made builds differ, and what keeps them the same:
