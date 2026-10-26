@@ -4,7 +4,7 @@ exclude = ["vendor"]
 members = ["crates/protocol", "crates/core", "crates/actions", "crates/render", "crates/profile", "crates/deck", "crates/integrations", "crates/host", "crates/fakedeck", "crates/plugins", "crates/companion", "crates/sdcompat", "crates/mcp"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/perritodeck/perritodeck"
