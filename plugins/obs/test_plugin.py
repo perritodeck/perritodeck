@@ -1180,6 +1180,13 @@ class ActionTest(PluginTest):
                     began = time.monotonic()
                     self.assertEqual(self.run_action(fn, settings), obs.STILL_WORKING)
                     self.assertLess(time.monotonic() - began, 0.6)
+            # Both finish in the background too. Wait for their last requests, or they'd land
+            # in a later test's: the pause waits OUTPUT_EVENT_WAIT for a PAUSED that never comes,
+            # then asks GetRecordStatus.
+            wait_for(lambda: ("SetCurrentSceneTransitionDuration", {"transitionDuration": 500}) in self.server.requests,
+                     message="the transition to finish")
+            wait_for(lambda: ("GetRecordStatus", None) in self.server.requests, obs.OUTPUT_EVENT_WAIT + 5,
+                     "the pause to finish")
         finally:
             obs.ACTION_DEADLINE = old
 
