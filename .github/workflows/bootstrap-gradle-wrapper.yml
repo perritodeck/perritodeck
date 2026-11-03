@@ -46,7 +46,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           gradle-version: ${{ inputs.gradle-version }}
       - name: Generate the wrapper in an empty project
@@ -59,7 +59,7 @@ jobs:
           cp gradlew gradlew.bat "$GITHUB_WORKSPACE/android/"
           cp gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties "$GITHUB_WORKSPACE/android/gradle/wrapper/"
       # Check gradle-wrapper.jar against Gradle's published checksums before committing it.
-      - uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - name: Commit and push a branch
         run: |
           git config user.name "github-actions[bot]"
